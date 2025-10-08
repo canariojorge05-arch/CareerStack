@@ -17,7 +17,6 @@ import { jobProcessor, registerBuiltInProcessors } from './utils/job-processor';
 import { ErrorRecoveryService } from './utils/error-recovery';
 import { redisService } from './services/redis';
 import { websocketService } from './services/websocket-service';
-import { conversionService } from './services/conversion-service';
 import { enhancedRedisService } from './services/enhanced-redis-service';
 import { streamFileService } from './services/stream-file-service';
 
@@ -288,10 +287,6 @@ app.use((req, res, next) => {
       websocketService.initialize(server);
       log('WebSocket service initialized');
 
-      // Initialize conversion service (will wait for LibreOffice)
-      log('Initializing conversion service...');
-      // Conversion service initializes automatically
-      log('Conversion service ready');
 
       // Start temp file cleanup scheduler
       log('Starting file cleanup scheduler...');
@@ -356,13 +351,6 @@ app.use((req, res, next) => {
             console.warn('Could not stop WebSocket service:', e);
           }
 
-          // Shutdown conversion service
-          try {
-            await conversionService.shutdown();
-            log('Conversion service stopped');
-          } catch (e) {
-            console.warn('Could not stop conversion service:', e);
-          }
 
           // Close Redis connections (pool)
           if (redisService) {

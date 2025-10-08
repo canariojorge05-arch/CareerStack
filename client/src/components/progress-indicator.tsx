@@ -17,7 +17,7 @@ interface ProgressIndicatorProps {
   show: boolean;
   progress: number;
   status: string;
-  type: 'upload' | 'conversion' | 'export' | 'batch' | 'save';
+  type: 'upload' | 'export' | 'batch' | 'save';
   onCancel?: () => void;
   onComplete?: (result?: any) => void;
   onDownload?: () => void;
@@ -31,11 +31,6 @@ const typeConfig = {
     icon: Upload,
     color: 'blue',
     title: 'Uploading Document'
-  },
-  conversion: {
-    icon: Zap,
-    color: 'purple',
-    title: 'Converting Document'
   },
   export: {
     icon: Download,
@@ -149,8 +144,7 @@ export function ProgressIndicator({
           {isComplete && !error && (
             <div className="bg-green-50 border border-green-200 rounded-md p-3">
               <p className="text-sm text-green-700">
-                {type === 'upload' && 'Document uploaded and converted successfully'}
-                {type === 'conversion' && 'Document converted successfully'}
+                {type === 'upload' && 'Document uploaded successfully'}
                 {type === 'export' && 'Document exported successfully'}
                 {type === 'batch' && 'All documents processed successfully'}
                 {type === 'save' && 'Document saved successfully'}
