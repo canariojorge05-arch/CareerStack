@@ -4,25 +4,38 @@ import './index.css';
 import { logStartupInfo } from './lib/debug';
 import { clearAllClientAuthData } from './lib/clearAuthData';
 
-// Register service worker for production
+// Register service worker only in production to avoid dev issues
 async function registerServiceWorker() {
-  if ('serviceWorker' in navigator && import.meta.env.PROD) {
-    try {
-      const registration = await navigator.serviceWorker.register('/service-worker.js', {
-        scope: '/',
-      });
+  if ('serviceWorker' in navigator) {
+    if (import.meta.env.PROD) {
+      try {
+        const registration = await navigator.serviceWorker.register('/service-worker.js', {
+          scope: '/',
+        });
 
-      if (registration.installing) {
-        console.log('Service worker installing');
-      } else if (registration.waiting) {
-        console.log('Service worker installed');
-      } else if (registration.active) {
-        console.log('Service worker active');
+        if (registration.installing) {
+          console.log('Service worker installing');
+        } else if (registration.waiting) {
+          console.log('Service worker installed');
+        } else if (registration.active) {
+          console.log('Service worker active');
+        }
+      } catch (error) {
+        // Silently handle service worker registration errors in production
+        // to prevent them from affecting the user experience
+        console.warn('Service worker registration failed (non-critical):', error);
       }
-    } catch (error) {
-      // Silently handle service worker registration errors in production
-      // to prevent them from affecting the user experience
-      console.warn('Service worker registration failed (non-critical):', error);
+    } else {
+      // In development, unregister any existing service workers
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          await registration.unregister();
+          console.log('Unregistered service worker for development');
+        }
+      } catch (error) {
+        console.warn('Failed to unregister service workers:', error);
+      }
     }
   }
 }

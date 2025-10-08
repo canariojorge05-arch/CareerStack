@@ -98,7 +98,16 @@ self.addEventListener('fetch', (event) => {
   
   // Always avoid caching full page navigations to prevent stale auth state issues
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request));
+    event.respondWith(
+      fetch(request).catch(error => {
+        console.warn('[SW] Navigation fetch failed:', error.message);
+        // Return a basic response for failed navigation requests
+        return new Response('Navigation failed', { 
+          status: 503, 
+          statusText: 'Service Unavailable' 
+        });
+      })
+    );
     return;
   }
   

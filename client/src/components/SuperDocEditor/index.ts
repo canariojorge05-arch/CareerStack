@@ -1,4 +1,4 @@
-export { SuperDocEditor as default } from './SuperDocEditor';
 export { SuperDocEditor } from './SuperDocEditor';
+export { default as SuperDocMultiEditor } from './SuperDocMultiEditor';
 export { SuperDocResumeEditor } from './SuperDocResumeEditor';
-export { SuperDocMultiEditor } from './SuperDocMultiEditor';
+export { FallbackEditor } from './FallbackEditor';

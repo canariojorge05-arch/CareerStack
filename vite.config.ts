@@ -20,7 +20,11 @@ export default defineConfig({
   envPrefix: ['VITE_'],
   
   optimizeDeps: {
-    include: ['@ckeditor/ckeditor5-react', '@ckeditor/ckeditor5-build-classic'],
+    include: [
+      '@ckeditor/ckeditor5-react', 
+      '@ckeditor/ckeditor5-build-classic',
+      '@harbour-enterprises/superdoc'
+    ],
   },
   plugins: [
     react({
@@ -135,5 +139,8 @@ export default defineConfig({
     },
     host: 'localhost',
     strictPort: false,
+    headers: {
+      'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: wss:; connect-src 'self' data: blob: ws: wss:;"
+    }
   },
 });
