@@ -92,11 +92,11 @@ export default defineConfig({
           // UI components
           'vendor-ui': ['@radix-ui/react-alert-dialog', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select', '@radix-ui/react-tabs', '@radix-ui/react-toast'],
           // Document processing
-          'vendor-docs': ['html2canvas', 'jspdf', 'jszip'],
+          'vendor-docs': ['html2canvas', 'jspdf'],
           // Query and state
           'vendor-query': ['@tanstack/react-query'],
           // Editor
-          'vendor-editor': ['@ckeditor/ckeditor5-react', '@ckeditor/ckeditor5-build-classic'],
+          'vendor-editor': ['@harbour-enterprises/superdoc'],
           // Forms and validation
           'vendor-forms': ['react-hook-form', '@hookform/resolvers', 'zod'],
           // Motion and animations
