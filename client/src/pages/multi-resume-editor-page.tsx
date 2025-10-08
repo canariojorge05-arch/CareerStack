@@ -19,7 +19,7 @@ import {
   ArrowRight,
   Target,
 } from 'lucide-react';
-import SideBySideEditor from '@/components/side-by-side-editor';
+import SuperDocMultiEditor from '@/components/SuperDocEditor/SuperDocMultiEditor';
 // Bulk export functionality removed
 import { toast } from 'sonner';
 import type { Resume } from '@shared/schema';
@@ -475,7 +475,7 @@ export default function MultiResumeEditorPage() {
           )}
 
           {workflowStep === 'editor' && (
-            <SideBySideEditor
+            <SuperDocMultiEditor
               openResumes={openResumes}
               onContentChange={handleContentChange}
               onSaveResume={handleSaveResume}
