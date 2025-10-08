@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Download, Save, AlertCircle, Loader2 } from 'lucide-react';
 
 // Import SuperDoc styles
-import '@harbour-enterprises/superdoc/dist/style.css';
+import '@harbour-enterprises/superdoc/super-editor/style.css';
 
 interface SuperDocEditorProps {
   fileUrl: string;

@@ -18,7 +18,7 @@ import { ErrorRecoveryService } from './utils/error-recovery';
 import { redisService } from './services/redis';
 import { websocketService } from './services/websocket-service';
 import { enhancedRedisService } from './services/enhanced-redis-service';
-import { streamFileService } from './services/stream-file-service';
+// streamFileService removed - no longer needed after removing ZIP export functionality
 
 // Load environment variables from .env file
 config();
@@ -288,18 +288,7 @@ app.use((req, res, next) => {
       log('WebSocket service initialized');
 
 
-      // Start temp file cleanup scheduler
-      log('Starting file cleanup scheduler...');
-      setInterval(async () => {
-        try {
-          const cleaned = await streamFileService.cleanupTempFiles();
-          if (cleaned > 0) {
-            log(`Cleaned up ${cleaned} temp files`);
-          }
-        } catch (error) {
-          console.warn('Temp file cleanup error:', error);
-        }
-      }, 3600000).unref(); // Every hour
+      // Temp file cleanup removed - no longer needed after removing ZIP export functionality
       log('File cleanup scheduler started');
     } catch (error) {
       console.error('Error initializing enhanced services:', error);
