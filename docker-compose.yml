@@ -9,37 +9,16 @@ services:
     environment:
       - NODE_ENV=production
       - REDIS_URL=redis://redis:6379
-      - LIBREOFFICE_SERVICE_URL=http://libreoffice:8080
     depends_on:
       - redis
       - postgres
-      - libreoffice
     volumes:
       - ./uploads:/app/uploads
       - ./temp:/app/temp
     networks:
       - app-network
 
-  # LibreOffice Conversion Service
-  libreoffice:
-    build:
-      context: ./docker/libreoffice
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-    environment:
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - ./docker/libreoffice/templates:/app/templates
-      - ./temp:/app/temp
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+  # LibreOffice service removed - using SuperDoc for direct DOCX editing
 
   # Redis for Caching
   redis:

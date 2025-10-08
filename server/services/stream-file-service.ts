@@ -206,7 +206,7 @@ class StreamFileService {
   }
 
   /**
-   * Process DOCX file stream for conversion
+   * Process DOCX file stream for SuperDoc editor
    */
   async processDocxStream(
     inputStream: Readable,

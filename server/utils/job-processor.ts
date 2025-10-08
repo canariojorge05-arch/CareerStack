@@ -526,14 +526,14 @@ export const jobProcessor = BackgroundJobProcessor.getInstance();
 
 // Built-in job processors for common tasks
 export const registerBuiltInProcessors = () => {
-  // DOCX to HTML conversion job using LibreOffice service
+  // DOCX processing job for SuperDoc editor (no conversion needed)
   jobProcessor.registerProcessor('process_docx', async (job: JobData): Promise<JobResult> => {
     const startTime = performance.now();
     
     try {
       const { resumeId, userId } = job.payload;
       
-      console.log(`Converting DOCX to HTML for resume ${resumeId} (user ${userId})`);
+      console.log(`Processing DOCX for SuperDoc editor - resume ${resumeId} (user ${userId})`);
       
       // Get resume data to access the file
       const { storage } = await import('../storage');

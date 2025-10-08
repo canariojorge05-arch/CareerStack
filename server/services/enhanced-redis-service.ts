@@ -332,54 +332,7 @@ class EnhancedRedisService {
 }
 
 // Specialized cache services
-class ConversionCache {
-  constructor(private redis: EnhancedRedisService) {}
-
-  async cacheDocxToHtml(docxBuffer: Buffer, htmlContent: string, options: any = {}): Promise<string> {
-    const key = this.redis.generateCacheKey(docxBuffer, 'docx-to-html', options);
-    await this.redis.set(key, {
-      html: htmlContent,
-      originalSize: docxBuffer.length,
-      convertedAt: Date.now()
-    }, {
-      ttl: 3600, // 1 hour
-      namespace: 'conversion',
-      compress: true
-    });
-    return key;
-  }
-
-  async getCachedHtml(docxBuffer: Buffer, options: any = {}): Promise<string | null> {
-    const key = this.redis.generateCacheKey(docxBuffer, 'docx-to-html', options);
-    const cached = await this.redis.get(key, 'conversion');
-    return cached ? cached.html : null;
-  }
-
-  async cacheHtmlToDocx(htmlContent: string, docxBuffer: Buffer, options: any = {}): Promise<string> {
-    const key = this.redis.generateCacheKey(htmlContent, 'html-to-docx', options);
-    await this.redis.set(key, {
-      docx: docxBuffer.toString('base64'),
-      originalSize: htmlContent.length,
-      convertedSize: docxBuffer.length,
-      convertedAt: Date.now()
-    }, {
-      ttl: 3600, // 1 hour
-      namespace: 'conversion',
-      compress: true
-    });
-    return key;
-  }
-
-  async getCachedDocx(htmlContent: string, options: any = {}): Promise<Buffer | null> {
-    const key = this.redis.generateCacheKey(htmlContent, 'html-to-docx', options);
-    const cached = await this.redis.get(key, 'conversion');
-    return cached ? Buffer.from(cached.docx, 'base64') : null;
-  }
-
-  async clearConversionCache(): Promise<number> {
-    return this.redis.clearByPattern('conversion:*');
-  }
-}
+// ConversionCache removed - no longer needed with SuperDoc direct editing
 
 class DocumentCache {
   constructor(private redis: EnhancedRedisService) {}
@@ -416,7 +369,7 @@ class DocumentCache {
 
 // Export enhanced Redis service and specialized caches
 export const enhancedRedisService = new EnhancedRedisService();
-export const conversionCache = new ConversionCache(enhancedRedisService);
+// conversionCache removed - no longer needed with SuperDoc
 export const documentCache = new DocumentCache(enhancedRedisService);
 
 // Backward compatibility
