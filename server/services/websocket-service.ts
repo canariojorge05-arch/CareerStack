@@ -138,9 +138,7 @@ class WebSocketService extends EventEmitter {
         case 'autosave':
           this.handleAutosave(clientId, message);
           break;
-        case 'conversion_progress':
-          this.handleConversionProgress(clientId, message);
-          break;
+        // Conversion progress handlers removed - no longer needed with SuperDoc
         case 'ping':
           this.sendToClient(clientId, {
             type: 'pong',
@@ -299,25 +297,7 @@ class WebSocketService extends EventEmitter {
     }
   }
 
-  private handleConversionProgress(clientId: string, message: WebSocketMessage) {
-    const client = this.clients.get(clientId);
-    if (!client) return;
-
-    const { jobId, progress, status, type } = message.payload;
-
-    // Broadcast progress to user's other sessions
-    this.broadcastToUser(client.userId, {
-      type: 'conversion_progress_update',
-      payload: {
-        jobId,
-        progress,
-        status,
-        type,
-        timestamp: Date.now()
-      },
-      timestamp: Date.now()
-    }, clientId);
-  }
+  // Conversion progress handler removed - no longer needed with SuperDoc
 
   private handleDisconnection(clientId: string) {
     const client = this.clients.get(clientId);
@@ -445,21 +425,7 @@ class WebSocketService extends EventEmitter {
   }
 
   // Public methods for external use
-  public notifyConversionProgress(userId: string, jobId: string, progress: number, status: string, type: string) {
-    this.broadcastToUser(userId, {
-      type: 'conversion_progress',
-      payload: { jobId, progress, status, type },
-      timestamp: Date.now()
-    });
-  }
-
-  public notifyConversionComplete(userId: string, jobId: string, result: any) {
-    this.broadcastToUser(userId, {
-      type: 'conversion_complete',
-      payload: { jobId, result },
-      timestamp: Date.now()
-    });
-  }
+  // Conversion notification methods removed - no longer needed with SuperDoc
 
   public notifySystemMessage(message: string, type: 'info' | 'warning' | 'error' = 'info') {
     this.broadcastToAll({
