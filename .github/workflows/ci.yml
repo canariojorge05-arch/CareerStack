@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install
+        run: npm ci
+      - name: Type-check
+        run: npm run check
+      - name: Build
+        run: npm run build
+      - name: Optional DOCX bench (skips if file not present)
+        run: |
+          if [ -f sample.docx ]; then
+            npm run perf:docx -- --file=sample.docx --runs=3 --concurrency=2
+          else
+            echo "No sample.docx; skipping perf bench"
+          fi

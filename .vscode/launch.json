@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch Server",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/server/index.ts",
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "runtimeArgs": ["-r", "tsx/cjs"],
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    }
+  ]
+}

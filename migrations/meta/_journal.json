@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1758592845373,
+      "tag": "0000_quick_crystal",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1758864258432,
+      "tag": "0001_square_roland_deschain",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1759138953421,
+      "tag": "0002_living_johnny_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1759182350447,
+      "tag": "0003_panoramic_stark_industries",
+      "breakpoints": true
+    }
+  ]
+}

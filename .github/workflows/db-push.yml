@@ -1,0 +1,27 @@
+name: Apply database migrations (drizzle db:push)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  db-push:
+    name: Run drizzle-kit push
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: "--max_old_space_size=4096"
+      # DATABASE_URL must be set in the repository secrets before running this workflow
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run drizzle db:push
+        run: npm run db:push
+        # Intentionally rely on the DATABASE_URL secret in the environment
