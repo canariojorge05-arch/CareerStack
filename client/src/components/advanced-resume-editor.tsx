@@ -38,8 +38,7 @@ import {
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
-import { CKEditor } from '@ckeditor/ckeditor5-react';
-import ClassicEditor from '@ckeditor/ckeditor5-build-classic';
+// CKEditor removed - now using SuperDoc for direct DOCX editing
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 
@@ -539,71 +538,26 @@ export default function AdvancedResumeEditor({
 
             {/* Document */}
             <div className="bg-white shadow-lg rounded-lg border border-gray-200">
-              <CKEditor
-                editor={ClassicEditor}
-                data={content || ''}
-                onChange={(event, editor) => {
-                  const data = editor.getData();
-                  onContentChange(data);
-                }}
-                config={{
-                  toolbar: {
-                    items: [
-                      'heading',
-                      '|',
-                      'bold',
-                      'italic',
-                      'underline',
-                      '|',
-                      'fontSize',
-                      'fontFamily',
-                      'fontColor',
-                      'fontBackgroundColor',
-                      '|',
-                      'alignment',
-                      '|',
-                      'numberedList',
-                      'bulletedList',
-                      '|',
-                      'outdent',
-                      'indent',
-                      '|',
-                      'insertTable',
-                      'tableColumn',
-                      'tableRow',
-                      'mergeTableCells',
-                      '|',
-                      'link',
-                      'insertImage',
-                      '|',
-                      'undo',
-                      'redo'
-                    ]
-                  },
-                  fontSize: {
-                    options: [9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72]
-                  },
-                  fontFamily: {
-                    options: [
-                      'default',
-                      'Arial, Helvetica, sans-serif',
-                      'Courier New, Courier, monospace',
-                      'Georgia, serif',
-                      'Lucida Sans Unicode, Lucida Grande, sans-serif',
-                      'Tahoma, Geneva, sans-serif',
-                      'Times New Roman, Times, serif',
-                      'Trebuchet MS, Helvetica, sans-serif',
-                      'Verdana, Geneva, sans-serif'
-                    ]
-                  },
-                  table: {
-                    contentToolbar: ['tableColumn', 'tableRow', 'mergeTableCells']
-                  },
-                  image: {
-                    toolbar: ['imageTextAlternative', 'imageStyle:full', 'imageStyle:side']
-                  }
-                }}
-              />
+              <div className="p-8 text-center">
+                <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  Advanced Editor
+                </h3>
+                <p className="text-gray-600 mb-4">
+                  This advanced editor has been replaced with SuperDoc for direct DOCX editing.
+                  Please use the SuperDoc editor for better document editing experience.
+                </p>
+                <div className="bg-gray-50 rounded-lg p-4 text-left">
+                  <h4 className="font-medium text-gray-900 mb-2">Current Content:</h4>
+                  <div className="text-sm text-gray-600 max-h-32 overflow-y-auto">
+                    {content ? (
+                      <div dangerouslySetInnerHTML={{ __html: content }} />
+                    ) : (
+                      <p className="italic">No content available</p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Page Shadow */}

@@ -555,33 +555,21 @@ export const registerBuiltInProcessors = () => {
       try {
         const fileBuffer = await fs.readFile(filePath);
         
-        // Use LibreOffice conversion service
-        const { conversionService } = await import('../services/conversion-service');
-        const conversionResult = await conversionService.convertDocxToHtml(fileBuffer, {
-          preserveStyles: true,
-          filename: resume.fileName
-        });
+        // Skip conversion - just mark as ready for SuperDoc editing
+        await storage.updateResumeStatus(resumeId, "ready");
         
-        if (conversionResult.success && conversionResult.data) {
-          // Update resume with converted HTML content
-          await storage.updateResumeContent(resumeId, conversionResult.data as string);
-          await storage.updateResumeStatus(resumeId, "ready");
-          
-          console.log(`✅ Successfully converted DOCX to HTML for resume ${resumeId}`);
-          
-          return {
-            success: true,
-            result: {
-              message: 'DOCX converted to HTML successfully',
-              resumeId,
-              userId,
-              contentLength: (conversionResult.data as string).length
-            },
-            processingTime: performance.now() - startTime
-          };
-        } else {
-          throw new Error(conversionResult.error || 'Conversion failed');
-        }
+        console.log(`✅ Resume ${resumeId} marked as ready for SuperDoc editing`);
+        
+        return {
+          success: true,
+          result: {
+            message: 'Resume ready for SuperDoc editing',
+            resumeId,
+            userId,
+            fileSize: fileBuffer.length
+          },
+          processingTime: performance.now() - startTime
+        };
         
       } catch (fileError) {
         console.error(`Failed to read DOCX file for resume ${resumeId}:`, fileError);

@@ -12,7 +12,6 @@ import adminActivityRoutes from "./routes/adminActivityRoutes";
 import googleDriveRoutes from "./routes/googleDriveRoutes";
 import marketingRoutes from "./routes/marketingRoutes";
 import emailEnhancementsRoutes from "./routes/emailEnhancementsRoutes";
-import conversionRoutes from "./routes/conversionRoutes";
 import { eq, and } from "drizzle-orm";
 import { ActivityTracker } from "./utils/activityTracker";
 import multer from "multer";
@@ -467,9 +466,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check job processor status
       const queueStats = await jobProcessor.getQueueStats();
       
-      // Check conversion service status
-      const { conversionService } = await import('./services/conversion-service');
-      const conversionStatus = await conversionService.getQueueStatus();
       
       res.json({
         resume: {
@@ -481,8 +477,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           hasOriginalPath: !!resume.originalPath,
           fileSize: resume.fileSize
         },
-        jobProcessor: queueStats,
-        conversionService: conversionStatus
+        jobProcessor: queueStats
       });
     } catch (error) {
       console.error('Debug endpoint error:', error);
@@ -849,6 +844,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error fetching resume:", error);
       res.status(500).json({ 
         message: "Failed to fetch resume",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Serve DOCX files for SuperDoc editor
+  app.get('/api/resumes/:id/file', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      logRequest('GET', `/api/resumes/${id}/file`, userId);
+      
+      const resume = await storage.getResumeById(id);
+      
+      if (!resume) {
+        return res.status(404).json({ message: "Resume not found" });
+      }
+      
+      if (resume.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      if (!resume.originalPath) {
+        return res.status(404).json({ message: "Original file not found" });
+      }
+      
+      const fs = await import('fs/promises');
+      const fsSync = await import('fs');
+      const filePath = path.resolve(process.cwd(), resume.originalPath);
+      
+      // Check if file exists
+      try {
+        await fs.access(filePath);
+      } catch (error) {
+        return res.status(404).json({ message: "File not found on disk" });
+      }
+      
+      // Set appropriate headers for DOCX file
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `inline; filename="${resume.fileName}"`);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      
+      // Stream the file
+      const fileStream = fsSync.createReadStream(filePath);
+      fileStream.pipe(res);
+      
+      console.log(`📁 Served DOCX file for resume ${id}`);
+    } catch (error) {
+      console.error("Error serving resume file:", error);
+      res.status(500).json({ 
+        message: "Failed to serve resume file",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }

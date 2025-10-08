@@ -245,13 +245,6 @@ export function useWebSocket(options: WebSocketOptions) {
     });
   }, [sendMessage]);
 
-  const sendConversionProgress = useCallback((jobId: string, progress: number, status: string, type: string) => {
-    return sendMessage({
-      type: 'conversion_progress',
-      payload: { jobId, progress, status, type },
-      timestamp: Date.now()
-    });
-  }, [sendMessage]);
 
   // Initialize connection
   useEffect(() => {
@@ -282,74 +275,9 @@ export function useWebSocket(options: WebSocketOptions) {
     leaveDocument,
     sendDocumentUpdate,
     sendAutosave,
-    sendConversionProgress
   };
 }
 
-// Hook for conversion progress tracking
-export function useConversionProgress() {
-  const [progressData, setProgressData] = useState<{
-    [jobId: string]: {
-      progress: number;
-      status: string;
-      type: string;
-      completed: boolean;
-      result?: any;
-      error?: string;
-    };
-  }>({});
-
-  const handleMessage = useCallback((message: WebSocketMessage) => {
-    if (message.type === 'conversion_progress') {
-      const { jobId, progress, status, type } = message.payload;
-      setProgressData(prev => ({
-        ...prev,
-        [jobId]: {
-          ...prev[jobId],
-          progress,
-          status,
-          type,
-          completed: progress >= 100
-        }
-      }));
-    } else if (message.type === 'conversion_complete') {
-      const { jobId, result } = message.payload;
-      setProgressData(prev => ({
-        ...prev,
-        [jobId]: {
-          ...prev[jobId],
-          progress: 100,
-          completed: true,
-          result
-        }
-      }));
-    } else if (message.type === 'conversion_error') {
-      const { jobId, error } = message.payload;
-      setProgressData(prev => ({
-        ...prev,
-        [jobId]: {
-          ...prev[jobId],
-          completed: true,
-          error
-        }
-      }));
-    }
-  }, []);
-
-  const clearProgress = useCallback((jobId: string) => {
-    setProgressData(prev => {
-      const newData = { ...prev };
-      delete newData[jobId];
-      return newData;
-    });
-  }, []);
-
-  return {
-    progressData,
-    handleMessage,
-    clearProgress
-  };
-}
 
 // Hook for document collaboration
 export function useDocumentCollaboration(documentId: string, userId: string) {
