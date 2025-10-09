@@ -45,20 +45,43 @@ export function SuperDocEditor({
         setIsLoading(true);
         setError(null);
 
-        const { SuperDoc, getFileObject } = await import('@harbour-enterprises/superdoc');
+        const { SuperDoc } = await import('@harbour-enterprises/superdoc');
 
         const editorId = `superdoc-${Date.now()}`;
         if (editorRef.current) {
           editorRef.current.id = editorId;
         }
 
-        const response = await fetch(fileUrl, { credentials: 'include' });
+        // Fetch the document
+        const response = await fetch(fileUrl, { 
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/octet-stream,*/*'
+          }
+        });
+        
         if (!response.ok) {
           throw new Error(`Failed to fetch document: ${response.status} ${response.statusText}`);
         }
 
         const blob = await response.blob();
-        const fileObject = getFileObject(blob, fileName || 'document.docx');
+        
+        // Ensure we have a proper file type
+        const fileType = blob.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        const properBlob = new Blob([blob], { type: fileType });
+
+        // Create a File object instead of using getFileObject
+        const file = new File([properBlob], fileName || 'document.docx', { 
+          type: fileType,
+          lastModified: Date.now()
+        });
+
+        // Add a timeout for initialization
+        const initTimeout = setTimeout(() => {
+          setError('Document initialization timed out');
+          setIsLoading(false);
+          toast.error('Document initialization timed out');
+        }, 30000); // 30 second timeout
 
         const superdocInstance = new SuperDoc({
           selector: `#${editorId}`,
@@ -66,18 +89,20 @@ export function SuperDocEditor({
             {
               id: 'main-document',
               type: 'docx',
-              data: fileObject,
+              data: file, // Pass the File object directly
             },
           ],
         });
 
         superdocInstance.on('ready', () => {
+          clearTimeout(initTimeout);
           console.log('SuperDoc ready');
           setIsLoading(false);
           toast.success('Document loaded successfully');
         });
 
         superdocInstance.on('error', (err: any) => {
+          clearTimeout(initTimeout);
           console.error('SuperDoc error:', err);
           setError(err?.message || 'Failed to load document');
           setIsLoading(false);
