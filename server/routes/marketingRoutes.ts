@@ -7,6 +7,9 @@ import { GmailOAuthService } from '../services/gmailOAuthService';
 import { OutlookOAuthService } from '../services/outlookOAuthService';
 import { MultiAccountEmailService } from '../services/multiAccountEmailService';
 import { EmailSyncService } from '../services/emailSyncService';
+import { EmailSearchService } from '../services/emailSearchService';
+import { EmailDeliverabilityService } from '../services/emailDeliverabilityService';
+import { EmailRateLimiter } from '../services/emailRateLimiter';
 import multer from 'multer';
 import { 
   consultants,
@@ -1141,45 +1144,36 @@ router.get('/email-accounts/:id/sync-stats', async (req, res) => {
 
 // EMAIL ROUTES
 
-// Search emails
+// Search emails with optimized search service
 router.get('/emails/search', async (req, res) => {
   try {
-    const { q, page = '1', limit = '20' } = req.query;
+    const { q, page = '1', limit = '20', accountId } = req.query;
     
     if (!q || typeof q !== 'string') {
       return res.status(400).json({ message: 'Search query is required' });
     }
     
-    const searchTerm = `%${q}%`;
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
     
-    // Search in email messages
-    const messages = await db.query.emailMessages.findMany({
-      where: and(
-        eq(emailMessages.createdBy, req.user!.id),
-        or(
-          like(emailMessages.subject, searchTerm),
-          like(emailMessages.textBody, searchTerm),
-          like(emailMessages.htmlBody, searchTerm),
-          like(emailMessages.fromEmail, searchTerm),
-          sql`array_to_string(${emailMessages.toEmails}, ',') LIKE ${searchTerm}`
-        )
-      ),
-      with: {
-        attachments: true
-      },
-      orderBy: [desc(emailMessages.sentAt)],
-      limit: parseInt(limit as string),
-      offset: (parseInt(page as string) - 1) * parseInt(limit as string),
-    });
+    // Use the optimized EmailSearchService
+    const searchOptions = {
+      query: q,
+      accountIds: accountId ? [accountId as string] : undefined,
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum
+    };
+    
+    const searchResult = await EmailSearchService.searchEmails(req.user!.id, searchOptions);
     
     // Get unique thread IDs from search results
-    const threadIds = [...new Set(messages.map(m => m.threadId))];
+    const threadIds = [...new Set(searchResult.messages.map(m => m.threadId))];
     
-    // Get thread info for these messages
-    const threads = await db.query.emailThreads.findMany({
+    // Get thread info for these messages with preview
+    const threads = threadIds.length > 0 ? await db.query.emailThreads.findMany({
       where: and(
         eq(emailThreads.createdBy, req.user!.id),
-        sql`${emailThreads.id} = ANY(${threadIds})`
+        sql`${emailThreads.id} = ANY(ARRAY[${sql.join(threadIds.map(id => sql`${id}`), sql`, `)}])`
       ),
       with: {
         messages: {
@@ -1187,30 +1181,74 @@ router.get('/emails/search', async (req, res) => {
           orderBy: [desc(emailMessages.sentAt)]
         }
       }
+    }) : [];
+    
+    // Add preview to threads
+    const threadsWithPreview = threads.map(thread => {
+      const latestMessage = thread.messages?.[0];
+      let preview = '';
+      if (latestMessage) {
+        const text = latestMessage.textBody || latestMessage.htmlBody?.replace(/<[^>]*>/g, '') || '';
+        preview = text.slice(0, 100) + (text.length > 100 ? '...' : '');
+      }
+      return { ...thread, preview };
     });
     
-    res.json({ messages, threads, total: messages.length });
+    res.json({ 
+      threads: threadsWithPreview, 
+      total: searchResult.totalCount,
+      searchTime: searchResult.searchTime,
+      suggestions: searchResult.suggestions || []
+    });
   } catch (error) {
     console.error('Error searching emails:', error);
-    res.status(500).json({ message: 'Failed to search emails' });
+    res.status(500).json({ message: 'Failed to search emails', error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 
-// Get email threads
+// Get email threads with optimized query and pagination metadata
 router.get('/emails/threads', async (req, res) => {
   try {
-    const { type = 'inbox', page = '1', limit = '20', search } = req.query;
+    const { type = 'inbox', page = '1', limit = '20', accountId } = req.query;
+    
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
     
     let whereConditions: any[] = [eq(emailThreads.createdBy, req.user!.id)];
     
     // Add conditions based on email type
     if (type === 'archived') {
       whereConditions.push(eq(emailThreads.isArchived, true));
-    } else if (type === 'inbox') {
+    } else if (type === 'sent') {
+      // For sent emails, get threads where the latest message is from user
       whereConditions.push(eq(emailThreads.isArchived, false));
+    } else if (type === 'drafts') {
+      // Drafts are handled separately
+      return res.json([]);
+    } else {
+      // inbox - not archived
+      whereConditions.push(or(
+        eq(emailThreads.isArchived, false),
+        sql`${emailThreads.isArchived} IS NULL`
+      )!);
+    }
+    
+    // Filter by account if specified
+    if (accountId && accountId !== 'null') {
+      whereConditions.push(sql`EXISTS (
+        SELECT 1 FROM email_messages m 
+        WHERE m.thread_id = ${emailThreads.id} 
+        AND m.email_account_id = ${accountId}
+      )`);
     }
 
     const whereClause = and(...whereConditions);
+    
+    // Get total count for pagination
+    const [{ count: totalCount }] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(emailThreads)
+      .where(whereClause);
     
     const threads = await db.query.emailThreads.findMany({
       where: whereClause,
@@ -1230,8 +1268,8 @@ router.get('/emails/threads', async (req, res) => {
         }
       },
       orderBy: [desc(emailThreads.lastMessageAt)],
-      limit: parseInt(limit as string),
-      offset: (parseInt(page as string) - 1) * parseInt(limit as string),
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum,
     });
 
     // Add preview to each thread from the latest message
@@ -1250,10 +1288,18 @@ router.get('/emails/threads', async (req, res) => {
       };
     });
 
-    res.json(threadsWithPreview);
+    res.json({
+      threads: threadsWithPreview,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: totalCount,
+        hasMore: (pageNum * limitNum) < totalCount
+      }
+    });
   } catch (error) {
     console.error('Error fetching email threads:', error);
-    res.status(500).json({ message: 'Failed to fetch email threads' });
+    res.status(500).json({ message: 'Failed to fetch email threads', error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 
@@ -1333,6 +1379,213 @@ router.get('/emails/threads/:threadId/messages', async (req, res) => {
   }
 });
 
+// Mark message as read/unread
+router.patch('/emails/messages/:messageId/read', async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { isRead } = req.body;
+    
+    if (typeof isRead !== 'boolean') {
+      return res.status(400).json({ message: 'isRead must be a boolean' });
+    }
+    
+    // Verify ownership through thread
+    const message = await db.query.emailMessages.findFirst({
+      where: eq(emailMessages.id, messageId),
+      with: {
+        thread: true
+      }
+    });
+    
+    if (!message || message.createdBy !== req.user!.id) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+    
+    const [updatedMessage] = await db
+      .update(emailMessages)
+      .set({ isRead, updatedAt: new Date() })
+      .where(eq(emailMessages.id, messageId))
+      .returning();
+    
+    res.json(updatedMessage);
+  } catch (error) {
+    console.error('Error updating message read status:', error);
+    res.status(500).json({ message: 'Failed to update message' });
+  }
+});
+
+// Mark all messages in thread as read
+router.patch('/emails/threads/:threadId/read', async (req, res) => {
+  try {
+    const { threadId } = req.params;
+    
+    // Verify ownership
+    const thread = await db.query.emailThreads.findFirst({
+      where: and(
+        eq(emailThreads.id, threadId),
+        eq(emailThreads.createdBy, req.user!.id)
+      )
+    });
+    
+    if (!thread) {
+      return res.status(404).json({ message: 'Thread not found' });
+    }
+    
+    // Mark all messages in thread as read
+    await db
+      .update(emailMessages)
+      .set({ isRead: true, updatedAt: new Date() })
+      .where(eq(emailMessages.threadId, threadId));
+    
+    res.json({ message: 'All messages marked as read' });
+  } catch (error) {
+    console.error('Error marking thread as read:', error);
+    res.status(500).json({ message: 'Failed to mark thread as read' });
+  }
+});
+
+// Star/unstar message
+router.patch('/emails/messages/:messageId/star', async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { isStarred } = req.body;
+    
+    if (typeof isStarred !== 'boolean') {
+      return res.status(400).json({ message: 'isStarred must be a boolean' });
+    }
+    
+    // Verify ownership
+    const message = await db.query.emailMessages.findFirst({
+      where: eq(emailMessages.id, messageId)
+    });
+    
+    if (!message || message.createdBy !== req.user!.id) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+    
+    const [updatedMessage] = await db
+      .update(emailMessages)
+      .set({ isStarred, updatedAt: new Date() })
+      .where(eq(emailMessages.id, messageId))
+      .returning();
+    
+    res.json(updatedMessage);
+  } catch (error) {
+    console.error('Error updating message star status:', error);
+    res.status(500).json({ message: 'Failed to update message' });
+  }
+});
+
+// Archive/unarchive thread
+router.patch('/emails/threads/:threadId/archive', async (req, res) => {
+  try {
+    const { threadId } = req.params;
+    const { isArchived } = req.body;
+    
+    if (typeof isArchived !== 'boolean') {
+      return res.status(400).json({ message: 'isArchived must be a boolean' });
+    }
+    
+    // Verify ownership
+    const thread = await db.query.emailThreads.findFirst({
+      where: and(
+        eq(emailThreads.id, threadId),
+        eq(emailThreads.createdBy, req.user!.id)
+      )
+    });
+    
+    if (!thread) {
+      return res.status(404).json({ message: 'Thread not found' });
+    }
+    
+    const [updatedThread] = await db
+      .update(emailThreads)
+      .set({ isArchived, updatedAt: new Date() })
+      .where(eq(emailThreads.id, threadId))
+      .returning();
+    
+    res.json(updatedThread);
+  } catch (error) {
+    console.error('Error archiving thread:', error);
+    res.status(500).json({ message: 'Failed to archive thread' });
+  }
+});
+
+// Check email deliverability (spam score)
+router.post('/emails/check-deliverability', async (req, res) => {
+  try {
+    const { subject, htmlBody, textBody, fromEmail } = req.body;
+    
+    if (!subject || !htmlBody || !fromEmail) {
+      return res.status(400).json({ message: 'Subject, body, and from email are required' });
+    }
+
+    // Sanitize HTML
+    const sanitizedHtml = EmailDeliverabilityService.sanitizeHtmlForEmail(htmlBody);
+
+    // Check spam score
+    const spamCheck = EmailDeliverabilityService.checkSpamScore(
+      subject,
+      sanitizedHtml,
+      textBody || '',
+      fromEmail
+    );
+
+    // Get provider-specific tips
+    const fromDomain = fromEmail.split('@')[1];
+    const isGmail = fromDomain?.includes('gmail');
+    const isOutlook = fromDomain?.includes('outlook') || fromDomain?.includes('hotmail');
+    const provider = isGmail ? 'gmail' : isOutlook ? 'outlook' : 'smtp';
+
+    // Generate full report
+    const report = EmailDeliverabilityService.generateDeliverabilityReport(
+      spamCheck,
+      fromDomain || '',
+      provider
+    );
+
+    res.json({
+      spamScore: spamCheck.score,
+      isSafe: spamCheck.isSafe,
+      issues: spamCheck.issues,
+      recommendations: spamCheck.recommendations,
+      sanitizedHtml,
+      report
+    });
+  } catch (error) {
+    console.error('Error checking deliverability:', error);
+    res.status(500).json({ message: 'Failed to check deliverability' });
+  }
+});
+
+// Validate recipient email
+router.post('/emails/validate-recipient', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+
+    const validation = EmailDeliverabilityService.validateRecipientEmail(email);
+    res.json(validation);
+  } catch (error) {
+    console.error('Error validating recipient:', error);
+    res.status(500).json({ message: 'Failed to validate recipient' });
+  }
+});
+
+// Get email sending rate limits and usage
+router.get('/emails/rate-limits', async (req, res) => {
+  try {
+    const stats = EmailRateLimiter.getUsageStats(req.user!.id);
+    res.json(stats);
+  } catch (error) {
+    console.error('Error getting rate limits:', error);
+    res.status(500).json({ message: 'Failed to get rate limits' });
+  }
+});
+
 // Send email
 router.post('/emails/send', upload.array('attachments'), async (req, res) => {
   try {
@@ -1351,6 +1604,77 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
     const toEmails = Array.isArray(to) ? to : [to];
     const ccEmails = Array.isArray(cc) ? cc : (cc ? [cc] : []);
     const bccEmails = Array.isArray(bcc) ? bcc : (bcc ? [bcc] : []);
+
+    // Validate recipients
+    const invalidRecipients: string[] = [];
+    [...toEmails, ...ccEmails, ...bccEmails].forEach(email => {
+      const validation = EmailDeliverabilityService.validateRecipientEmail(email);
+      if (!validation.isValid) {
+        invalidRecipients.push(email);
+      }
+    });
+
+    if (invalidRecipients.length > 0) {
+      return res.status(400).json({ 
+        message: 'Invalid recipient email addresses',
+        invalidRecipients
+      });
+    }
+
+    // Check rate limit FIRST to prevent spam behavior
+    const provider = sendingAccount?.provider || 'smtp';
+    const rateLimitCheck = EmailRateLimiter.canSendEmail(
+      req.user!.id, 
+      provider as 'gmail' | 'outlook' | 'smtp'
+    );
+
+    if (!rateLimitCheck.allowed) {
+      return res.status(429).json({
+        message: 'Rate limit exceeded',
+        error: rateLimitCheck.reason,
+        resetAt: rateLimitCheck.resetAt,
+        remaining: rateLimitCheck.remaining
+      });
+    }
+
+    // Check spam score before sending (CRITICAL - Prevent spam)
+    const fromEmail = sendingAccount?.emailAddress || req.user!.email;
+    const spamCheck = EmailDeliverabilityService.checkSpamScore(
+      subject || '',
+      htmlBody || '',
+      textBody || '',
+      fromEmail
+    );
+
+    // BLOCK sending if spam score is too high
+    if (spamCheck.score >= 7) {
+      return res.status(400).json({
+        message: 'Email blocked: High spam score detected',
+        spamScore: spamCheck.score,
+        issues: spamCheck.issues,
+        recommendations: spamCheck.recommendations,
+        error: 'Your email has a very high spam score and will likely be marked as spam. Please review and fix the issues before sending.'
+      });
+    }
+
+    // Warn if spam score is moderate
+    if (spamCheck.score >= 5) {
+      console.warn(`⚠️ Email has moderate spam score: ${spamCheck.score}/10`);
+      console.warn('Issues:', spamCheck.issues);
+    }
+
+    // Sanitize HTML to prevent spam issues
+    const sanitizedHtmlBody = EmailDeliverabilityService.sanitizeHtmlForEmail(htmlBody || '');
+
+    // Ensure plain text version exists (REQUIRED for deliverability)
+    const finalTextBody = textBody || sanitizedHtmlBody.replace(/<[^>]*>/g, '').trim();
+    
+    if (!finalTextBody || finalTextBody.length < 10) {
+      return res.status(400).json({
+        message: 'Email must have substantial text content (at least 10 characters)',
+        error: 'Add more content to your email to improve deliverability'
+      });
+    }
 
     // Handle attachments
     const files = req.files as Express.Multer.File[];
@@ -1389,6 +1713,13 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
       finalThreadId = newThread.id;
     }
 
+    // Get recommended headers for better deliverability
+    const recommendedHeaders = EmailDeliverabilityService.getRecommendedHeaders(
+      sendingAccount?.emailAddress || req.user!.email,
+      toEmails[0] || '',
+      subject || ''
+    );
+
     // Create message record
     const [message] = await db.insert(emailMessages).values({
       threadId: finalThreadId,
@@ -1398,8 +1729,8 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
       ccEmails,
       bccEmails,
       subject,
-      htmlBody,
-      textBody,
+      htmlBody: sanitizedHtmlBody,
+      textBody: finalTextBody,
       messageType: 'sent',
       sentAt: new Date(),
       createdBy: req.user!.id,
@@ -1427,8 +1758,9 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
         cc: ccEmails,
         bcc: bccEmails,
         subject,
-        htmlBody,
-        textBody,
+        htmlBody: sanitizedHtmlBody,
+        textBody: finalTextBody,
+        headers: recommendedHeaders,
         attachments: files?.map(file => ({
           filename: file.originalname,
           content: file.buffer,
@@ -1441,7 +1773,7 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
         await EmailService.sendMarketingEmail(
           toEmails[0] || '',
           subject || 'No Subject',
-          htmlBody || '',
+          sanitizedHtmlBody || '',
           textBody || ''
         );
         sendResult = { success: true };
@@ -1452,6 +1784,12 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
 
     if (sendResult.success) {
       console.log('✅ Email sent successfully');
+      
+      // Record email sent for rate limiting
+      EmailRateLimiter.recordEmailSent(
+        req.user!.id,
+        provider as 'gmail' | 'outlook' | 'smtp'
+      );
     } else {
       console.warn('⚠️ Email sending failed, but message saved:', sendResult.error);
     }
