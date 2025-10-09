@@ -82,6 +82,9 @@ export default function ComposeDialog({
   const [showCc, setShowCc] = useState(false);
   const [showBcc, setShowBcc] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [spamScore, setSpamScore] = useState<number | null>(null);
+  const [spamWarnings, setSpamWarnings] = useState<string[]>([]);
+  const [checkingSpam, setCheckingSpam] = useState(false);
   
   const queryClient = useQueryClient();
 
@@ -166,6 +169,54 @@ export default function ComposeDialog({
     },
   });
 
+  // Check spam score before sending
+  const checkSpamScore = async () => {
+    if (!selectedAccount || !subject || !body) return;
+
+    setCheckingSpam(true);
+    try {
+      const account = emailAccounts.find(acc => acc.id === selectedAccount);
+      if (!account) return;
+
+      const response = await apiRequest('POST', '/api/marketing/emails/check-deliverability', {
+        subject,
+        htmlBody: body.replace(/\n/g, '<br>'),
+        textBody: body,
+        fromEmail: account.emailAddress
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSpamScore(data.spamScore);
+        setSpamWarnings(data.issues || []);
+        
+        if (data.spamScore >= 5) {
+          toast.warning(`Spam score: ${data.spamScore}/10 - Your email may be marked as spam`, {
+            duration: 5000
+          });
+        } else if (data.spamScore >= 3) {
+          toast.info(`Spam score: ${data.spamScore}/10 - Some improvements recommended`, {
+            duration: 3000
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check spam score:', error);
+    } finally {
+      setCheckingSpam(false);
+    }
+  };
+
+  // Check spam score when content changes (debounced)
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if (subject && body && selectedAccount) {
+        checkSpamScore();
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [subject, body, selectedAccount]);
+
   const handleSend = () => {
     if (to.length === 0) {
       toast.error('Please add at least one recipient');
@@ -182,6 +233,13 @@ export default function ComposeDialog({
     if (!selectedAccount) {
       toast.error('Please select an email account');
       return;
+    }
+
+    // Warn if spam score is high
+    if (spamScore !== null && spamScore >= 6) {
+      if (!confirm(`Your email has a high spam score (${spamScore}/10). It may be marked as spam. Send anyway?`)) {
+        return;
+      }
     }
 
     sendMutation.mutate({});
@@ -430,15 +488,59 @@ export default function ComposeDialog({
 
             {/* Footer */}
             <div className="px-6 py-4 border-t bg-gray-50">
+              {/* Spam Score Indicator */}
+              {spamScore !== null && (
+                <div className={cn(
+                  "mb-3 p-3 rounded-lg text-sm",
+                  spamScore < 3 ? "bg-green-50 border border-green-200" :
+                  spamScore < 5 ? "bg-yellow-50 border border-yellow-200" :
+                  "bg-red-50 border border-red-200"
+                )}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={cn(
+                      "font-medium",
+                      spamScore < 3 ? "text-green-700" :
+                      spamScore < 5 ? "text-yellow-700" :
+                      "text-red-700"
+                    )}>
+                      Spam Score: {spamScore.toFixed(1)}/10
+                    </span>
+                    <span className={cn(
+                      "text-xs px-2 py-0.5 rounded",
+                      spamScore < 3 ? "bg-green-100 text-green-700" :
+                      spamScore < 5 ? "bg-yellow-100 text-yellow-700" :
+                      "bg-red-100 text-red-700"
+                    )}>
+                      {spamScore < 3 ? "Excellent" : spamScore < 5 ? "Good" : "Poor"}
+                    </span>
+                  </div>
+                  {spamWarnings.length > 0 && (
+                    <ul className={cn(
+                      "text-xs mt-2 space-y-1",
+                      spamScore < 3 ? "text-green-600" :
+                      spamScore < 5 ? "text-yellow-600" :
+                      "text-red-600"
+                    )}>
+                      {spamWarnings.slice(0, 3).map((warning, idx) => (
+                        <li key={idx}>• {warning}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Button
                     onClick={handleSend}
-                    disabled={sendMutation.isPending}
-                    className="bg-blue-600 hover:bg-blue-700"
+                    disabled={sendMutation.isPending || checkingSpam}
+                    className={cn(
+                      "bg-blue-600 hover:bg-blue-700",
+                      spamScore !== null && spamScore >= 6 && "bg-orange-600 hover:bg-orange-700"
+                    )}
                   >
                     <Send className="h-4 w-4 mr-2" />
-                    {sendMutation.isPending ? 'Sending...' : 'Send'}
+                    {sendMutation.isPending ? 'Sending...' : checkingSpam ? 'Checking...' : 'Send'}
                   </Button>
                   
                   <label htmlFor="file-upload">
@@ -458,7 +560,7 @@ export default function ComposeDialog({
                 </div>
 
                 <div className="text-xs text-gray-500">
-                  Press Ctrl+Enter to send
+                  {checkingSpam ? 'Checking deliverability...' : 'Press Ctrl+Enter to send'}
                 </div>
               </div>
             </div>

@@ -8,6 +8,7 @@ import { OutlookOAuthService } from '../services/outlookOAuthService';
 import { MultiAccountEmailService } from '../services/multiAccountEmailService';
 import { EmailSyncService } from '../services/emailSyncService';
 import { EmailSearchService } from '../services/emailSearchService';
+import { EmailDeliverabilityService } from '../services/emailDeliverabilityService';
 import multer from 'multer';
 import { 
   consultants,
@@ -1509,6 +1510,70 @@ router.patch('/emails/threads/:threadId/archive', async (req, res) => {
   }
 });
 
+// Check email deliverability (spam score)
+router.post('/emails/check-deliverability', async (req, res) => {
+  try {
+    const { subject, htmlBody, textBody, fromEmail } = req.body;
+    
+    if (!subject || !htmlBody || !fromEmail) {
+      return res.status(400).json({ message: 'Subject, body, and from email are required' });
+    }
+
+    // Sanitize HTML
+    const sanitizedHtml = EmailDeliverabilityService.sanitizeHtmlForEmail(htmlBody);
+
+    // Check spam score
+    const spamCheck = EmailDeliverabilityService.checkSpamScore(
+      subject,
+      sanitizedHtml,
+      textBody || '',
+      fromEmail
+    );
+
+    // Get provider-specific tips
+    const fromDomain = fromEmail.split('@')[1];
+    const isGmail = fromDomain?.includes('gmail');
+    const isOutlook = fromDomain?.includes('outlook') || fromDomain?.includes('hotmail');
+    const provider = isGmail ? 'gmail' : isOutlook ? 'outlook' : 'smtp';
+
+    // Generate full report
+    const report = EmailDeliverabilityService.generateDeliverabilityReport(
+      spamCheck,
+      fromDomain || '',
+      provider
+    );
+
+    res.json({
+      spamScore: spamCheck.score,
+      isSafe: spamCheck.isSafe,
+      issues: spamCheck.issues,
+      recommendations: spamCheck.recommendations,
+      sanitizedHtml,
+      report
+    });
+  } catch (error) {
+    console.error('Error checking deliverability:', error);
+    res.status(500).json({ message: 'Failed to check deliverability' });
+  }
+});
+
+// Validate recipient email
+router.post('/emails/validate-recipient', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+
+    const validation = EmailDeliverabilityService.validateRecipientEmail(email);
+    res.json(validation);
+  } catch (error) {
+    console.error('Error validating recipient:', error);
+    res.status(500).json({ message: 'Failed to validate recipient' });
+  }
+});
+
 // Send email
 router.post('/emails/send', upload.array('attachments'), async (req, res) => {
   try {
@@ -1527,6 +1592,25 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
     const toEmails = Array.isArray(to) ? to : [to];
     const ccEmails = Array.isArray(cc) ? cc : (cc ? [cc] : []);
     const bccEmails = Array.isArray(bcc) ? bcc : (bcc ? [bcc] : []);
+
+    // Validate recipients
+    const invalidRecipients: string[] = [];
+    [...toEmails, ...ccEmails, ...bccEmails].forEach(email => {
+      const validation = EmailDeliverabilityService.validateRecipientEmail(email);
+      if (!validation.isValid) {
+        invalidRecipients.push(email);
+      }
+    });
+
+    if (invalidRecipients.length > 0) {
+      return res.status(400).json({ 
+        message: 'Invalid recipient email addresses',
+        invalidRecipients
+      });
+    }
+
+    // Sanitize HTML to prevent spam issues
+    const sanitizedHtmlBody = EmailDeliverabilityService.sanitizeHtmlForEmail(htmlBody || '');
 
     // Handle attachments
     const files = req.files as Express.Multer.File[];
@@ -1565,6 +1649,13 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
       finalThreadId = newThread.id;
     }
 
+    // Get recommended headers for better deliverability
+    const recommendedHeaders = EmailDeliverabilityService.getRecommendedHeaders(
+      sendingAccount?.emailAddress || req.user!.email,
+      toEmails[0] || '',
+      subject || ''
+    );
+
     // Create message record
     const [message] = await db.insert(emailMessages).values({
       threadId: finalThreadId,
@@ -1574,7 +1665,7 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
       ccEmails,
       bccEmails,
       subject,
-      htmlBody,
+      htmlBody: sanitizedHtmlBody,
       textBody,
       messageType: 'sent',
       sentAt: new Date(),
@@ -1603,8 +1694,9 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
         cc: ccEmails,
         bcc: bccEmails,
         subject,
-        htmlBody,
+        htmlBody: sanitizedHtmlBody,
         textBody,
+        headers: recommendedHeaders,
         attachments: files?.map(file => ({
           filename: file.originalname,
           content: file.buffer,
@@ -1617,7 +1709,7 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
         await EmailService.sendMarketingEmail(
           toEmails[0] || '',
           subject || 'No Subject',
-          htmlBody || '',
+          sanitizedHtmlBody || '',
           textBody || ''
         );
         sendResult = { success: true };

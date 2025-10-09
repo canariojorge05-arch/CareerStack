@@ -1243,6 +1243,31 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
             </DialogHeader>
             
             <div className="space-y-4">
+              {/* Deliverability Notice */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <div className="h-5 w-5 rounded-full bg-blue-600 text-white flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Mail className="h-3 w-3" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-blue-900 mb-1">
+                      Prevent emails from going to spam
+                    </p>
+                    <p className="text-xs text-blue-700 mb-2">
+                      Configure SPF, DKIM, and DMARC to ensure your emails reach the inbox.
+                    </p>
+                    <a 
+                      href="/docs/EMAIL_DELIVERABILITY_SETUP.md" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium text-blue-600 hover:text-blue-800 underline"
+                    >
+                      View Setup Guide →
+                    </a>
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <h4 className="font-medium">Connected Accounts</h4>
                 <div className="flex flex-col gap-2">
