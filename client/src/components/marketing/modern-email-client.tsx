@@ -111,42 +111,56 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
     retry: false,
   });
 
-  // Fetch email threads with paging and auto-refresh every 30 seconds
-  const THREADS_LIMIT = 100; // Increased limit for better user experience
+  // Fetch email threads with optimized pagination
+  const THREADS_LIMIT = 50; // Optimized limit for better performance
   const threadsQuery = useInfiniteQuery({
-    queryKey: ['/api/marketing/emails/threads', selectedFolder, searchQuery],
+    queryKey: ['/api/marketing/emails/threads', selectedFolder, searchQuery, accountFilter],
     queryFn: async ({ pageParam = 1 }: { pageParam?: number }) => {
       try {
-          if (searchQuery.trim()) {
-            const response = await apiRequest('GET', `/api/marketing/emails/search?q=${encodeURIComponent(searchQuery)}&limit=${THREADS_LIMIT}&page=${pageParam}${accountFilter ? `&accountId=${accountFilter}` : ''}`);
-          if (!response.ok) return [] as EmailThread[];
+        if (searchQuery.trim()) {
+          const response = await apiRequest('GET', `/api/marketing/emails/search?q=${encodeURIComponent(searchQuery)}&limit=${THREADS_LIMIT}&page=${pageParam}${accountFilter ? `&accountId=${accountFilter}` : ''}`);
+          if (!response.ok) {
+            console.error('Search failed:', response.status);
+            return { threads: [], pagination: { hasMore: false } };
+          }
           const data = await response.json();
-          return data.threads || [];
+          return { threads: data.threads || [], pagination: { hasMore: false, total: data.total || 0 } };
         } else {
-            const response = await apiRequest('GET', `/api/marketing/emails/threads?type=${selectedFolder}&limit=${THREADS_LIMIT}&page=${pageParam}${accountFilter ? `&accountId=${accountFilter}` : ''}`);
-          if (!response.ok) return [] as EmailThread[];
-          return response.json();
+          const response = await apiRequest('GET', `/api/marketing/emails/threads?type=${selectedFolder}&limit=${THREADS_LIMIT}&page=${pageParam}${accountFilter ? `&accountId=${accountFilter}` : ''}`);
+          if (!response.ok) {
+            console.error('Fetch threads failed:', response.status);
+            return { threads: [], pagination: { hasMore: false } };
+          }
+          const data = await response.json();
+          // Handle both old format (array) and new format (object with threads and pagination)
+          if (Array.isArray(data)) {
+            return { threads: data, pagination: { hasMore: data.length >= THREADS_LIMIT } };
+          }
+          return { threads: data.threads || [], pagination: data.pagination || { hasMore: false } };
         }
-      } catch {
-        return [] as EmailThread[];
+      } catch (error) {
+        console.error('Error fetching threads:', error);
+        return { threads: [], pagination: { hasMore: false } };
       }
     },
     getNextPageParam: (lastPage, pages) => {
-      // If last page returned fewer than limit, no more pages
-      if (!lastPage || lastPage.length < THREADS_LIMIT) return undefined;
+      // Use pagination metadata from backend
+      if (!lastPage?.pagination?.hasMore) return undefined;
       return pages.length + 1;
     },
     initialPageParam: 1,
-    refetchInterval: 30000,
-    refetchOnWindowFocus: true,
-    staleTime: 15000,
-    retry: 1,
+    refetchInterval: false, // Disable auto-refresh for better performance
+    refetchOnWindowFocus: false, // Disable refetch on window focus
+    staleTime: 60000, // Data is fresh for 1 minute
+    retry: 2,
   });
 
-  const emailThreads: EmailThread[] = threadsQuery.data ? (threadsQuery.data.pages.flat() as EmailThread[]) : [];
+  const emailThreads: EmailThread[] = threadsQuery.data ? threadsQuery.data.pages.flatMap(page => page.threads || []) : [];
   const threadsLoading = threadsQuery.isLoading;
   const isFetching = threadsQuery.isFetching;
   const refetchThreads = threadsQuery.refetch;
+  const hasNextPage = threadsQuery.hasNextPage;
+  const fetchNextPage = threadsQuery.fetchNextPage;
 
   // Debug logging
   useEffect(() => {
@@ -161,20 +175,86 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
   }, [emailThreads.length, threadsQuery.data?.pages.length, threadsQuery.hasNextPage, threadsLoading, isFetching, selectedFolder]);
 
   // Fetch messages for selected thread
-  const { data: threadMessages = [], isLoading: threadMessagesLoading, isFetching: threadMessagesFetching } = useQuery<EmailMessage[]>({
+  const { data: threadMessages = [], isLoading: threadMessagesLoading, isFetching: threadMessagesFetching, error: threadMessagesError } = useQuery<EmailMessage[]>({
     queryKey: ['/api/marketing/emails/threads', selectedThread, 'messages'],
     queryFn: async () => {
       try {
         if (!selectedThread) return [] as EmailMessage[];
         const response = await apiRequest('GET', `/api/marketing/emails/threads/${selectedThread}/messages`);
-        if (!response.ok) return [] as EmailMessage[];
+        if (!response.ok) {
+          throw new Error(`Failed to fetch messages: ${response.status}`);
+        }
         return response.json();
-      } catch {
-        return [] as EmailMessage[];
+      } catch (error) {
+        console.error('Error fetching messages:', error);
+        throw error;
       }
     },
     enabled: !!selectedThread,
-    retry: false,
+    retry: 2,
+    staleTime: 30000,
+  });
+
+  // Mark thread as read when viewing messages
+  const markThreadAsReadMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      const response = await apiRequest('PATCH', `/api/marketing/emails/threads/${threadId}/read`, {});
+      if (!response.ok) throw new Error('Failed to mark as read');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/unread-count'] });
+    },
+    onError: (error) => {
+      console.error('Failed to mark thread as read:', error);
+    }
+  });
+
+  // Auto-mark as read when thread is selected
+  useEffect(() => {
+    if (selectedThread && threadMessages.length > 0) {
+      // Mark as read after 1 second of viewing
+      const timer = setTimeout(() => {
+        markThreadAsReadMutation.mutate(selectedThread);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedThread, threadMessages.length]);
+
+  // Star/unstar mutation
+  const starMutation = useMutation({
+    mutationFn: async ({ messageId, isStarred }: { messageId: string; isStarred: boolean }) => {
+      const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/star`, { isStarred });
+      if (!response.ok) throw new Error('Failed to update star status');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      toast.success('Updated successfully');
+    },
+    onError: (error) => {
+      toast.error('Failed to update star status');
+      console.error(error);
+    }
+  });
+
+  // Archive mutation
+  const archiveMutation = useMutation({
+    mutationFn: async ({ threadId, isArchived }: { threadId: string; isArchived: boolean }) => {
+      const response = await apiRequest('PATCH', `/api/marketing/emails/threads/${threadId}/archive`, { isArchived });
+      if (!response.ok) throw new Error('Failed to archive');
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      toast.success(variables.isArchived ? 'Thread archived' : 'Thread unarchived');
+      setSelectedThread(null);
+    },
+    onError: (error) => {
+      toast.error('Failed to archive thread');
+      console.error(error);
+    }
   });
 
   // Component to safely render HTML bodies and handle image loading/fallbacks
@@ -308,21 +388,36 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
   const syncMutation = useMutation({
     mutationFn: async (accountId: string) => {
       const response = await apiRequest('POST', `/api/marketing/email-accounts/${accountId}/sync`);
-      if (!response.ok) throw new Error('Sync failed');
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Sync failed' }));
+        throw new Error(error.message || 'Sync failed');
+      }
       return response.json();
+    },
+    onMutate: () => {
+      toast.info('Syncing emails...', { duration: 2000 });
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketing/email-accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/unread-count'] });
       const count = data.syncedCount || 0;
       if (count > 0) {
-        toast.success(`Synced ${count} new email${count === 1 ? '' : 's'}!`);
+        toast.success(`Synced ${count} new email${count === 1 ? '' : 's'}!`, { duration: 3000 });
       } else {
-        toast.info('Already up to date');
+        toast.info('Already up to date', { duration: 2000 });
       }
     },
     onError: (error: any) => {
-      toast.error(error?.message || 'Failed to sync emails');
+      toast.error(error?.message || 'Failed to sync emails', { 
+        duration: 4000,
+        action: {
+          label: 'Retry',
+          onClick: () => {
+            // Retry will be handled by user clicking sync again
+          }
+        }
+      });
     },
   });
 
@@ -360,7 +455,7 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
 
   // Auto-load more emails when scrolling near bottom
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (!autoLoadEnabled || !threadsQuery.hasNextPage || threadsQuery.isFetching) return;
+    if (!autoLoadEnabled || !hasNextPage || isFetching) return;
     
     const target = e.currentTarget;
     const { scrollTop, scrollHeight, clientHeight } = target;
@@ -368,10 +463,10 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
     
     // Load more when 80% scrolled
     if (scrollPercentage > 0.8) {
-      console.log('Auto-loading more emails...', { scrollPercentage, hasNextPage: threadsQuery.hasNextPage });
-      threadsQuery.fetchNextPage();
+      console.log('Auto-loading more emails...', { scrollPercentage, hasNextPage });
+      fetchNextPage();
     }
-  }, [autoLoadEnabled, threadsQuery]);
+  }, [autoLoadEnabled, hasNextPage, isFetching, fetchNextPage]);
 
   return (
     <TooltipProvider>
@@ -407,13 +502,21 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => refetchThreads()}
-                      disabled={threadsLoading}
+                      onClick={() => {
+                        refetchThreads();
+                        queryClient.invalidateQueries({ queryKey: ['/api/marketing/email-accounts'] });
+                        toast.success('Refreshing emails...', { duration: 1500 });
+                      }}
+                      disabled={threadsLoading || isFetching}
+                      className={cn(
+                        "transition-all",
+                        (threadsLoading || isFetching) && "cursor-not-allowed opacity-50"
+                      )}
                     >
-                      <RefreshCw className={cn("h-4 w-4", threadsLoading && "animate-spin")} />
+                      <RefreshCw className={cn("h-4 w-4 transition-transform", (threadsLoading || isFetching) && "animate-spin")} />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Refresh</TooltipContent>
+                  <TooltipContent>{threadsLoading || isFetching ? 'Refreshing...' : 'Refresh emails'}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -660,6 +763,24 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                       <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-blue-600 relative z-10" />
                     </div>
                     <p className="text-sm text-slate-600 mt-4 font-medium">Loading emails...</p>
+                    <p className="text-xs text-slate-400 mt-2">This may take a moment</p>
+                  </div>
+                ) : threadsQuery.error ? (
+                  <div className="p-8 text-center">
+                    <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-red-100 to-red-200 flex items-center justify-center">
+                      <X className="h-8 w-8 text-red-600" />
+                    </div>
+                    <p className="text-sm text-red-600 font-medium mb-2">Failed to load emails</p>
+                    <p className="text-xs text-slate-500 mb-4">There was an error loading your emails</p>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => refetchThreads()}
+                      className="bg-white hover:bg-red-50 border-red-200 text-red-700"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Try Again
+                    </Button>
                   </div>
                 ) : emailThreads.length === 0 ? (
                   <div className="p-8 text-center">
@@ -749,12 +870,23 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                           onClick={(e) => e.stopPropagation()}
                         />
                         <button
-                          className="mr-3 text-gray-300 group-hover:text-yellow-400 focus:outline-none"
+                          className={cn(
+                            "mr-3 focus:outline-none transition-colors",
+                            thread.messages?.[0]?.isStarred 
+                              ? "text-yellow-400" 
+                              : "text-gray-300 group-hover:text-yellow-400"
+                          )}
                           tabIndex={-1}
-                          onClick={e => e.stopPropagation()}
-                          aria-label="Star"
+                          onClick={e => {
+                            e.stopPropagation();
+                            const message = thread.messages?.[0];
+                            if (message) {
+                              starMutation.mutate({ messageId: message.id, isStarred: !message.isStarred });
+                            }
+                          }}
+                          aria-label={thread.messages?.[0]?.isStarred ? "Unstar" : "Star"}
                         >
-                          <Star className="h-5 w-5" />
+                          <Star className={cn("h-5 w-5", thread.messages?.[0]?.isStarred && "fill-yellow-400")} />
                         </button>
                         <Avatar className="h-9 w-9 flex-shrink-0 mr-3">
                           <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">
@@ -763,15 +895,30 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                         </Avatar>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
-                            <span className="font-semibold text-gray-900 text-sm truncate">
-                              {thread.participantEmails[0]?.split('@')[0] || 'Unknown'}
-                            </span>
+                            <div className="flex items-center gap-2 min-w-0">
+                              {thread.messages?.[0]?.isRead === false && (
+                                <div className="h-2 w-2 rounded-full bg-blue-600 flex-shrink-0" />
+                              )}
+                              <span className={cn(
+                                "text-sm truncate",
+                                thread.messages?.[0]?.isRead === false 
+                                  ? "font-bold text-gray-900" 
+                                  : "font-semibold text-gray-700"
+                              )}>
+                                {thread.participantEmails[0]?.split('@')[0] || 'Unknown'}
+                              </span>
+                            </div>
                             <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
                               {thread.lastMessageAt && formatDistanceToNow(new Date(thread.lastMessageAt), { addSuffix: true })}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-sm text-gray-800 font-medium truncate max-w-[16rem]">
+                            <span className={cn(
+                              "text-sm truncate max-w-[16rem]",
+                              thread.messages?.[0]?.isRead === false 
+                                ? "font-bold text-gray-900" 
+                                : "font-medium text-gray-800"
+                            )}>
                               {thread.subject || '(no subject)'}
                             </span>
                             {thread.messageCount > 1 && (
@@ -780,25 +927,32 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                               </Badge>
                             )}
                           </div>
-                          <div className="text-xs text-gray-500 truncate max-w-[24rem] mt-0.5">
+                          <div className={cn(
+                            "text-xs truncate max-w-[24rem] mt-0.5",
+                            thread.messages?.[0]?.isRead === false 
+                              ? "text-gray-700 font-medium" 
+                              : "text-gray-500"
+                          )}>
                             {thread.preview || 'No preview available'}
                           </div>
-                          <div className="flex items-center gap-2 mt-1">
-                            {thread.labels.map((label) => (
-                              <Badge key={label} variant="secondary" className="text-xs">
-                                {label}
-                              </Badge>
-                            ))}
-                          </div>
+                          {thread.labels && thread.labels.length > 0 && (
+                            <div className="flex items-center gap-2 mt-1">
+                              {thread.labels.map((label) => (
+                                <Badge key={label} variant="secondary" className="text-xs">
+                                  {label}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
                     {/* Load more control */}
                     <div className="flex flex-col items-center justify-center p-6 border-t border-slate-200 bg-gradient-to-b from-white to-slate-50">
-                      {threadsQuery.hasNextPage ? (
+                      {hasNextPage ? (
                         <div className="text-center space-y-3">
                           <p className="text-sm text-gray-600">
-                            Showing {emailThreads.length} emails
+                            Showing {emailThreads.length} email{emailThreads.length === 1 ? '' : 's'}
                             {threadsQuery.data && threadsQuery.data.pages.length > 1 && (
                               <span className="text-gray-500"> (Page {threadsQuery.data.pages.length})</span>
                             )}
@@ -807,7 +961,7 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                             <Button
                               variant="outline"
                               size="default"
-                              onClick={() => threadsQuery.fetchNextPage()}
+                              onClick={() => fetchNextPage()}
                               disabled={threadsLoading || isFetching}
                               className="bg-white hover:bg-blue-50 border-blue-200 text-blue-700 hover:border-blue-300 shadow-sm"
                             >
@@ -828,14 +982,14 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                               size="default"
                               onClick={async () => {
                                 // Load all remaining pages
-                                while (threadsQuery.hasNextPage && !threadsQuery.isFetching) {
-                                  await threadsQuery.fetchNextPage();
+                                while (hasNextPage && !isFetching) {
+                                  await fetchNextPage();
                                 }
                               }}
                               disabled={threadsLoading || isFetching}
                               className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                             >
-                              Load all emails
+                              Load all
                             </Button>
                             <Button
                               variant="outline"
@@ -847,7 +1001,7 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                               disabled={threadsLoading || isFetching}
                               className="text-gray-600 hover:text-gray-700"
                             >
-                              <RefreshCw className="h-3 w-3 mr-1" />
+                              <RefreshCw className={cn("h-3 w-3 mr-1", (threadsLoading || isFetching) && "animate-spin")} />
                               Refresh
                             </Button>
                           </div>
@@ -861,6 +1015,16 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                           <p className="text-xs text-gray-500">
                             Showing all {emailThreads.length} email{emailThreads.length === 1 ? '' : 's'} in {selectedFolder}
                           </p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => refetchThreads()}
+                            disabled={isFetching}
+                            className="mt-3"
+                          >
+                            <RefreshCw className={cn("h-3 w-3 mr-1", isFetching && "animate-spin")} />
+                            Refresh
+                          </Button>
                         </div>
                       ) : null}
                     </div>
@@ -881,30 +1045,58 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                         {threadMessages[0]?.subject || '(no subject)'}
                       </h2>
                       <div className="flex items-center gap-1">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <Star className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Star</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <Archive className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Archive</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Delete</TooltipContent>
-                        </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => {
+                              const message = threadMessages[0];
+                              if (message) {
+                                starMutation.mutate({ messageId: message.id, isStarred: !message.isStarred });
+                              }
+                            }}
+                            disabled={starMutation.isPending}
+                          >
+                            <Star className={cn("h-4 w-4", threadMessages[0]?.isStarred && "fill-yellow-400 text-yellow-400")} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{threadMessages[0]?.isStarred ? 'Unstar' : 'Star'}</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => {
+                              if (selectedThread) {
+                                archiveMutation.mutate({ threadId: selectedThread, isArchived: true });
+                              }
+                            }}
+                            disabled={archiveMutation.isPending}
+                          >
+                            <Archive className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Archive</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => {
+                              if (selectedThread && confirm('Delete this thread? This cannot be undone.')) {
+                                // Delete functionality to be implemented
+                                toast.info('Delete functionality coming soon');
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete</TooltipContent>
+                      </Tooltip>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm">
@@ -954,7 +1146,27 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                       {(threadMessagesLoading || threadMessagesFetching) ? (
                         <div className="p-8 text-center">
                           <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-blue-600" />
-                          <p className="text-sm text-slate-600 mt-2">Loading message...</p>
+                          <p className="text-sm text-slate-600 mt-2">Loading messages...</p>
+                        </div>
+                      ) : threadMessagesError ? (
+                        <div className="p-8 text-center">
+                          <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+                            <X className="h-8 w-8 text-red-600" />
+                          </div>
+                          <p className="text-sm text-red-600 font-medium mb-2">Failed to load messages</p>
+                          <p className="text-xs text-slate-500 mb-4">There was an error loading the messages</p>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads', selectedThread, 'messages'] })}
+                          >
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Try Again
+                          </Button>
+                        </div>
+                      ) : threadMessages.length === 0 ? (
+                        <div className="p-8 text-center">
+                          <p className="text-sm text-slate-600">No messages in this thread</p>
                         </div>
                       ) : threadMessages.map((message) => (
                         <Card key={message.id} className="border-l-4 border-l-blue-500 bg-white shadow-lg rounded-xl hover:shadow-xl transition-shadow">
