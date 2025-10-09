@@ -9,6 +9,7 @@ import { MultiAccountEmailService } from '../services/multiAccountEmailService';
 import { EmailSyncService } from '../services/emailSyncService';
 import { EmailSearchService } from '../services/emailSearchService';
 import { EmailDeliverabilityService } from '../services/emailDeliverabilityService';
+import { EmailRateLimiter } from '../services/emailRateLimiter';
 import multer from 'multer';
 import { 
   consultants,
@@ -1574,6 +1575,17 @@ router.post('/emails/validate-recipient', async (req, res) => {
   }
 });
 
+// Get email sending rate limits and usage
+router.get('/emails/rate-limits', async (req, res) => {
+  try {
+    const stats = EmailRateLimiter.getUsageStats(req.user!.id);
+    res.json(stats);
+  } catch (error) {
+    console.error('Error getting rate limits:', error);
+    res.status(500).json({ message: 'Failed to get rate limits' });
+  }
+});
+
 // Send email
 router.post('/emails/send', upload.array('attachments'), async (req, res) => {
   try {
@@ -1609,8 +1621,60 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
       });
     }
 
+    // Check rate limit FIRST to prevent spam behavior
+    const provider = sendingAccount?.provider || 'smtp';
+    const rateLimitCheck = EmailRateLimiter.canSendEmail(
+      req.user!.id, 
+      provider as 'gmail' | 'outlook' | 'smtp'
+    );
+
+    if (!rateLimitCheck.allowed) {
+      return res.status(429).json({
+        message: 'Rate limit exceeded',
+        error: rateLimitCheck.reason,
+        resetAt: rateLimitCheck.resetAt,
+        remaining: rateLimitCheck.remaining
+      });
+    }
+
+    // Check spam score before sending (CRITICAL - Prevent spam)
+    const fromEmail = sendingAccount?.emailAddress || req.user!.email;
+    const spamCheck = EmailDeliverabilityService.checkSpamScore(
+      subject || '',
+      htmlBody || '',
+      textBody || '',
+      fromEmail
+    );
+
+    // BLOCK sending if spam score is too high
+    if (spamCheck.score >= 7) {
+      return res.status(400).json({
+        message: 'Email blocked: High spam score detected',
+        spamScore: spamCheck.score,
+        issues: spamCheck.issues,
+        recommendations: spamCheck.recommendations,
+        error: 'Your email has a very high spam score and will likely be marked as spam. Please review and fix the issues before sending.'
+      });
+    }
+
+    // Warn if spam score is moderate
+    if (spamCheck.score >= 5) {
+      console.warn(`⚠️ Email has moderate spam score: ${spamCheck.score}/10`);
+      console.warn('Issues:', spamCheck.issues);
+    }
+
     // Sanitize HTML to prevent spam issues
     const sanitizedHtmlBody = EmailDeliverabilityService.sanitizeHtmlForEmail(htmlBody || '');
+
+    // Ensure plain text version exists (REQUIRED for deliverability)
+    const finalTextBody = textBody || sanitizedHtmlBody.replace(/<[^>]*>/g, '').trim();
+    
+    if (!finalTextBody || finalTextBody.length < 10) {
+      return res.status(400).json({
+        message: 'Email must have substantial text content (at least 10 characters)',
+        error: 'Add more content to your email to improve deliverability'
+      });
+    }
 
     // Handle attachments
     const files = req.files as Express.Multer.File[];
@@ -1666,7 +1730,7 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
       bccEmails,
       subject,
       htmlBody: sanitizedHtmlBody,
-      textBody,
+      textBody: finalTextBody,
       messageType: 'sent',
       sentAt: new Date(),
       createdBy: req.user!.id,
@@ -1695,7 +1759,7 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
         bcc: bccEmails,
         subject,
         htmlBody: sanitizedHtmlBody,
-        textBody,
+        textBody: finalTextBody,
         headers: recommendedHeaders,
         attachments: files?.map(file => ({
           filename: file.originalname,
@@ -1720,6 +1784,12 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
 
     if (sendResult.success) {
       console.log('✅ Email sent successfully');
+      
+      // Record email sent for rate limiting
+      EmailRateLimiter.recordEmailSent(
+        req.user!.id,
+        provider as 'gmail' | 'outlook' | 'smtp'
+      );
     } else {
       console.warn('⚠️ Email sending failed, but message saved:', sendResult.error);
     }

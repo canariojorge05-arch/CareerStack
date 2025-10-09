@@ -378,6 +378,76 @@ export class EmailDeliverabilityService {
   }
 
   /**
+   * Automatically optimize email content to reduce spam score
+   */
+  static optimizeEmailContent(subject: string, body: string): {
+    optimizedSubject: string;
+    optimizedBody: string;
+    changes: string[];
+  } {
+    const changes: string[] = [];
+    let optimizedSubject = subject;
+    let optimizedBody = body;
+
+    // Fix subject line
+    if (optimizedSubject) {
+      // Remove excessive exclamation marks (keep max 1)
+      const exclamationCount = (optimizedSubject.match(/!/g) || []).length;
+      if (exclamationCount > 1) {
+        optimizedSubject = optimizedSubject.replace(/!+/g, '!');
+        changes.push('Reduced excessive exclamation marks in subject');
+      }
+
+      // Convert all caps to title case
+      if (optimizedSubject === optimizedSubject.toUpperCase() && optimizedSubject.length > 3) {
+        optimizedSubject = optimizedSubject
+          .toLowerCase()
+          .split(' ')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+        changes.push('Converted all-caps subject to title case');
+      }
+
+      // Remove spam trigger words with alternatives
+      const replacements: Record<string, string> = {
+        'FREE!!!': 'Complimentary',
+        'FREE!!': 'Complimentary',
+        'FREE!': 'Complimentary',
+        'FREE': 'No cost',
+        'WINNER': 'Selected',
+        'CLICK HERE': 'Learn more',
+        'ACT NOW': 'Available today',
+        'LIMITED TIME': 'Available soon',
+        'URGENT': 'Important'
+      };
+
+      for (const [spam, alternative] of Object.entries(replacements)) {
+        if (optimizedSubject.toUpperCase().includes(spam)) {
+          optimizedSubject = optimizedSubject.replace(new RegExp(spam, 'gi'), alternative);
+          changes.push(`Replaced "${spam}" with "${alternative}"`);
+        }
+      }
+    }
+
+    // Fix body content
+    if (optimizedBody) {
+      // Remove excessive punctuation
+      optimizedBody = optimizedBody.replace(/!!!+/g, '!');
+      optimizedBody = optimizedBody.replace(/\?\?\?+/g, '?');
+      
+      if (optimizedBody !== body) {
+        changes.push('Removed excessive punctuation from body');
+      }
+    }
+
+    return {
+      optimizedSubject,
+      optimizedBody,
+      changes
+    };
+  }
+
+  /**
    * Validate recipient email address
    */
   static validateRecipientEmail(email: string): {

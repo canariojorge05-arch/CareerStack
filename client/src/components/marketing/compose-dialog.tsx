@@ -85,8 +85,20 @@ export default function ComposeDialog({
   const [spamScore, setSpamScore] = useState<number | null>(null);
   const [spamWarnings, setSpamWarnings] = useState<string[]>([]);
   const [checkingSpam, setCheckingSpam] = useState(false);
+  const [rateLimitError, setRateLimitError] = useState<string | null>(null);
   
   const queryClient = useQueryClient();
+
+  // Fetch rate limits
+  const { data: rateLimits } = useQuery<any>({
+    queryKey: ['/api/marketing/emails/rate-limits'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/marketing/emails/rate-limits');
+      if (!response.ok) return null;
+      return response.json();
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
 
   // Fetch email accounts
   const { data: emailAccounts = [] } = useQuery<EmailAccount[]>({
@@ -163,8 +175,18 @@ export default function ComposeDialog({
       setBody('');
       setAttachments([]);
     },
-    onError: (error) => {
-      toast.error('Failed to send email');
+    onError: (error: any) => {
+      const errorMessage = error?.message || 'Failed to send email';
+      
+      // Check if it's a rate limit error
+      if (errorMessage.includes('Rate limit') || errorMessage.includes('limit reached')) {
+        setRateLimitError(errorMessage);
+        toast.error('Rate limit exceeded. Please wait before sending more emails.', { duration: 5000 });
+      } else if (errorMessage.includes('spam score')) {
+        toast.error('Email blocked due to high spam score. Please review and fix the issues.', { duration: 5000 });
+      } else {
+        toast.error(errorMessage, { duration: 4000 });
+      }
       console.error('Send email error:', error);
     },
   });
@@ -488,6 +510,41 @@ export default function ComposeDialog({
 
             {/* Footer */}
             <div className="px-6 py-4 border-t bg-gray-50">
+              {/* Rate Limit Warning */}
+              {rateLimitError && (
+                <div className="mb-3 p-3 rounded-lg text-sm bg-orange-50 border border-orange-200">
+                  <div className="flex items-center gap-2">
+                    <div className="h-5 w-5 rounded-full bg-orange-600 text-white flex items-center justify-center flex-shrink-0">
+                      <X className="h-3 w-3" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-orange-700">Rate Limit Exceeded</p>
+                      <p className="text-xs text-orange-600 mt-1">{rateLimitError}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Rate Limit Info */}
+              {rateLimits && (
+                <div className="mb-3 p-2 rounded-lg text-xs bg-blue-50 border border-blue-200">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-blue-700 font-medium">📊 Email Usage</span>
+                    <span className="text-blue-600">
+                      🛡️ Spam Protection: Active
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-blue-600">
+                      Today: {rateLimits.daily.count}/{rateLimits.daily.limit}
+                    </span>
+                    <span className="text-blue-600">
+                      This hour: {rateLimits.hourly.count}/{rateLimits.hourly.limit}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Spam Score Indicator */}
               {spamScore !== null && (
                 <div className={cn(
