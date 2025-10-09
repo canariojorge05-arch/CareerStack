@@ -12,6 +12,7 @@ export interface EmailData {
   subject: string;
   htmlBody: string;
   textBody: string;
+  headers?: Record<string, string>;
   attachments?: Array<{
     filename: string;
     content: Buffer;
