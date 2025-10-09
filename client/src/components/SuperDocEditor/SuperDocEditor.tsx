@@ -67,33 +67,19 @@ export function SuperDocEditor({
         console.log('Editor export:', SuperDocModule.Editor);
         console.log('SuperEditor export:', SuperDocModule.SuperEditor);
         
-        // Check for different possible exports
-        const possibleConstructors = [
-          SuperDocModule.Editor,
-          SuperDocModule.SuperEditor,
-          SuperDocModule.default,
-          SuperDocModule.SuperDoc,
-          SuperDocModule
-        ];
+        // If the high-level SuperDoc API is available, prefer it
+        const SuperDocCtor = SuperDocModule.SuperDoc;
+        const hasSuperDoc = typeof SuperDocCtor === 'function';
         
-        console.log('Possible constructors:', possibleConstructors.map((c, i) => ({
-          index: i,
-          type: typeof c,
-          isFunction: typeof c === 'function',
-          hasPrototype: c && c.prototype,
-          constructor: c
-        })));
-        
-        // Find the correct constructor
-        const EditorConstructor = possibleConstructors.find(c => typeof c === 'function');
-        
-        if (!EditorConstructor) {
+        // Fallback constructor (lower-level editor APIs)
+        const EditorConstructor = (
+          SuperDocModule.SuperEditor ||
+          SuperDocModule.Editor ||
+          SuperDocModule.default
+        );
+        if (!hasSuperDoc && typeof EditorConstructor !== 'function') {
           throw new Error('No valid SuperDoc constructor found. Available exports: ' + Object.keys(SuperDocModule).join(', '));
         }
-        
-        console.log('Selected constructor:', EditorConstructor);
-        console.log('Constructor name:', EditorConstructor.name);
-        console.log('Constructor prototype methods:', Object.getOwnPropertyNames(EditorConstructor.prototype));
 
         // Suppress SuperDoc module manager warnings in development
         if (import.meta.env.DEV) {
@@ -121,24 +107,28 @@ export function SuperDocEditor({
         // Based on console analysis, use the correct SuperDoc API
         console.log('🚀 Using correct SuperDoc API based on prototype methods...');
         
-        // Try different approaches to get extensions
+        // Try different approaches to get extensions (starter set first)
         let extensions: any[] = [];
-        
-        // Approach 1: Use getRichTextExtensions function
-        if (SuperDocModule.getRichTextExtensions) {
+        try {
+          if (typeof SuperDocModule.getStarterExtensions === 'function') {
+            extensions = SuperDocModule.getStarterExtensions();
+            console.log('✅ Got extensions from getStarterExtensions');
+          }
+        } catch (e) {
+          console.log('❌ getStarterExtensions failed:', (e as Error).message);
+        }
+        if (extensions.length === 0 && typeof SuperDocModule.getRichTextExtensions === 'function') {
           try {
             extensions = SuperDocModule.getRichTextExtensions();
-            console.log('✅ Got extensions from getRichTextExtensions:', extensions);
+            console.log('✅ Got extensions from getRichTextExtensions');
           } catch (e) {
             console.log('❌ getRichTextExtensions failed:', (e as Error).message);
           }
         }
-        
-        // Approach 2: Use Extensions export directly
         if (extensions.length === 0 && SuperDocModule.Extensions) {
           try {
             extensions = SuperDocModule.Extensions;
-            console.log('✅ Got extensions from Extensions export:', extensions);
+            console.log('✅ Got extensions from Extensions export');
           } catch (e) {
             console.log('❌ Extensions export failed:', (e as Error).message);
           }
@@ -158,162 +148,88 @@ export function SuperDocEditor({
         
         let editorInstance: any;
         
-        // Try completely different approach - maybe SuperDoc needs specific setup
+        // Primary attempt: Use high-level SuperDoc API
         const initPatterns = [
-          // Pattern 1: Use BlankDOCX to create proper document structure
           async () => {
-            if (SuperDocModule.BlankDOCX) {
-              console.log('📄 Creating blank DOCX structure...');
-              const blankDoc = SuperDocModule.BlankDOCX();
-              const instance = new EditorConstructor({
-                element: editorRef.current!,
-                editable: true,
-                toolbar: true,
-                collaboration: false,
-                content: blankDoc
-              });
-              
-              // Load our document after proper initialization (authenticated)
-              try {
-                const blob = await fetchDocBlob();
-                if (instance.replaceFile) {
-                  await instance.replaceFile(blob);
-                } else if (instance.loadFile) {
-                  await instance.loadFile(blob);
-                }
-              } catch (e) {
-                console.warn('Failed to load DOCX into editor:', e);
-              }
-              return instance;
-            }
-            throw new Error('BlankDOCX not available');
-          },
-          
-          // Pattern 2: Initialize without element, then mount separately
-          async () => {
-            console.log('📄 Initializing without element...');
-            const instance = new EditorConstructor({
-              editable: true,
+            if (!hasSuperDoc) throw new Error('SuperDoc class not available');
+            // Ensure container has an ID
+            const editorId = editorRef.current!.id || `superdoc-editor-${Date.now()}`;
+            editorRef.current!.id = editorId;
+            const blob = await fetchDocBlob();
+            const fileObj = typeof SuperDocModule.getFileObject === 'function'
+              ? SuperDocModule.getFileObject(blob, fileName || 'document.docx')
+              : blob;
+            const instance = new SuperDocCtor({
+              selector: `#${editorId}`,
+              documents: [
+                { id: 'active-doc', type: 'docx', data: fileObj }
+              ],
               toolbar: true,
+              editable: true,
               collaboration: false
             });
-            
-            // Mount to element
-            if (instance.mount && editorRef.current) {
-              await instance.mount(editorRef.current);
-            }
-            
-            // Load document
-            try {
-              const blob = await fetchDocBlob();
-              if (instance.replaceFile) {
-                await instance.replaceFile(blob);
-              } else if (instance.loadFile) {
-                await instance.loadFile(blob);
-              }
-            } catch (e) {
-              console.warn('Failed to load DOCX into mounted editor:', e);
-            }
             return instance;
           },
-          
-          // Pattern 3: Use SuperDoc HTML conversion
+          // Initialize editor with extensions and file (lower-level API)
           async () => {
-            console.log('📄 Using SuperDoc HTML conversion...');
-            
-            if (SuperDocModule.HTML && editorRef.current) {
-              try {
-                // Fetch the DOCX file
-                const blob = await fetchDocBlob();
-                console.log('📄 Converting DOCX to HTML...');
-                
-                // Use SuperDoc to convert DOCX to HTML
-                const htmlContent = await SuperDocModule.HTML.fromDocx(blob);
-                
-                // Clear container and set HTML content
-                editorRef.current.innerHTML = '';
-                
-                // Create editable div with the HTML content
-                const editorDiv = document.createElement('div');
-                editorDiv.contentEditable = 'true';
-                editorDiv.style.width = '100%';
-                editorDiv.style.height = '100%';
-                editorDiv.style.padding = '20px';
-                editorDiv.style.border = '1px solid #ccc';
-                editorDiv.style.borderRadius = '4px';
-                editorDiv.style.backgroundColor = 'white';
-                editorDiv.style.fontFamily = 'Arial, sans-serif';
-                editorDiv.style.fontSize = '14px';
-                editorDiv.style.lineHeight = '1.5';
-                editorDiv.innerHTML = htmlContent;
-                
-                editorRef.current.appendChild(editorDiv);
-                
-                // Create editor interface
-                const htmlEditor = {
-                  element: editorRef.current,
-                  getContent: () => editorDiv.innerHTML,
-                  setContent: (html: string) => {
-                    editorDiv.innerHTML = html;
-                  },
-                  save: () => {
-                    console.log('Save requested - HTML content:', editorDiv.innerHTML);
-                    onSave?.(editorDiv.innerHTML);
-                  },
-                  export: async () => {
-                    try {
-                      // Convert HTML back to DOCX using SuperDoc
-                      if (SuperDocModule.DOCX && SuperDocModule.DOCX.fromHtml) {
-                        const docxBlob = await SuperDocModule.DOCX.fromHtml(editorDiv.innerHTML);
-                        onExport?.(docxBlob);
-                      } else {
-                        // Fallback: download original file
-                        const link = document.createElement('a');
-                        link.href = fileUrl;
-                        link.download = fileName || 'document.docx';
-                        link.click();
-                      }
-                    } catch (exportError) {
-                      console.warn('Export failed:', exportError);
-                      toast.error('Export failed');
-                    }
-                  },
-                  destroy: () => {
-                    if (editorRef.current) {
-                      editorRef.current.innerHTML = '';
-                    }
-                  }
-                };
-                
-                setIsLoading(false);
-                toast.success('Document converted and loaded');
-                return htmlEditor;
-                
-              } catch (conversionError) {
-                console.warn('HTML conversion failed:', (conversionError as Error).message);
-                throw conversionError;
-              }
-            }
-            
-            throw new Error('SuperDoc HTML conversion not available');
-          },
-          
-          // Pattern 4: Fetch document first, then initialize with content
-          async () => {
-            console.log('📄 Fetching document content first...');
             const blob = await fetchDocBlob();
             const instance = new EditorConstructor({
               element: editorRef.current!,
               editable: true,
               toolbar: true,
               collaboration: false,
+              extensions,
               file: blob
             });
-            
+            if (typeof instance.mount === 'function' && editorRef.current) {
+              await instance.mount(editorRef.current);
+            }
             return instance;
           },
-          
-          // Pattern 5: Simple document viewer fallback
+          // Alternative: mount first then load/replace file
+          async () => {
+            const instance = new EditorConstructor({
+              editable: true,
+              toolbar: true,
+              collaboration: false,
+              extensions
+            });
+            if (typeof instance.mount === 'function' && editorRef.current) {
+              await instance.mount(editorRef.current);
+            } else if (editorRef.current) {
+              // Some builds accept element at init only
+              try { instance.element = editorRef.current; } catch {}
+            }
+            const blob = await fetchDocBlob();
+            if (typeof instance.replaceFile === 'function') {
+              await instance.replaceFile(blob);
+            } else if (typeof instance.loadFile === 'function') {
+              await instance.loadFile(blob);
+            }
+            return instance;
+          },
+          // Use BlankDOCX as a safe bootstrap (string data URL)
+          async () => {
+            if (!SuperDocModule.BlankDOCX) throw new Error('BlankDOCX not available');
+            const response = await fetch(SuperDocModule.BlankDOCX);
+            const blankBlob = await response.blob();
+            const instance = new EditorConstructor({
+              element: editorRef.current!,
+              editable: true,
+              toolbar: true,
+              collaboration: false,
+              extensions,
+              file: blankBlob
+            });
+            const docBlob = await fetchDocBlob();
+            if (typeof instance.replaceFile === 'function') {
+              await instance.replaceFile(docBlob);
+            } else if (typeof instance.loadFile === 'function') {
+              await instance.loadFile(docBlob);
+            }
+            return instance;
+          },
+          // Simple document viewer fallback
           async () => {
             console.log('📄 Creating simple document viewer...');
             
@@ -374,13 +290,25 @@ export function SuperDocEditor({
                 const link = document.createElement('a');
                 link.href = fileUrl;
                 link.download = fileName || 'document.docx';
+                document.body.appendChild(link);
                 link.click();
+                document.body.removeChild(link);
               });
             }
             
             if (viewBtn) {
               viewBtn.addEventListener('click', () => {
-                window.open(fileUrl, '_blank');
+                // Try to open in new tab; many browsers will download DOCX instead
+                const newTab = window.open(fileUrl, '_blank');
+                if (!newTab) {
+                  // Popup blocked or download occurred — provide explicit download as fallback
+                  const link = document.createElement('a');
+                  link.href = fileUrl;
+                  link.download = fileName || 'document.docx';
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }
               });
             }
             
