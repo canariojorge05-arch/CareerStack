@@ -144,6 +144,15 @@ export function SuperDocEditor({
           }
         }
         
+        // Helper: authenticated fetch for protected DOCX route
+        const fetchDocBlob = async (): Promise<Blob> => {
+          const response = await fetch(fileUrl, { credentials: 'include' });
+          if (!response.ok) {
+            throw new Error(`Failed to fetch document (${response.status} ${response.statusText})`);
+          }
+          return await response.blob();
+        };
+
         // SuperDoc needs a document during initialization, not after mounting
         console.log('📄 Preparing to initialize SuperDoc with document:', fileUrl);
         
@@ -164,9 +173,16 @@ export function SuperDocEditor({
                 content: blankDoc
               });
               
-              // Load our document after proper initialization
-              if (instance.replaceFile) {
-                await instance.replaceFile(fileUrl);
+              // Load our document after proper initialization (authenticated)
+              try {
+                const blob = await fetchDocBlob();
+                if (instance.replaceFile) {
+                  await instance.replaceFile(blob);
+                } else if (instance.loadFile) {
+                  await instance.loadFile(blob);
+                }
+              } catch (e) {
+                console.warn('Failed to load DOCX into editor:', e);
               }
               return instance;
             }
@@ -188,8 +204,15 @@ export function SuperDocEditor({
             }
             
             // Load document
-            if (instance.replaceFile) {
-              await instance.replaceFile(fileUrl);
+            try {
+              const blob = await fetchDocBlob();
+              if (instance.replaceFile) {
+                await instance.replaceFile(blob);
+              } else if (instance.loadFile) {
+                await instance.loadFile(blob);
+              }
+            } catch (e) {
+              console.warn('Failed to load DOCX into mounted editor:', e);
             }
             return instance;
           },
@@ -201,12 +224,7 @@ export function SuperDocEditor({
             if (SuperDocModule.HTML && editorRef.current) {
               try {
                 // Fetch the DOCX file
-                const response = await fetch(fileUrl);
-                if (!response.ok) {
-                  throw new Error(`Failed to fetch document: ${response.status}`);
-                }
-                
-                const blob = await response.blob();
+                const blob = await fetchDocBlob();
                 console.log('📄 Converting DOCX to HTML...');
                 
                 // Use SuperDoc to convert DOCX to HTML
@@ -283,12 +301,7 @@ export function SuperDocEditor({
           // Pattern 4: Fetch document first, then initialize with content
           async () => {
             console.log('📄 Fetching document content first...');
-            const response = await fetch(fileUrl);
-            if (!response.ok) {
-              throw new Error(`Failed to fetch document: ${response.status}`);
-            }
-            
-            const blob = await response.blob();
+            const blob = await fetchDocBlob();
             const instance = new EditorConstructor({
               element: editorRef.current!,
               editable: true,
