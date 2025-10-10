@@ -18,7 +18,7 @@
 
 ## 🔧 **Key Components**
 
-### **SuperDocEditor** - Core Editor
+### **SuperDocEditor** - Core Editor (Full Editing Mode)
 ```typescript
 import { SuperDocEditor } from '@/components/SuperDocEditor';
 
@@ -30,6 +30,12 @@ import { SuperDocEditor } from '@/components/SuperDocEditor';
   height="600px"
 />
 ```
+
+**Features Enabled:**
+- ✅ Full Word-like toolbar with formatting options
+- ✅ Editing mode (not just viewing)
+- ✅ Page rulers and pagination
+- ✅ All Microsoft Word capabilities
 
 ### **SuperDocMultiEditor** - Multi-Resume Editor
 ```typescript
@@ -133,12 +139,27 @@ const handleExport = (file: Blob) => {
 
 ### **CSS Import**
 ```typescript
-import '@harbour-enterprises/superdoc/super-editor/style.css';
+import '@harbour-enterprises/superdoc/style.css';
 ```
 
 ### **Editor Import**
 ```typescript
-import { Editor } from '@harbour-enterprises/superdoc';
+import { SuperDoc } from '@harbour-enterprises/superdoc';
+```
+
+### **Full Editing Mode Configuration**
+```typescript
+const superdoc = new SuperDoc({
+  selector: '#editor-container',
+  toolbar: '#toolbar-container',  // ✨ Enable toolbar
+  document: fileObject,
+  documentMode: 'editing',          // ✨ Enable editing mode
+  pagination: true,                 // ✨ Enable page view
+  rulers: true,                     // ✨ Enable rulers
+  onReady: (event) => {
+    console.log('SuperDoc ready with full editing');
+  },
+});
 ```
 
 ### **File Headers**
@@ -149,13 +170,23 @@ res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
 
 ## 🐛 **Common Issues & Solutions**
 
-### **SuperDoc Not Loading**
+### **SuperDoc Not Loading or No Toolbar Visible**
 ```typescript
 // ✅ Correct CSS path
-import '@harbour-enterprises/superdoc/super-editor/style.css';
+import '@harbour-enterprises/superdoc/style.css';
 
 // ✅ Correct Editor import  
-import { Editor } from '@harbour-enterprises/superdoc';
+import { SuperDoc } from '@harbour-enterprises/superdoc';
+
+// ✅ Correct configuration with toolbar
+const superdoc = new SuperDoc({
+  selector: '#editor',
+  toolbar: '#toolbar',        // Must include toolbar selector
+  document: file,
+  documentMode: 'editing',    // Must set to 'editing' for full features
+  pagination: true,
+  rulers: true,
+});
 ```
 
 ### **Build Errors**

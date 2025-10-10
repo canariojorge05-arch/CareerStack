@@ -23,6 +23,7 @@ export function SuperDocEditor({
   height = '100vh'
 }: SuperDocEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [superdoc, setSuperdoc] = useState<any>(null);
@@ -48,8 +49,13 @@ export function SuperDocEditor({
         const { SuperDoc } = await import('@harbour-enterprises/superdoc');
 
         const editorId = `superdoc-${Date.now()}`;
+        const toolbarId = `superdoc-toolbar-${Date.now()}`;
+        
         if (editorRef.current) {
           editorRef.current.id = editorId;
+        }
+        if (toolbarRef.current) {
+          toolbarRef.current.id = toolbarId;
         }
 
         // Fetch the document
@@ -83,22 +89,23 @@ export function SuperDocEditor({
           toast.error('Document initialization timed out');
         }, 30000); // 30 second timeout
 
+        // Initialize SuperDoc with full editing mode and Word-like features
         const superdocInstance = new SuperDoc({
           selector: `#${editorId}`,
-          documents: [
-            {
-              id: 'main-document',
-              type: 'docx',
-              data: file, // Pass the File object directly
-            },
-          ],
-        });
-
-        superdocInstance.on('ready', () => {
-          clearTimeout(initTimeout);
-          console.log('SuperDoc ready');
-          setIsLoading(false);
-          toast.success('Document loaded successfully');
+          toolbar: `#${toolbarId}`, // Enable Word-like toolbar
+          document: file, // Pass the File object directly
+          documentMode: 'editing', // Enable full editing mode (not just viewing)
+          pagination: true, // Enable page view like Microsoft Word
+          rulers: true, // Enable rulers like Microsoft Word
+          onReady: (event: any) => {
+            clearTimeout(initTimeout);
+            console.log('SuperDoc ready with full editing mode:', event);
+            setIsLoading(false);
+            toast.success('Document loaded - Full editing enabled');
+          },
+          onEditorCreate: (event: any) => {
+            console.log('SuperDoc editor created:', event);
+          },
         });
 
         superdocInstance.on('error', (err: any) => {
@@ -133,6 +140,9 @@ export function SuperDocEditor({
 
       if (editorRef.current) {
         editorRef.current.innerHTML = '';
+      }
+      if (toolbarRef.current) {
+        toolbarRef.current.innerHTML = '';
       }
     };
   }, [fileUrl, fileName]);
@@ -195,24 +205,24 @@ export function SuperDocEditor({
   }
 
   return (
-    <div className={`relative ${className}`} style={{ height }}>
+    <div className={`relative flex flex-col ${className}`} style={{ height }}>
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
+        <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-50">
           <div className="text-center">
             <Loader2 className="h-8 w-8 animate-spin text-blue-500 mx-auto mb-4" />
-            <p className="text-gray-600">Loading document...</p>
+            <p className="text-gray-600">Loading document editor...</p>
           </div>
         </div>
       )}
       
-      {/* Toolbar */}
-      <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+      {/* Custom Action Bar - Save/Export buttons */}
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-gray-50 shrink-0">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 className="text-base font-semibold text-gray-900">
             {fileName || 'Document Editor'}
           </h2>
           {isLoading && (
-            <span className="text-sm text-gray-500">Loading...</span>
+            <span className="text-xs text-gray-500">Loading...</span>
           )}
         </div>
         
@@ -238,11 +248,17 @@ export function SuperDocEditor({
         </div>
       </div>
 
-      {/* Editor Container */}
+      {/* SuperDoc Toolbar - Word-like formatting ribbon with all editing tools */}
+      <div 
+        ref={toolbarRef}
+        className="superdoc-toolbar shrink-0 border-b bg-white"
+        style={{ minHeight: '48px' }}
+      />
+
+      {/* SuperDoc Editor Container - Main editing area */}
       <div 
         ref={editorRef} 
-        className="flex-1"
-        style={{ height: 'calc(100% - 80px)' }}
+        className="superdoc-editor flex-1 overflow-auto bg-gray-100"
       />
     </div>
   );
