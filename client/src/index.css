@@ -248,21 +248,55 @@
 .superdoc-editor {
   /* Main editor container styling */
   flex: 1;
-  overflow: auto;
+  overflow-y: auto; /* Allow vertical scrolling for multiple pages */
+  overflow-x: auto; /* Allow horizontal scrolling if needed */
   background: hsl(220 14% 96%);
+  position: relative;
 }
 
-/* Ensure SuperDoc content is properly displayed */
+/* Ensure SuperDoc content is properly displayed - Allow it to grow for multiple pages */
 .superdoc-editor > div {
-  height: 100%;
+  min-height: 100%; /* Minimum height, but can grow */
   width: 100%;
+  padding: 20px 0; /* Add vertical padding for better page spacing */
 }
 
-/* SuperDoc page view styling */
+/* SuperDoc page view styling - Each page should be visible */
 .superdoc-editor .page {
   background: white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   margin: 20px auto;
+  display: block; /* Ensure pages are displayed as blocks */
+}
+
+/* Make sure all pages are visible in the document */
+.superdoc-editor .ProseMirror {
+  min-height: auto !important;
+  height: auto !important;
+}
+
+/* Ensure page breaks are visible */
+.superdoc-editor .page-break {
+  display: block;
+  page-break-after: always;
+  break-after: page;
+}
+
+/* Ensure SuperDoc shows all document pages */
+.superdoc-editor [data-type="page"],
+.superdoc-editor .superdoc-page,
+.superdoc-editor .document-page {
+  display: block !important;
+  margin: 20px auto;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Make sure the document container allows scrolling through all pages */
+.superdoc-editor .superdoc-content,
+.superdoc-editor .editor-content {
+  height: auto !important;
+  min-height: 100%;
 }
 
 /* Dark mode support for SuperDoc */
@@ -275,7 +309,10 @@
   background: hsl(220 16% 12%);
 }
 
-.dark .superdoc-editor .page {
+.dark .superdoc-editor .page,
+.dark .superdoc-editor [data-type="page"],
+.dark .superdoc-editor .superdoc-page,
+.dark .superdoc-editor .document-page {
   background: hsl(220 14% 16%);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
