@@ -900,6 +900,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update DOCX file after editing
+  app.put('/api/resumes/:id/update-file', 
+    isAuthenticated, 
+    upload.single('file'), 
+    async (req: any, res) => {
+      try {
+        const { id } = req.params;
+        const userId = req.user.id;
+        const file = req.file;
+        
+        logRequest('PUT', `/api/resumes/${id}/update-file`, userId);
+
+        if (!file) {
+          return res.status(400).json({ message: 'No file provided' });
+        }
+
+        // Validate file size (50MB max)
+        const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+        if (file.size > MAX_FILE_SIZE) {
+          return res.status(400).json({ 
+            message: `File too large. Maximum size is 50MB. Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB` 
+          });
+        }
+
+        // Validate it's actually a DOCX file (ZIP signature: PK\x03\x04)
+        const isValidDOCX = file.buffer[0] === 0x50 && 
+                            file.buffer[1] === 0x4B && 
+                            file.buffer[2] === 0x03 && 
+                            file.buffer[3] === 0x04;
+        
+        if (!isValidDOCX) {
+          return res.status(400).json({ message: 'Invalid DOCX file format' });
+        }
+
+        // Get resume and validate ownership
+        const resume = await storage.getResumeById(id);
+        
+        if (!resume) {
+          return res.status(404).json({ message: 'Resume not found' });
+        }
+        
+        if (resume.userId !== userId) {
+          return res.status(403).json({ message: 'Access denied' });
+        }
+
+        // Create backup of current file (version history)
+        const backupDir = path.join(process.cwd(), 'uploads', 'backups');
+        await fsp.mkdir(backupDir, { recursive: true });
+        
+        if (resume.originalPath && existsSync(resume.originalPath)) {
+          try {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const backupPath = path.join(backupDir, `${id}-${timestamp}.docx`);
+            await fsp.copyFile(resume.originalPath, backupPath);
+            console.log(`✅ Backup created: ${backupPath}`);
+            
+            // Clean up old backups (keep only last 5)
+            const backupFiles = await fsp.readdir(backupDir);
+            const resumeBackups = backupFiles
+              .filter(f => f.startsWith(`${id}-`))
+              .sort()
+              .reverse();
+            
+            // Delete old backups beyond the 5 most recent
+            for (let i = 5; i < resumeBackups.length; i++) {
+              const oldBackupPath = path.join(backupDir, resumeBackups[i]);
+              await fsp.unlink(oldBackupPath);
+              console.log(`🗑️  Deleted old backup: ${oldBackupPath}`);
+            }
+          } catch (err) {
+            console.warn('Failed to create backup:', err);
+            // Continue anyway - backup failure shouldn't block save
+          }
+        }
+
+        // Write new file (replace original)
+        const filePath = resume.originalPath || path.join(process.cwd(), 'uploads', 'resumes', `${id}.docx`);
+        await fsp.writeFile(filePath, file.buffer);
+
+        // Update database
+        await storage.updateResumeStatus(id, 'customized');
+        
+        console.log(`✅ Updated DOCX file for resume: ${id} (${(file.size / 1024).toFixed(1)} KB)`);
+        
+        res.json({ 
+          message: 'Document saved successfully',
+          filePath: path.relative(process.cwd(), filePath),
+          size: file.size,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error('💥 Error updating resume file:', error);
+        res.status(500).json({ 
+          message: 'Failed to update document',
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+      }
+    }
+  );
+
   app.patch('/api/resumes/bulk/content', isAuthenticated, async (req: any, res) => {
     try {
       // Validate request body using Zod

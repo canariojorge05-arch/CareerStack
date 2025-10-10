@@ -95,6 +95,7 @@ export default function AdvancedResumeEditor({
         <SuperDocEditor
           fileUrl={fileUrl}
           fileName={resume.fileName || 'document.docx'}
+          resumeId={resume.id}
           onSave={handleSuperDocSave}
           onExport={handleSuperDocExport}
           height="600px"

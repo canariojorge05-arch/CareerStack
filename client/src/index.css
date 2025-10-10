@@ -234,3 +234,127 @@
   border-color: var(--primary);
   background-color: rgba(59, 130, 246, 0.05);
 }
+
+/* SuperDoc Editor Styles - Full Word-like editing */
+.superdoc-toolbar {
+  /* Flexible toolbar height for all formatting options */
+  min-height: 48px;
+  max-height: 120px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Smooth scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+.superdoc-toolbar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.superdoc-toolbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.superdoc-toolbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.superdoc-toolbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.superdoc-editor {
+  /* Main editor container styling */
+  flex: 1;
+  overflow-y: auto; /* Allow vertical scrolling for multiple pages */
+  overflow-x: auto; /* Allow horizontal scrolling if needed */
+  background: hsl(220 14% 96%);
+  position: relative;
+  transition: transform 0.2s ease-in-out; /* Smooth zoom transitions */
+}
+
+/* Smooth scrollbars for editor */
+.superdoc-editor::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.superdoc-editor::-webkit-scrollbar-track {
+  background: hsl(220 14% 96%);
+}
+
+.superdoc-editor::-webkit-scrollbar-thumb {
+  background: hsl(220 10% 70%);
+  border-radius: 6px;
+  border: 2px solid hsl(220 14% 96%);
+}
+
+.superdoc-editor::-webkit-scrollbar-thumb:hover {
+  background: hsl(220 10% 60%);
+}
+
+/* Ensure SuperDoc content is properly displayed - Allow it to grow for multiple pages */
+.superdoc-editor > div {
+  min-height: 100%; /* Minimum height, but can grow */
+  width: 100%;
+  padding: 20px 0; /* Add vertical padding for better page spacing */
+}
+
+/* SuperDoc page view styling - Each page should be visible */
+.superdoc-editor .page {
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin: 20px auto;
+  display: block; /* Ensure pages are displayed as blocks */
+}
+
+/* Make sure all pages are visible in the document */
+.superdoc-editor .ProseMirror {
+  min-height: auto !important;
+  height: auto !important;
+}
+
+/* Ensure page breaks are visible */
+.superdoc-editor .page-break {
+  display: block;
+  page-break-after: always;
+  break-after: page;
+}
+
+/* Ensure SuperDoc shows all document pages */
+.superdoc-editor [data-type="page"],
+.superdoc-editor .superdoc-page,
+.superdoc-editor .document-page {
+  display: block !important;
+  margin: 20px auto;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Make sure the document container allows scrolling through all pages */
+.superdoc-editor .superdoc-content,
+.superdoc-editor .editor-content {
+  height: auto !important;
+  min-height: 100%;
+}
+
+/* Dark mode support for SuperDoc */
+.dark .superdoc-toolbar {
+  background: var(--card);
+  border-color: var(--border);
+}
+
+.dark .superdoc-editor {
+  background: hsl(220 16% 12%);
+}
+
+.dark .superdoc-editor .page,
+.dark .superdoc-editor [data-type="page"],
+.dark .superdoc-editor .superdoc-page,
+.dark .superdoc-editor .document-page {
+  background: hsl(220 14% 16%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
