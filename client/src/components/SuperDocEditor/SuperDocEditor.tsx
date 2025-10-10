@@ -57,6 +57,7 @@ export function SuperDocEditor({
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showExport, setShowExport] = useState<boolean>(false);
   const [showFind, setShowFind] = useState<boolean>(false);
+  const [showReplace, setShowReplace] = useState<boolean>(false);
   const [findQuery, setFindQuery] = useState<string>('');
   const [findIndex, setFindIndex] = useState<number>(0);
   const [showTable, setShowTable] = useState<boolean>(false);
@@ -586,9 +587,19 @@ export function SuperDocEditor({
     }
   };
   useEffect(() => {
-    window.addEventListener('keydown', onKeyDownNav);
+    const onKeyShortcuts = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); setShowFind(true); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') { e.preventDefault(); setShowReplace(true); }
+      if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) { e.preventDefault(); zoomIn(); }
+      if ((e.ctrlKey || e.metaKey) && (e.key === '-' )) { e.preventDefault(); zoomOut(); }
+    };
+    window.addEventListener('keydown', onKeyNavWrapper);
+    window.addEventListener('keydown', onKeyShortcuts);
     return () => window.removeEventListener('keydown', onKeyDownNav);
   }, [currentPage]);
+
+  // wrapper maintains references
+  const onKeyNavWrapper = (e: KeyboardEvent) => onKeyDownNav(e);
 
   const zoomIn = () => setZoom(z => Math.min(3, Number((z + 0.1).toFixed(2))));
   const zoomOut = () => setZoom(z => Math.max(0.5, Number((z - 0.1).toFixed(2))));
@@ -724,6 +735,58 @@ export function SuperDocEditor({
     matches[i].el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
+  const replaceNext = (replacement: string) => {
+    const matches = getAllMatches(); if (!matches.length) return;
+    const i = findIndex >= 0 && findIndex < matches.length ? findIndex : 0;
+    const el = matches[i].el;
+    const re = new RegExp(findQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), '');
+    el.innerHTML = (el.innerHTML || '').replace(re, replacement);
+    gotoMatch(1);
+  };
+  const replaceAll = (replacement: string, caseSensitive: boolean, wholeWord: boolean) => {
+    if (!findQuery) return;
+    const root = editorRef.current; if (!root) return;
+    let q = findQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (wholeWord) q = `\\b${q}\\b`;
+    const flags = caseSensitive ? 'g' : 'gi';
+    const re = new RegExp(q, flags);
+    const prose = root.querySelector(proseSelector) as HTMLElement | null;
+    if (!prose) return;
+    prose.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6').forEach((n: any) => {
+      n.innerHTML = (n.innerHTML || '').replace(re, replacement);
+    });
+  };
+
+  // Footnotes
+  const insertFootnote = () => {
+    const note = prompt('Footnote text:'); if (!note) return;
+    const num = footnoteCount + 1; setFootnoteCount(num);
+    try {
+      document.execCommand('insertHTML', false, `<sup>[${num}]</sup>`);
+      const prose = editorRef.current?.querySelector(proseSelector) as HTMLElement | null;
+      if (prose) {
+        const div = document.createElement('div');
+        div.innerHTML = `<p><sup>[${num}]</sup> ${note}</p>`;
+        prose.appendChild(div);
+      }
+    } catch {}
+  };
+  const insertAnchor = () => {
+    const id = prompt('Anchor ID (letters/numbers only):'); if (!id) return;
+    const span = document.createElement('span'); span.id = id; span.style.display = 'inline-block'; span.style.width = '0'; span.style.height = '0';
+    const sel = document.getSelection(); if (!sel || !sel.rangeCount) return; const r = sel.getRangeAt(0); r.insertNode(span);
+  };
+  const insertCrossRef = () => {
+    const id = prompt('Cross-reference to Anchor ID:'); if (!id) return;
+    document.execCommand('insertHTML', false, `<a href="#${id}">${id}</a>`);
+  };
+
+  // Flatten fields before DOCX export (optional)
+  const flattenFields = () => {
+    const root = editorRef.current; if (!root) return;
+    root.querySelectorAll('.sd-editor-auto-page-number,.sd-editor-auto-total-pages').forEach((el: any) => { el.outerHTML = el.textContent || ''; });
+  };
+
   const handleSave = () => {
     if (editor) {
       editor.save();
@@ -840,6 +903,9 @@ export function SuperDocEditor({
           </Button>
           <Button variant="outline" size="sm" onClick={() => setShowFind(v => !v)}>
             <Search className="h-4 w-4 mr-1" /> Find
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowReplace(v => !v)}>
+            <Search className="h-4 w-4 mr-1 rotate-180" /> Replace
           </Button>
 
           <Button onClick={handleSave} disabled={isLoading || !editor} variant="outline" size="sm">
@@ -971,6 +1037,29 @@ export function SuperDocEditor({
           <input className="flex-1 border rounded px-2 py-1 text-sm" placeholder="Find…" value={findQuery} onChange={e => setFindQuery(e.target.value)} />
           <Button size="sm" variant="outline" onClick={() => gotoMatch(-1)}>Prev</Button>
           <Button size="sm" variant="outline" onClick={() => gotoMatch(1)}>Next</Button>
+        </div>
+      )}
+
+      {/* Replace panel */}
+      {showReplace && !distractionFree && (
+        <div className="absolute left-1/2 -translate-x-1/2 top-32 z-20 w-[28rem] max-w-full bg-white border rounded shadow p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2 items-center">
+            <input id="rep-with" className="border rounded px-2 py-1 text-sm col-span-2" placeholder="Replace with…" />
+            <label className="text-xs flex items-center gap-1"><input id="rep-case" type="checkbox" /> Case sensitive</label>
+            <label className="text-xs flex items-center gap-1"><input id="rep-word" type="checkbox" /> Whole word</label>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => {
+              const r = (document.getElementById('rep-with') as HTMLInputElement)?.value || '';
+              replaceNext(r);
+            }}>Replace next</Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              const r = (document.getElementById('rep-with') as HTMLInputElement)?.value || '';
+              const cs = (document.getElementById('rep-case') as HTMLInputElement)?.checked || false;
+              const ww = (document.getElementById('rep-word') as HTMLInputElement)?.checked || false;
+              replaceAll(r, cs, ww);
+            }}>Replace all</Button>
+          </div>
         </div>
       )}
 
