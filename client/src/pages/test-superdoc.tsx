@@ -3,7 +3,8 @@ import { SuperDocEditor } from '@/components/SuperDocEditor';
 
 export default function TestSuperDocPage() {
   // Test with a sample DOCX file URL
-  const testFileUrl = '/api/resumes/test/file'; // This would be a real resume ID
+  const testResumeId = 'test'; // This would be a real resume ID
+  const testFileUrl = `/api/resumes/${testResumeId}/file`;
 
   return (
     <div className="h-screen flex flex-col">
@@ -15,6 +16,7 @@ export default function TestSuperDocPage() {
         <SuperDocEditor
           fileUrl={testFileUrl}
           fileName="test-document.docx"
+          resumeId={testResumeId}
           onSave={(content) => console.log('Save:', content)}
           onExport={(file) => console.log('Export:', file)}
           height="100%"

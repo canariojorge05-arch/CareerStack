@@ -140,9 +140,9 @@ export default function ResumeEditor({
               <SuperDocEditor
                 fileUrl={fileUrl}
                 fileName={resume.fileName || 'document.docx'}
+                resumeId={resume.id}
                 onSave={handleSuperDocSave}
                 onExport={handleSuperDocExport}
-                onContentChange={handleContentChange}
                 height="100%"
                 className="border-0 rounded-none"
               />
