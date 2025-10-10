@@ -1134,6 +1134,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.warn('Failed to queue background DOCX processing job', e);
         }
 
+        // Cache small thumbnails placeholder entry (server-side pre-gen hook)
+        try {
+          const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+          const hash = (await import('crypto')).createHash('sha256').update(file.buffer).digest('hex');
+          await enhancedRedisService.set(`thumbs:${hash}`, { ready: false, pages: 0 }, { ttl: 86400, namespace: 'files' });
+        } catch {}
+
         const fileTime = Date.now() - fileStartTime;
         console.log(`⚡ File ${index + 1}/${files.length} done in ${fileTime}ms: ${file.originalname}`);
         
