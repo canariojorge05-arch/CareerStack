@@ -234,3 +234,48 @@
   border-color: var(--primary);
   background-color: rgba(59, 130, 246, 0.05);
 }
+
+/* SuperDoc Editor Styles - Full Word-like editing */
+.superdoc-toolbar {
+  /* Ensure toolbar is visible and properly styled */
+  min-height: 48px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.superdoc-editor {
+  /* Main editor container styling */
+  flex: 1;
+  overflow: auto;
+  background: hsl(220 14% 96%);
+}
+
+/* Ensure SuperDoc content is properly displayed */
+.superdoc-editor > div {
+  height: 100%;
+  width: 100%;
+}
+
+/* SuperDoc page view styling */
+.superdoc-editor .page {
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin: 20px auto;
+}
+
+/* Dark mode support for SuperDoc */
+.dark .superdoc-toolbar {
+  background: var(--card);
+  border-color: var(--border);
+}
+
+.dark .superdoc-editor {
+  background: hsl(220 16% 12%);
+}
+
+.dark .superdoc-editor .page {
+  background: hsl(220 14% 16%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
