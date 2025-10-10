@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
-import { Download, Save, AlertCircle, Loader2, ZoomIn, ZoomOut, Maximize2, Minimize2, List, Image as ImageIcon, Columns2, Type, ChevronDown, ChevronUp, Search } from 'lucide-react';
+import { Download, Save, AlertCircle, Loader2, ZoomIn, ZoomOut, Maximize2, Minimize2, List, Image as ImageIcon, Columns2, Type, ChevronDown, ChevronUp, Search, Settings, FilePlus2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 
 // Import SuperDoc styles
 import '@harbour-enterprises/superdoc/super-editor/style.css';
@@ -53,6 +54,11 @@ export function SuperDocEditor({
   const [charCount, setCharCount] = useState<number>(0);
   const [isAutoSaving, setIsAutoSaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [showExport, setShowExport] = useState<boolean>(false);
+  const [showFind, setShowFind] = useState<boolean>(false);
+  const [findQuery, setFindQuery] = useState<string>('');
+  const [findIndex, setFindIndex] = useState<number>(0);
 
   const pageSelector = '.pagination-inner';
   const proseSelector = '.ProseMirror';
@@ -600,6 +606,119 @@ export function SuperDocEditor({
     pages[idx]?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Settings: page setup and header/footer controls
+  const applyPageSize = (size: 'A4' | 'Letter') => {
+    try {
+      const active = (editor?.activeEditor) || editor;
+      const styles = active?.getPageStyles?.() || {};
+      const isA4 = size === 'A4';
+      const width = isA4 ? 595 : 612;
+      const height = isA4 ? 842 : 792;
+      active?.updatePageStyle?.({ pageSize: { width, height }, pageMargins: styles.pageMargins });
+      recomputeLayout();
+    } catch {}
+  };
+  const applyMargins = (top: number, right: number, bottom: number, left: number) => {
+    try {
+      const active = (editor?.activeEditor) || editor;
+      active?.updatePageStyle?.({ pageMargins: { top, right, bottom, left } });
+      recomputeLayout();
+    } catch {}
+  };
+  const toggleHeaderFooterEdit = () => {
+    const root = editorRef.current;
+    if (!root) return;
+    const prose = root.querySelector('.ProseMirror');
+    if (!prose) return;
+    prose.classList.toggle('header-footer-edit');
+  };
+  const insertPageBreak = () => {
+    try { document.execCommand('insertHTML', false, '<div style="page-break-after: always; height:1px;"></div>'); } catch {}
+  };
+  const insertAutoPageNumber = () => {
+    try { document.execCommand('insertHTML', false, '<span class="sd-editor-auto-page-number" data-id="auto-page-number">{page}</span>'); }
+    catch { document.execCommand('insertText', false, ' {page} '); }
+  };
+  const insertAutoTotalPages = () => {
+    try { document.execCommand('insertHTML', false, '<span class="sd-editor-auto-total-pages" data-id="auto-total-pages">{total}</span>'); }
+    catch { document.execCommand('insertText', false, ' {total} '); }
+  };
+  const insertDateTime = () => {
+    const s = new Date().toLocaleString();
+    try { document.execCommand('insertText', false, ` ${s} `); } catch {}
+  };
+
+  // Styles shortcuts
+  const applyHeading = (level: 1 | 2 | 3 | 0) => {
+    try {
+      if (level === 0) document.execCommand('formatBlock', false, 'p');
+      else document.execCommand('formatBlock', false, 'h' + level);
+      generateOutline();
+    } catch {}
+  };
+
+  // Image alt text
+  const setSelectedImageAlt = async () => {
+    const sel = document.getSelection();
+    if (!sel || !sel.anchorNode) return;
+    const el = (sel.anchorNode as HTMLElement).parentElement || null;
+    const img = el?.closest('img');
+    if (!img) { toast.info('Select near an image first'); return; }
+    const v = prompt('Alt text for image:', img.getAttribute('alt') || '');
+    if (v !== null) img.setAttribute('alt', v);
+  };
+
+  // Export: DOCX options & PDF
+  const exportDocxWithOptions = async (opts: { includeComments: boolean; acceptTracked: boolean }) => {
+    try {
+      const active = (editor?.activeEditor) || editor;
+      const blob = await active?.exportDocx?.({
+        isFinalDoc: opts.acceptTracked,
+        commentsType: opts.includeComments ? 'all' : 'none',
+      });
+      if (blob) {
+        const url = URL.createObjectURL(blob as Blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = (fileName || 'document') + '.docx'; a.click(); URL.revokeObjectURL(url);
+      } else {
+        toast.error('Export failed');
+      }
+    } catch (e) { toast.error('Export failed'); }
+  };
+  const exportPdfWithWatermark = async (watermark?: string) => {
+    try {
+      const pages = getPageEls(); if (!pages.length) return;
+      const pdf = new jsPDF('p', 'pt', 'a4');
+      for (let i = 0; i < pages.length; i++) {
+        const c = await html2canvas(pages[i], { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+        const img = c.toDataURL('image/jpeg', 0.95);
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        pdf.addImage(img, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
+        if (watermark) { pdf.setFontSize(48); pdf.setTextColor(150, 150, 150); pdf.text(watermark, pageWidth / 2, pageHeight / 2, { align: 'center', angle: 45 }); }
+        if (i < pages.length - 1) pdf.addPage();
+      }
+      pdf.save((fileName || 'document') + '.pdf');
+    } catch (e) { toast.error('PDF export failed'); }
+  };
+
+  // Find/Replace (basic)
+  const getAllMatches = (): Array<{ el: HTMLElement; start: number }> => {
+    const root = editorRef.current; if (!root || !findQuery) return [];
+    const prose = root.querySelector(proseSelector) as HTMLElement | null; if (!prose) return [];
+    const blocks = Array.from(prose.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6')) as HTMLElement[];
+    const q = findQuery.toLowerCase();
+    const res: Array<{ el: HTMLElement; start: number }> = [];
+    blocks.forEach(b => { const t = (b.textContent || '').toLowerCase(); const idx = t.indexOf(q); if (idx >= 0) res.push({ el: b, start: idx }); });
+    return res;
+  };
+  const gotoMatch = (dir: 1 | -1) => {
+    const matches = getAllMatches(); if (!matches.length) return;
+    let i = findIndex + dir; if (i < 0) i = matches.length - 1; if (i >= matches.length) i = 0;
+    setFindIndex(i);
+    matches[i].el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
   const handleSave = () => {
     if (editor) {
       editor.save();
@@ -699,6 +818,15 @@ export function SuperDocEditor({
           <Button variant="outline" size="sm" onClick={toggleDistractionFree}>
             {distractionFree ? <ChevronDown className="h-4 w-4 mr-1" /> : <ChevronUp className="h-4 w-4 mr-1" />} Focus
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowSettings(v => !v)}>
+            <Settings className="h-4 w-4 mr-1" /> Page setup
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowExport(v => !v)}>
+            <FilePlus2 className="h-4 w-4 mr-1" /> Export
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowFind(v => !v)}>
+            <Search className="h-4 w-4 mr-1" /> Find
+          </Button>
 
           <Button onClick={handleSave} disabled={isLoading || !editor} variant="outline" size="sm">
             <Save className="h-4 w-4 mr-2" /> Save
@@ -761,7 +889,74 @@ export function SuperDocEditor({
       {!distractionFree && (
         <div className="h-8 border-t bg-white px-3 flex items-center justify-between text-xs text-gray-600">
           <div>Page {currentPage} of {pageCount}</div>
-          <div>{wordCount.toLocaleString()} words • {charCount.toLocaleString()} chars</div>
+          <div className="flex items-center gap-3">
+            {isAutoSaving ? <span>Autosaving…</span> : lastSavedAt ? <span>Saved {lastSavedAt.toLocaleTimeString()}</span> : null}
+            <span>{wordCount.toLocaleString()} words • {charCount.toLocaleString()} chars</span>
+          </div>
+        </div>
+      )}
+
+      {/* Page setup panel */}
+      {showSettings && !distractionFree && (
+        <div className="absolute right-2 top-16 z-20 w-72 bg-white border rounded shadow p-3 space-y-2">
+          <div className="text-xs font-semibold text-gray-700">Page size</div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => applyPageSize('A4')}>A4</Button>
+            <Button size="sm" variant="outline" onClick={() => applyPageSize('Letter')}>Letter</Button>
+          </div>
+          <div className="text-xs font-semibold text-gray-700 mt-2">Margins (pt)</div>
+          <div className="grid grid-cols-4 gap-2">
+            {['Top','Right','Bottom','Left'].map((label, idx) => (
+              <input key={label} aria-label={`margin-${label.toLowerCase()}`} className="border rounded px-2 py-1 text-xs" placeholder={label} onBlur={(e) => {
+                const vals = ['Top','Right','Bottom','Left'].map(l => Number((document.querySelector(`[aria-label=margin-${l.toLowerCase()}]`) as HTMLInputElement)?.value || '72'));
+                applyMargins(vals[0], vals[1], vals[2], vals[3]);
+              }} />
+            ))}
+          </div>
+          <div className="text-xs font-semibold text-gray-700 mt-2">Header/Footer</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={toggleHeaderFooterEdit}>Toggle edit</Button>
+            <Button size="sm" variant="outline" onClick={insertAutoPageNumber}>Insert page #</Button>
+            <Button size="sm" variant="outline" onClick={insertAutoTotalPages}>Insert total pages</Button>
+            <Button size="sm" variant="outline" onClick={insertDateTime}>Insert date/time</Button>
+            <Button size="sm" variant="outline" onClick={insertPageBreak}>Insert page break</Button>
+          </div>
+          <div className="text-xs font-semibold text-gray-700 mt-2">Styles</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => applyHeading(1)}>H1</Button>
+            <Button size="sm" variant="outline" onClick={() => applyHeading(2)}>H2</Button>
+            <Button size="sm" variant="outline" onClick={() => applyHeading(3)}>H3</Button>
+            <Button size="sm" variant="outline" onClick={() => applyHeading(0)}>Paragraph</Button>
+          </div>
+          <div className="text-xs font-semibold text-gray-700 mt-2">Images</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={setSelectedImageAlt}>Set alt text</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Export panel */}
+      {showExport && !distractionFree && (
+        <div className="absolute right-2 top-16 z-20 w-72 bg-white border rounded shadow p-3 space-y-2">
+          <div className="text-xs font-semibold text-gray-700 mb-1">DOCX options</div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => exportDocxWithOptions({ includeComments: true, acceptTracked: false })}>DOCX (with comments)</Button>
+            <Button size="sm" variant="outline" onClick={() => exportDocxWithOptions({ includeComments: false, acceptTracked: true })}>DOCX (final)</Button>
+          </div>
+          <div className="text-xs font-semibold text-gray-700 mt-2">PDF export</div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => exportPdfWithWatermark()}>PDF</Button>
+            <Button size="sm" variant="outline" onClick={() => exportPdfWithWatermark('CONFIDENTIAL')}>PDF + Watermark</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Find panel */}
+      {showFind && !distractionFree && (
+        <div className="absolute left-1/2 -translate-x-1/2 top-16 z-20 w-96 max-w-full bg-white border rounded shadow p-3 flex items-center gap-2">
+          <input className="flex-1 border rounded px-2 py-1 text-sm" placeholder="Find…" value={findQuery} onChange={e => setFindQuery(e.target.value)} />
+          <Button size="sm" variant="outline" onClick={() => gotoMatch(-1)}>Prev</Button>
+          <Button size="sm" variant="outline" onClick={() => gotoMatch(1)}>Next</Button>
         </div>
       )}
     </div>
