@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
-import { Download, Save, AlertCircle, Loader2, ZoomIn, ZoomOut, Maximize2, Minimize2, List, Image as ImageIcon, Columns2, Type, ChevronDown, ChevronUp, Search, Settings, FilePlus2 } from 'lucide-react';
+import { Download, Save, AlertCircle, Loader2, ZoomIn, ZoomOut, Maximize2, Minimize2, List, Image as ImageIcon, Columns2, Type, ChevronDown, ChevronUp, Search, Settings, FilePlus2, Table as TableIcon } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
@@ -59,6 +59,7 @@ export function SuperDocEditor({
   const [showFind, setShowFind] = useState<boolean>(false);
   const [findQuery, setFindQuery] = useState<string>('');
   const [findIndex, setFindIndex] = useState<number>(0);
+  const [showTable, setShowTable] = useState<boolean>(false);
 
   const pageSelector = '.pagination-inner';
   const proseSelector = '.ProseMirror';
@@ -824,6 +825,9 @@ export function SuperDocEditor({
           <Button variant="outline" size="sm" onClick={() => setShowExport(v => !v)}>
             <FilePlus2 className="h-4 w-4 mr-1" /> Export
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowTable(v => !v)}>
+            <TableIcon className="h-4 w-4 mr-1" /> Table
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setShowFind(v => !v)}>
             <Search className="h-4 w-4 mr-1" /> Find
           </Button>
@@ -957,6 +961,57 @@ export function SuperDocEditor({
           <input className="flex-1 border rounded px-2 py-1 text-sm" placeholder="Find…" value={findQuery} onChange={e => setFindQuery(e.target.value)} />
           <Button size="sm" variant="outline" onClick={() => gotoMatch(-1)}>Prev</Button>
           <Button size="sm" variant="outline" onClick={() => gotoMatch(1)}>Next</Button>
+        </div>
+      )}
+
+      {/* Table panel */}
+      {showTable && !distractionFree && (
+        <div className="absolute right-2 top-16 z-20 w-80 bg-white border rounded shadow p-3 space-y-2">
+          <div className="text-xs font-semibold text-gray-700">Insert</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => document.execCommand('insertHTML', false, '<table border=1 style=\'border-collapse:collapse;width:100%\'><tr><th>Header</th><th>Header</th></tr><tr><td>Cell</td><td>Cell</td></tr></table>')}>Table 2x2</Button>
+          </div>
+          <div className="text-xs font-semibold text-gray-700 mt-2">Row</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => document.execCommand('insertHTML', false, '<tr><td>Cell</td><td>Cell</td></tr>')}>Add below</Button>
+          </div>
+          <div className="text-xs font-semibold text-gray-700 mt-2">Column</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => document.execCommand('insertHTML', false, '<td>Cell</td>')}>Add right</Button>
+          </div>
+          <div className="text-xs font-semibold text-gray-700 mt-2">Header row</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => {
+              const sel = document.getSelection();
+              const cell = sel?.anchorNode ? (sel.anchorNode as HTMLElement).closest('td,th') : null;
+              const row = cell?.closest('tr');
+              if (row) {
+                const headers = Array.from(row.children) as HTMLElement[];
+                headers.forEach(c => { c.outerHTML = `<th>${c.innerHTML}</th>`; });
+              }
+            }}>Make header</Button>
+          </div>
+          <div className="text-xs font-semibold text-gray-700 mt-2">Borders</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => {
+              const sel = document.getSelection();
+              const table = sel?.anchorNode ? (sel.anchorNode as HTMLElement).closest('table') as HTMLElement | null : null;
+              if (table) table.style.border = '1px solid #999';
+            }}>Outer</Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              const sel = document.getSelection();
+              const table = sel?.anchorNode ? (sel.anchorNode as HTMLElement).closest('table') as HTMLElement | null : null;
+              if (table) Array.from(table.querySelectorAll('td,th')).forEach((c: any) => c.style.border = '1px solid #ccc');
+            }}>Inner</Button>
+          </div>
+          <div className="text-xs font-semibold text-gray-700 mt-2">Shading</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => {
+              const sel = document.getSelection();
+              const cell = sel?.anchorNode ? (sel.anchorNode as HTMLElement).closest('td,th') as HTMLElement | null : null;
+              if (cell) cell.style.background = '#f3f4f6';
+            }}>Cell gray</Button>
+          </div>
         </div>
       )}
     </div>
