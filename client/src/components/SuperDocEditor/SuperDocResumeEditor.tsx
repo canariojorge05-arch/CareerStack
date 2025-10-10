@@ -147,6 +147,7 @@ export function SuperDocResumeEditor({
         <SuperDocEditor
           fileUrl={fileUrl}
           fileName={resume.fileName}
+          resumeId={resume.id as any}
           onSave={handleSuperDocSave}
           onExport={handleSuperDocExport}
           className="h-full w-full"

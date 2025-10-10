@@ -12,6 +12,7 @@ import '@harbour-enterprises/superdoc/super-editor/style.css';
 interface SuperDocEditorProps {
   fileUrl: string;
   fileName?: string;
+  resumeId?: string;
   onSave?: (content: any) => void;
   onExport?: (file: Blob) => void;
   className?: string;
@@ -27,6 +28,7 @@ declare global {
 export function SuperDocEditor({
   fileUrl,
   fileName,
+  resumeId,
   onSave,
   onExport,
   className = '',
@@ -567,6 +569,17 @@ export function SuperDocEditor({
       if (i >= limit) {
         setThumbnails(imgs);
         setIsGeneratingThumbs(false);
+        // upload to server for caching if resumeId is available
+        if (resumeId && imgs.length > 0) {
+          try {
+            await fetch(`/api/resumes/${resumeId}/thumbnails`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ images: imgs })
+            });
+          } catch {}
+        }
         return;
       }
       try {
