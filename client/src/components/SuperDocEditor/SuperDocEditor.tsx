@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
-import { Download, Save, AlertCircle, Loader2 } from 'lucide-react';
+import { Download, Save, AlertCircle, Loader2, ZoomIn, ZoomOut, Maximize2, Minimize2, List, Image as ImageIcon, Columns2, Type, ChevronDown, ChevronUp, Search } from 'lucide-react';
+import html2canvas from 'html2canvas';
 
 // Import SuperDoc styles
 import '@harbour-enterprises/superdoc/super-editor/style.css';
@@ -30,9 +31,29 @@ export function SuperDocEditor({
   height = '100vh'
 }: SuperDocEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<any>(null);
+  const [zoom, setZoom] = useState<number>(() => {
+    const stored = localStorage.getItem('docx_zoom');
+    return stored ? Number(stored) : 1;
+  });
+  const [fitMode, setFitMode] = useState<'none' | 'fitWidth' | 'fitPage'>(() => (localStorage.getItem('docx_fit') as any) || 'none');
+  const [showThumbnails, setShowThumbnails] = useState<boolean>(true);
+  const [showOutline, setShowOutline] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [distractionFree, setDistractionFree] = useState<boolean>(false);
+  const [pageCount, setPageCount] = useState<number>(0);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [thumbnails, setThumbnails] = useState<string[]>([]);
+  const [isGeneratingThumbs, setIsGeneratingThumbs] = useState<boolean>(false);
+  const [outline, setOutline] = useState<Array<{ level: number; text: string; top: number }>>([]);
+  const [wordCount, setWordCount] = useState<number>(0);
+  const [charCount, setCharCount] = useState<number>(0);
+
+  const pageSelector = '.pagination-inner';
+  const proseSelector = '.ProseMirror';
 
   useEffect(() => {
     const initializeEditor = async () => {
@@ -367,6 +388,11 @@ export function SuperDocEditor({
           editorInstance.on('ready', () => {
             setIsLoading(false);
             toast.success('Document loaded successfully');
+            setTimeout(() => {
+              recomputeLayout();
+              generateOutline();
+              generateThumbnailsLazy();
+            }, 100);
           });
 
           editorInstance.on('error', (err: any) => {
@@ -423,8 +449,154 @@ export function SuperDocEditor({
       if (editorRef.current) {
         editorRef.current.innerHTML = '';
       }
+      window.removeEventListener('keydown', onKeyDownNav);
     };
   }, [fileUrl, onSave, onExport]);
+
+  // Persist zoom/fit and bind events
+  useEffect(() => { localStorage.setItem('docx_zoom', String(zoom)); }, [zoom]);
+  useEffect(() => { localStorage.setItem('docx_fit', fitMode); }, [fitMode]);
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+  useEffect(() => {
+    const onScroll = () => updateCurrentPage();
+    const sc = scrollRef.current;
+    sc?.addEventListener('scroll', onScroll);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      sc?.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, []);
+
+  const getPageEls = (): HTMLElement[] => {
+    const root = editorRef.current;
+    if (!root) return [];
+    const pages = Array.from(root.querySelectorAll(pageSelector)) as HTMLElement[];
+    return pages.length ? pages : (root.querySelector(proseSelector) ? [root.querySelector(proseSelector)! as HTMLElement] : []);
+  };
+  const recomputeLayout = () => {
+    const pages = getPageEls();
+    setPageCount(pages.length || 1);
+    updateWordCharCounts();
+    updateCurrentPage();
+    if (fitMode !== 'none') fitToMode(fitMode as 'fitWidth' | 'fitPage');
+  };
+  const updateCurrentPage = () => {
+    const sc = scrollRef.current;
+    const pages = getPageEls();
+    if (!sc || !pages.length) return;
+    const viewMid = sc.scrollTop + sc.clientHeight / 2;
+    let idx = 0;
+    for (let i = 0; i < pages.length; i++) {
+      const el = pages[i];
+      const top = el.getBoundingClientRect().top + sc.scrollTop - (pages[0].getBoundingClientRect().top + sc.scrollTop);
+      const height = el.getBoundingClientRect().height;
+      if (viewMid >= top && viewMid <= top + height) { idx = i; break; }
+    }
+    setCurrentPage(idx + 1);
+  };
+  const updateWordCharCounts = () => {
+    const root = editorRef.current;
+    if (!root) return;
+    const prose = root.querySelector(proseSelector);
+    const text = (prose?.textContent || '').trim();
+    const words = text ? text.split(/\s+/).filter(Boolean).length : 0;
+    setWordCount(words);
+    setCharCount(text.length);
+  };
+  const generateOutline = () => {
+    const root = editorRef.current;
+    const sc = scrollRef.current;
+    if (!root || !sc) return;
+    const prose = root.querySelector(proseSelector) as HTMLElement | null;
+    if (!prose) { setOutline([]); return; }
+    const headingEls = Array.from(prose.querySelectorAll('h1, h2, h3, h4, h5, h6')) as HTMLElement[];
+    const baseTop = prose.getBoundingClientRect().top + sc.scrollTop;
+    const items = headingEls.map(h => ({
+      level: Number(h.tagName.substring(1)),
+      text: h.textContent || '(untitled)',
+      top: h.getBoundingClientRect().top + sc.scrollTop - baseTop
+    }));
+    setOutline(items);
+  };
+  const generateThumbnailsLazy = async () => {
+    if (isGeneratingThumbs) return;
+    setIsGeneratingThumbs(true);
+    try {
+      const pages = getPageEls();
+      const limit = Math.min(pages.length, 30);
+      const imgs: string[] = [];
+      for (let i = 0; i < limit; i++) {
+        const el = pages[i];
+        const canvas = await html2canvas(el, { scale: 0.2, useCORS: true, backgroundColor: '#ffffff' });
+        imgs.push(canvas.toDataURL('image/png'));
+      }
+      setThumbnails(imgs);
+    } catch (e) {
+      console.warn('Thumbnail generation failed', e);
+    } finally {
+      setIsGeneratingThumbs(false);
+    }
+  };
+  const fitToMode = (mode: 'fitWidth' | 'fitPage') => {
+    const sc = scrollRef.current;
+    const pages = getPageEls();
+    if (!sc || !pages.length) return;
+    const page = pages[0];
+    const pageRect = page.getBoundingClientRect();
+    const availW = sc.clientWidth - 24;
+    const availH = sc.clientHeight - 24;
+    if (mode === 'fitWidth') {
+      const k = availW / pageRect.width;
+      setZoom(Math.max(0.5, Math.min(k, 3)));
+    } else {
+      const k = Math.min(availW / pageRect.width, availH / pageRect.height);
+      setZoom(Math.max(0.5, Math.min(k, 3)));
+    }
+  };
+  const onKeyDownNav = (e: KeyboardEvent) => {
+    const pages = getPageEls();
+    const sc = scrollRef.current;
+    if (!pages.length || !sc) return;
+    if (e.key === 'PageDown' || (e.ctrlKey && e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const idx = Math.min(currentPage, pages.length - 1);
+      pages[idx].scrollIntoView({ behavior: 'smooth' });
+    } else if (e.key === 'PageUp' || (e.ctrlKey && e.key === 'ArrowUp')) {
+      e.preventDefault();
+      const idx = Math.max(0, currentPage - 2);
+      pages[idx].scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+  useEffect(() => {
+    window.addEventListener('keydown', onKeyDownNav);
+    return () => window.removeEventListener('keydown', onKeyDownNav);
+  }, [currentPage]);
+
+  const zoomIn = () => setZoom(z => Math.min(3, Number((z + 0.1).toFixed(2))));
+  const zoomOut = () => setZoom(z => Math.max(0.5, Number((z - 0.1).toFixed(2))));
+  const setFit = (mode: 'none' | 'fitWidth' | 'fitPage') => {
+    setFitMode(mode);
+    if (mode === 'none') return;
+    fitToMode(mode);
+  };
+  const requestFullscreen = () => {
+    const el = (scrollRef.current?.parentElement || document.documentElement) as any;
+    if (document.fullscreenElement) document.exitFullscreen();
+    else el.requestFullscreen?.();
+  };
+  const toggleDistractionFree = () => setDistractionFree(v => !v);
+  const gotoPage = () => {
+    const n = Number(prompt(`Go to page (1-${pageCount})`, String(currentPage)));
+    if (!Number.isFinite(n)) return;
+    const pages = getPageEls();
+    const idx = Math.max(1, Math.min(pageCount, Math.round(n))) - 1;
+    pages[idx]?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   const handleSave = () => {
     if (editor) {
@@ -469,9 +641,9 @@ export function SuperDocEditor({
       )}
       
       {/* Toolbar */}
-      <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+      <div className={`flex items-center justify-between p-2 md:p-3 border-b bg-gray-50 ${distractionFree ? 'hidden' : ''}` }>
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 className="text-sm md:text-lg font-semibold text-gray-900">
             {fileName || 'Document Editor'}
           </h2>
           {isLoading && (
@@ -479,34 +651,98 @@ export function SuperDocEditor({
           )}
         </div>
         
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={handleSave}
-            disabled={isLoading || !editor}
-            variant="outline"
-            size="sm"
-          >
-            <Save className="h-4 w-4 mr-2" />
-            Save
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Zoom controls */}
+          <div className="flex items-center gap-1 border rounded px-2 py-1 bg-white">
+            <Button variant="ghost" size="icon" onClick={() => setFit('fitWidth')} title="Fit width"><Columns2 className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="icon" onClick={() => setFit('fitPage')} title="Fit page"><Type className="h-4 w-4 rotate-90" /></Button>
+            <div className="w-px h-5 bg-gray-200 mx-1" />
+            <Button variant="ghost" size="icon" onClick={zoomOut} title="Zoom out"><ZoomOut className="h-4 w-4" /></Button>
+            <span className="text-xs w-12 text-center">{Math.round(zoom * 100)}%</span>
+            <Button variant="ghost" size="icon" onClick={zoomIn} title="Zoom in"><ZoomIn className="h-4 w-4" /></Button>
+          </div>
+
+          {/* Panels toggles */}
+          <Button variant="outline" size="sm" onClick={() => setShowThumbnails(v => !v)}>
+            <ImageIcon className="h-4 w-4 mr-1" /> Thumbnails
           </Button>
-          
-          <Button
-            onClick={handleExport}
-            disabled={isLoading || !editor}
-            size="sm"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Export DOCX
+          <Button variant="outline" size="sm" onClick={() => setShowOutline(v => !v)}>
+            <List className="h-4 w-4 mr-1" /> Outline
+          </Button>
+          <Button variant="outline" size="sm" onClick={gotoPage}>
+            <Search className="h-4 w-4 mr-1" /> Go to page
+          </Button>
+          <Button variant="outline" size="sm" onClick={requestFullscreen}>
+            {isFullscreen ? <Minimize2 className="h-4 w-4 mr-1" /> : <Maximize2 className="h-4 w-4 mr-1" />} {isFullscreen ? 'Exit Full' : 'Full screen'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={toggleDistractionFree}>
+            {distractionFree ? <ChevronDown className="h-4 w-4 mr-1" /> : <ChevronUp className="h-4 w-4 mr-1" />} Focus
+          </Button>
+
+          <Button onClick={handleSave} disabled={isLoading || !editor} variant="outline" size="sm">
+            <Save className="h-4 w-4 mr-2" /> Save
+          </Button>
+          <Button onClick={handleExport} disabled={isLoading || !editor} size="sm">
+            <Download className="h-4 w-4 mr-2" /> Export DOCX
           </Button>
         </div>
       </div>
 
-      {/* Editor Container */}
-      <div
-        ref={editorRef}
-        className="flex-1"
-        style={{ height: 'calc(100% - 80px)', width: '100%', maxWidth: '100%', overflow: 'hidden' }}
-      />
+      {/* Editor Layout */}
+      <div className="flex" style={{ height: 'calc(100% - 56px)' }}>
+        {showThumbnails && (
+          <div className="w-44 border-r bg-white overflow-auto p-2 hidden md:block">
+            <div className="text-xs text-gray-500 mb-2">Pages ({pageCount})</div>
+            <div className="space-y-2">
+              {thumbnails.length === 0 && <div className="text-xs text-gray-400">{isGeneratingThumbs ? 'Generating thumbnails…' : 'No thumbnails yet'}</div>}
+              {thumbnails.map((src, i) => (
+                <button key={i} className={`block w-full border ${currentPage === i + 1 ? 'ring-2 ring-blue-500' : 'border-gray-200'} rounded overflow-hidden`} onClick={() => {
+                  const pages = getPageEls();
+                  pages[i]?.scrollIntoView({ behavior: 'smooth' });
+                }}>
+                  <img src={src} alt={`Page ${i + 1}`} className="w-full block" />
+                  <div className="text-center text-[10px] py-1 text-gray-600">{i + 1}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div ref={scrollRef} className="flex-1 overflow-auto bg-gray-100">
+          <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
+            <div ref={editorRef} />
+          </div>
+        </div>
+
+        {showOutline && (
+          <div className="w-60 border-l bg-white overflow-auto p-2 hidden lg:block">
+            <div className="text-xs text-gray-500 mb-2">Outline</div>
+            <div className="space-y-1">
+              {outline.length === 0 && <div className="text-xs text-gray-400">No headings found</div>}
+              {outline.map((h, i) => (
+                <button key={i} className="block w-full text-left text-xs hover:bg-gray-50 rounded px-2 py-1" style={{ paddingLeft: `${(h.level - 1) * 10 + 8}px` }} onClick={() => {
+                  const sc = scrollRef.current;
+                  const pages = getPageEls();
+                  if (sc && pages.length) {
+                    const firstTop = pages[0].getBoundingClientRect().top + sc.scrollTop;
+                    sc.scrollTo({ top: firstTop + h.top - 20, behavior: 'smooth' });
+                  }
+                }}>
+                  {h.text}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Status bar */}
+      {!distractionFree && (
+        <div className="h-8 border-t bg-white px-3 flex items-center justify-between text-xs text-gray-600">
+          <div>Page {currentPage} of {pageCount}</div>
+          <div>{wordCount.toLocaleString()} words • {charCount.toLocaleString()} chars</div>
+        </div>
+      )}
     </div>
   );
 }
