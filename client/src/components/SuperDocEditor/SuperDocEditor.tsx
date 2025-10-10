@@ -4,6 +4,7 @@ import { Button } from '../ui/button';
 import { Download, Save, AlertCircle, Loader2, ZoomIn, ZoomOut, Maximize2, Minimize2, List, Image as ImageIcon, Columns2, Type, ChevronDown, ChevronUp, Search, Settings, FilePlus2, Table as TableIcon, MessageSquare, PenLine, BookMarked } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+// fallback to main-thread PDF if worker bundling fails
 
 // Import SuperDoc styles
 import '@harbour-enterprises/superdoc/super-editor/style.css';
@@ -728,6 +729,7 @@ export function SuperDocEditor({
   const exportPdfWithWatermark = async (watermark?: string) => {
     try {
       const pages = getPageEls(); if (!pages.length) return;
+      // Fallback main-thread PDF creation
       const pdf = new jsPDF('p', 'pt', 'a4');
       for (let i = 0; i < pages.length; i++) {
         const c = await html2canvas(pages[i], { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
