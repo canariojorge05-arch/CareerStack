@@ -554,23 +554,25 @@ export const registerBuiltInProcessors = () => {
       
       try {
         const fileBuffer = await fs.readFile(filePath);
-        
-        // Skip conversion - just mark as ready for SuperDoc editing
+        // Mark ready
         await storage.updateResumeStatus(resumeId, "ready");
-        
+        // Precompute first-page thumbnail placeholder (defer heavy image ops to client)
+        try {
+          const crypto = await import('crypto');
+          const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+          const { enhancedRedisService } = await import('../services/enhanced-redis-service');
+          // If not already present, store a marker so client knows server expects thumbnails
+          const existing = await enhancedRedisService.get(`thumbs:${hash}`, 'files');
+          if (!existing) {
+            await enhancedRedisService.set(`thumbs:${hash}`, { ready: false, pages: 0 }, { ttl: 86400, namespace: 'files' });
+          }
+        } catch {}
         console.log(`✅ Resume ${resumeId} marked as ready for SuperDoc editing`);
-        
         return {
           success: true,
-          result: {
-            message: 'Resume ready for SuperDoc editing',
-            resumeId,
-            userId,
-            fileSize: fileBuffer.length
-          },
+          result: { message: 'Resume ready for SuperDoc editing', resumeId, userId, fileSize: fileBuffer.length },
           processingTime: performance.now() - startTime
         };
-        
       } catch (fileError) {
         console.error(`Failed to read DOCX file for resume ${resumeId}:`, fileError);
         throw new Error(`Failed to read DOCX file: ${fileError instanceof Error ? fileError.message : 'Unknown error'}`);
