@@ -126,6 +126,9 @@ export default defineConfig({
         },
       },
     },
+    worker: {
+      format: 'es',
+    },
     chunkSizeWarningLimit: 1000,
   },
   server: {

@@ -408,6 +408,134 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Document metadata endpoint (pageCount placeholder, size)
+  app.get('/api/resumes/:id/metadata', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const resume = await storage.getResumeById(id);
+      if (!resume) return res.status(404).json({ message: 'Resume not found' });
+      if (resume.userId !== userId) return res.status(403).json({ message: 'Access denied' });
+      const filePath = path.resolve(process.cwd(), resume.originalPath!);
+      const fs = await import('fs/promises');
+      const stat = await fs.stat(filePath);
+      // Page count: computed client-side today; placeholder null
+      // Thumbnails placeholder lookup
+      const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+      const hash = (await import('crypto')).createHash('sha256').update(await (await import('fs/promises')).readFile(filePath)).digest('hex');
+      const thumbs = await enhancedRedisService.get(`thumbs:${hash}`, 'files');
+      res.json({ fileSize: stat.size, updatedAt: resume.updatedAt, pageCount: thumbs?.pages ?? null, thumbnailsReady: !!thumbs?.ready });
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to get metadata' });
+    }
+  });
+
+  // Thumbnails: upload client-generated thumbnails for caching
+  app.post('/api/resumes/:id/thumbnails', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const resume = await storage.getResumeById(id);
+      if (!resume) return res.status(404).json({ message: 'Resume not found' });
+      if (resume.userId !== userId) return res.status(403).json({ message: 'Access denied' });
+
+      const images: string[] = Array.isArray(req.body?.images) ? req.body.images.slice(0, 50) : [];
+      if (images.length === 0) return res.status(400).json({ message: 'images[] required (data URLs)' });
+
+      const filePath = path.resolve(process.cwd(), resume.originalPath!);
+      const fs = await import('fs/promises');
+      const crypto = await import('crypto');
+      const buf = await fs.readFile(filePath);
+      const hash = crypto.createHash('sha256').update(buf).digest('hex');
+
+      const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+      await enhancedRedisService.set(`thumbs:${hash}`, { ready: true, pages: images.length, images }, { ttl: 86400, namespace: 'files', compress: true });
+      res.json({ success: true, pages: images.length });
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to save thumbnails' });
+    }
+  });
+
+  // Thumbnails: get cached thumbnails
+  app.get('/api/resumes/:id/thumbnails', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const resume = await storage.getResumeById(id);
+      if (!resume) return res.status(404).json({ message: 'Resume not found' });
+      if (resume.userId !== userId) return res.status(403).json({ message: 'Access denied' });
+
+      const filePath = path.resolve(process.cwd(), resume.originalPath!);
+      const fs = await import('fs/promises');
+      const crypto = await import('crypto');
+      const buf = await fs.readFile(filePath);
+      const hash = crypto.createHash('sha256').update(buf).digest('hex');
+
+      const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+      let thumbs = await enhancedRedisService.get(`thumbs:${hash}`, 'files');
+      if (!thumbs) {
+        // Attempt lightweight server-side first-page preview
+        try {
+          const { generateDocxFirstPageThumbnail } = await import('./utils/docx-thumbnail');
+          const preview = await generateDocxFirstPageThumbnail(buf);
+          if (preview) {
+            thumbs = { ready: false, pages: 1, images: [preview] };
+            await enhancedRedisService.set(`thumbs:${hash}`, thumbs, { ttl: 86400, namespace: 'files', compress: true });
+          }
+        } catch {}
+      }
+      res.json(thumbs || { ready: false, pages: 0 });
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to get thumbnails' });
+    }
+  });
+
+  // Version history: save a snapshot to Redis
+  app.post('/api/resumes/:id/versions', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const { label, content } = req.body || {};
+      const resume = await storage.getResumeById(id);
+      if (!resume) return res.status(404).json({ message: 'Resume not found' });
+      if (resume.userId !== userId) return res.status(403).json({ message: 'Access denied' });
+
+      const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+      const key = `versions:${id}`;
+      const existing = (await enhancedRedisService.get(key, 'documents')) || [];
+      const snapshot = {
+        ts: new Date().toISOString(),
+        label: label || 'auto',
+        content: typeof content === 'string' ? content : (resume.customizedContent || ''),
+        fileName: resume.fileName
+      };
+      existing.unshift(snapshot);
+      const trimmed = existing.slice(0, 20);
+      await enhancedRedisService.set(key, trimmed, { ttl: 30 * 24 * 3600, namespace: 'documents', compress: true });
+      res.json({ success: true, count: trimmed.length });
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to save version' });
+    }
+  });
+
+  // Version history: list snapshots
+  app.get('/api/resumes/:id/versions', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const resume = await storage.getResumeById(id);
+      if (!resume) return res.status(404).json({ message: 'Resume not found' });
+      if (resume.userId !== userId) return res.status(403).json({ message: 'Access denied' });
+
+      const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+      const key = `versions:${id}`;
+      const list = (await enhancedRedisService.get(key, 'documents')) || [];
+      res.json(list.map((v: any) => ({ ts: v.ts, label: v.label, fileName: v.fileName, contentLen: (v.content || '').length, content: v.content })));
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to list versions' });
+    }
+  });
+
   app.get('/api/admin/errors/stats', isAuthenticated, (req: any, res) => {
     try {
       const stats = ErrorRecoveryService.getInstance().getStats();
@@ -849,8 +977,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Serve DOCX files for SuperDoc editor
-  app.get('/api/resumes/:id/file', isAuthenticated, async (req: any, res) => {
+  // Serve DOCX files for SuperDoc editor (with ETag/Last-Modified/Range/HEAD)
+  app.all('/api/resumes/:id/file', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -870,26 +998,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Original file not found" });
       }
       
-      const fs = await import('fs/promises');
-      const fsSync = await import('fs');
+      const fs = await import('fs');
+      const fsp = await import('fs/promises');
       const filePath = path.resolve(process.cwd(), resume.originalPath);
-      
-      // Check if file exists
-      try {
-        await fs.access(filePath);
-      } catch (error) {
-        return res.status(404).json({ message: "File not found on disk" });
-      }
-      
-      // Set appropriate headers for DOCX file
+
+      try { await fsp.access(filePath); } catch { return res.status(404).json({ message: 'File not found on disk' }); }
+
+      const stat = await fsp.stat(filePath);
+      const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
+      const lastModified = stat.mtime.toUTCString();
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `inline; filename="${resume.fileName}"`);
       res.setHeader('Cache-Control', 'private, max-age=3600');
-      
-      // Stream the file
-      const fileStream = fsSync.createReadStream(filePath);
-      fileStream.pipe(res);
-      
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('ETag', etag);
+      res.setHeader('Last-Modified', lastModified);
+
+      if (req.method === 'HEAD') {
+        return res.status(200).end();
+      }
+
+      const ifNoneMatch = req.headers['if-none-match'];
+      if (ifNoneMatch && ifNoneMatch === etag) {
+        return res.status(304).end();
+      }
+
+      const range = req.headers.range as string | undefined;
+      if (range) {
+        const match = range.match(/bytes=(\d*)-(\d*)/);
+        if (!match) return res.status(416).end();
+        const start = match[1] ? parseInt(match[1], 10) : 0;
+        const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
+        if (start >= stat.size || end >= stat.size) return res.status(416).end();
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+        res.setHeader('Content-Length', String(end - start + 1));
+        fs.createReadStream(filePath, { start, end }).pipe(res);
+        console.log(`📁 Served DOCX (range) for resume ${id}`);
+        return;
+      }
+
+      res.setHeader('Content-Length', String(stat.size));
+      fs.createReadStream(filePath).pipe(res);
       console.log(`📁 Served DOCX file for resume ${id}`);
     } catch (error) {
       console.error("Error serving resume file:", error);
@@ -1192,6 +1343,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (e) {
           console.warn('Failed to queue background DOCX processing job', e);
         }
+
+        // Cache small thumbnails placeholder entry (server-side pre-gen hook)
+        try {
+          const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+          const hash = (await import('crypto')).createHash('sha256').update(file.buffer).digest('hex');
+          await enhancedRedisService.set(`thumbs:${hash}`, { ready: false, pages: 0 }, { ttl: 86400, namespace: 'files' });
+        } catch {}
 
         const fileTime = Date.now() - fileStartTime;
         console.log(`⚡ File ${index + 1}/${files.length} done in ${fileTime}ms: ${file.originalname}`);
