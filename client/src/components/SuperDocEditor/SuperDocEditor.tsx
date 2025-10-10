@@ -458,7 +458,7 @@ export function SuperDocEditor({
   }
 
   return (
-    <div className={`relative ${className}`} style={{ height }}>
+    <div className={`relative ${className}`} style={{ height, width: '100vw', maxWidth: '100%', overflow: 'hidden' }}>
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
           <div className="text-center">
@@ -502,10 +502,10 @@ export function SuperDocEditor({
       </div>
 
       {/* Editor Container */}
-      <div 
-        ref={editorRef} 
+      <div
+        ref={editorRef}
         className="flex-1"
-        style={{ height: 'calc(100% - 80px)' }}
+        style={{ height: 'calc(100% - 80px)', width: '100%', maxWidth: '100%', overflow: 'hidden' }}
       />
     </div>
   );
