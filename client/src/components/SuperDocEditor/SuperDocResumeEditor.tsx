@@ -67,7 +67,7 @@ export function SuperDocResumeEditor({
   }
 
   return (
-    <Card className={`h-full flex flex-col ${className}`}>
+    <Card className={`h-full flex flex-col ${className}`} style={{ height: '100vh', width: '100vw', maxWidth: '100%', overflow: 'hidden' }}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -81,15 +81,15 @@ export function SuperDocResumeEditor({
         </div>
       </CardHeader>
 
-      <CardContent className="flex-1 p-0">
+      <CardContent className="flex-1 p-0" style={{ height: '100%', width: '100%', maxWidth: '100%' }}>
         <SuperDocEditor
           fileUrl={fileUrl}
           fileName={resume.fileName}
           resumeId={resume.id}
           onSave={handleSuperDocSave}
           onExport={handleSuperDocExport}
-          className="h-full"
-          height="100%"
+          className="h-full w-full"
+          height="100vh"
         />
       </CardContent>
     </Card>
