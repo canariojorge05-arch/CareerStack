@@ -1,7 +1,27 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
-import { Download, Save, AlertCircle, Loader2 } from 'lucide-react';
+import { 
+  Download, 
+  Save, 
+  AlertCircle, 
+  Loader2, 
+  Maximize2, 
+  Minimize2, 
+  ZoomIn, 
+  ZoomOut, 
+  Undo2, 
+  Redo2,
+  FileText,
+  Check
+} from 'lucide-react';
+import { 
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../ui/tooltip';
+import { Badge } from '../ui/badge';
 
 import '@harbour-enterprises/superdoc/style.css';
 
@@ -24,9 +44,102 @@ export function SuperDocEditor({
 }: SuperDocEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [superdoc, setSuperdoc] = useState<any>(null);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // New features state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [zoom, setZoom] = useState(100);
+  const [pageCount, setPageCount] = useState(0);
+  const [wordCount, setWordCount] = useState(0);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+S or Cmd+S to save
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (hasChanges && !isSaving) {
+          handleSave();
+        }
+      }
+      // F11 for fullscreen
+      if (e.key === 'F11') {
+        e.preventDefault();
+        toggleFullscreen();
+      }
+      // Ctrl+Plus/Minus for zoom
+      if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) {
+        e.preventDefault();
+        handleZoomIn();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === '-' || e.key === '_')) {
+        e.preventDefault();
+        handleZoomOut();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [hasChanges, isSaving, zoom]);
+
+  // Auto-save functionality
+  useEffect(() => {
+    if (hasChanges && !isSaving) {
+      const autoSaveTimer = setTimeout(() => {
+        handleSave();
+      }, 5000); // Auto-save after 5 seconds
+
+      return () => clearTimeout(autoSaveTimer);
+    }
+  }, [hasChanges, isSaving]);
+
+  // Fullscreen mode
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch((err) => {
+        console.error('Error entering fullscreen:', err);
+        toast.error('Could not enter fullscreen mode');
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+      }).catch((err) => {
+        console.error('Error exiting fullscreen:', err);
+      });
+    }
+  }, []);
+
+  // Zoom controls
+  const handleZoomIn = useCallback(() => {
+    setZoom(prev => Math.min(prev + 10, 200));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom(prev => Math.max(prev - 10, 50));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setZoom(100);
+  }, []);
+
+  // Apply zoom to editor
+  useEffect(() => {
+    if (editorRef.current) {
+      editorRef.current.style.transform = `scale(${zoom / 100})`;
+      editorRef.current.style.transformOrigin = 'top center';
+    }
+  }, [zoom]);
 
   useEffect(() => {
     const initializeEditor = async () => {
@@ -76,7 +189,7 @@ export function SuperDocEditor({
         const fileType = blob.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
         const properBlob = new Blob([blob], { type: fileType });
 
-        // Create a File object instead of using getFileObject
+        // Create a File object
         const file = new File([properBlob], fileName || 'document.docx', { 
           type: fileType,
           lastModified: Date.now()
@@ -86,32 +199,56 @@ export function SuperDocEditor({
         const initTimeout = setTimeout(() => {
           setError('Document initialization timed out');
           setIsLoading(false);
-          toast.error('Document initialization timed out');
+          toast.error('Document initialization timed out. Please try again.', {
+            duration: 5000,
+          });
         }, 30000); // 30 second timeout
 
-        // Initialize SuperDoc with full editing mode and Word-like features
+        // Initialize SuperDoc with full editing mode
         const superdocInstance = new SuperDoc({
           selector: `#${editorId}`,
-          toolbar: `#${toolbarId}`, // Enable Word-like toolbar (if supported)
-          documents: [ // Use documents array (official API)
+          toolbar: `#${toolbarId}`,
+          documents: [
             {
               id: 'main-document',
               type: 'docx',
-              data: file, // Pass the File object
+              data: file,
             },
           ],
-          documentMode: 'editing', // Enable full editing mode (if supported)
-          pagination: true, // Enable page view like Microsoft Word (if supported)
-          rulers: true, // Enable rulers like Microsoft Word (if supported)
+          documentMode: 'editing',
+          pagination: true,
+          rulers: true,
           onReady: (event: any) => {
             clearTimeout(initTimeout);
             console.log('SuperDoc ready with full editing mode:', event);
             setIsLoading(false);
-            toast.success('Document loaded - Full editing enabled');
+            
+            // Extract document info
+            try {
+              // Estimate page count and word count (simplified)
+              const content = event?.content || '';
+              const estimatedPages = Math.ceil(content.length / 3000) || 1;
+              const estimatedWords = content.split(/\s+/).filter(Boolean).length || 0;
+              
+              setPageCount(estimatedPages);
+              setWordCount(estimatedWords);
+            } catch (e) {
+              console.warn('Could not extract document info:', e);
+            }
+
+            toast.success(`${fileName || 'Document'} loaded successfully`, {
+              description: 'Full editing mode enabled with all Word features',
+              duration: 3000,
+            });
           },
           onEditorCreate: (event: any) => {
             console.log('SuperDoc editor created:', event);
           },
+        });
+
+        // Listen for content changes
+        superdocInstance.on('update', () => {
+          setHasChanges(true);
         });
 
         superdocInstance.on('error', (err: any) => {
@@ -119,7 +256,10 @@ export function SuperDocEditor({
           console.error('SuperDoc error:', err);
           setError(err?.message || 'Failed to load document');
           setIsLoading(false);
-          toast.error('Failed to load document');
+          toast.error('Failed to load document', {
+            description: err?.message || 'An unexpected error occurred',
+            duration: 5000,
+          });
         });
 
         setSuperdoc(superdocInstance);
@@ -129,7 +269,10 @@ export function SuperDocEditor({
         console.error('SuperDoc initialization error:', err);
         setError(errorMessage);
         setIsLoading(false);
-        toast.error(errorMessage);
+        toast.error('Failed to initialize editor', {
+          description: errorMessage,
+          duration: 5000,
+        });
       }
     };
 
@@ -154,15 +297,30 @@ export function SuperDocEditor({
   }, [fileUrl, fileName]);
 
   const handleSave = async () => {
-    if (!superdoc) return;
+    if (!superdoc || !hasChanges) return;
 
+    setIsSaving(true);
     try {
       const content = superdoc.state;
       onSave?.(content);
-      toast.success('Document saved');
+      setHasChanges(false);
+      setLastSaved(new Date());
+      toast.success(`${fileName || 'Document'} saved successfully`, {
+        description: `Last saved at ${new Date().toLocaleTimeString()}`,
+        duration: 3000,
+      });
     } catch (err) {
       console.error('Save error:', err);
-      toast.error('Failed to save document');
+      toast.error('Failed to save document', {
+        description: 'Please check your connection and try again',
+        action: {
+          label: 'Retry',
+          onClick: () => handleSave(),
+        },
+        duration: 5000,
+      });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -170,6 +328,8 @@ export function SuperDocEditor({
     if (!superdoc) return;
 
     try {
+      toast.loading('Preparing document for export...', { id: 'export' });
+      
       const exportedBlob = await superdoc.export();
 
       if (exportedBlob) {
@@ -183,90 +343,340 @@ export function SuperDocEditor({
         URL.revokeObjectURL(url);
 
         onExport?.(exportedBlob);
-        toast.success('Document exported successfully');
+        
+        toast.success('Document exported successfully', {
+          id: 'export',
+          description: `Downloaded as ${fileName || 'document.docx'}`,
+          duration: 3000,
+        });
       }
     } catch (err) {
       console.error('Export error:', err);
-      toast.error('Failed to export document');
+      toast.error('Failed to export document', {
+        id: 'export',
+        description: 'An error occurred during export',
+        duration: 5000,
+      });
     }
   };
 
+  // Placeholder undo/redo (SuperDoc handles this internally)
+  const handleUndo = () => {
+    if (superdoc && typeof superdoc.undo === 'function') {
+      superdoc.undo();
+    } else {
+      document.execCommand('undo');
+    }
+  };
+
+  const handleRedo = () => {
+    if (superdoc && typeof superdoc.redo === 'function') {
+      superdoc.redo();
+    } else {
+      document.execCommand('redo');
+    }
+  };
 
   if (error) {
     return (
       <div className={`flex items-center justify-center p-8 ${className}`} style={{ height }}>
-        <div className="text-center">
-          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Failed to Load Document</h3>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <Button 
-            onClick={() => window.location.reload()} 
-            variant="outline"
-          >
-            Reload Page
-          </Button>
+        <div className="text-center max-w-md">
+          <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">Failed to Load Document</h3>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <div className="flex gap-2 justify-center">
+            <Button 
+              onClick={() => window.location.reload()} 
+              variant="outline"
+            >
+              Reload Page
+            </Button>
+            <Button onClick={() => setError(null)}>
+              Try Again
+            </Button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`relative flex flex-col ${className}`} style={{ height }}>
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-50">
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-500 mx-auto mb-4" />
-            <p className="text-gray-600">Loading document editor...</p>
+    <TooltipProvider>
+      <div 
+        ref={containerRef}
+        className={`relative flex flex-col ${className} ${isFullscreen ? 'fixed inset-0 z-50 bg-white' : ''}`} 
+        style={!isFullscreen ? { height } : undefined}
+      >
+        {isLoading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/95 backdrop-blur-sm z-50">
+            <div className="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full">
+              <Loader2 className="h-12 w-12 animate-spin text-blue-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2 text-center">
+                Loading Document
+              </h3>
+              <p className="text-sm text-gray-600 mb-4 text-center">
+                Preparing your document for editing...
+              </p>
+              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '70%' }}></div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Enhanced Action Bar with Visual Hierarchy */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b-2 border-blue-500 bg-gradient-to-r from-white via-blue-50 to-white shadow-sm shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:block w-1 h-10 bg-blue-500 rounded-full"></div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-blue-600" />
+                <h2 className="text-base sm:text-lg font-bold text-gray-900">
+                  {fileName || 'Document Editor'}
+                </h2>
+              </div>
+              {/* Document Info */}
+              <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                <span>DOCX Document</span>
+                {pageCount > 0 && (
+                  <>
+                    <span>•</span>
+                    <span>{pageCount} {pageCount === 1 ? 'page' : 'pages'}</span>
+                  </>
+                )}
+                {wordCount > 0 && (
+                  <>
+                    <span className="hidden sm:inline">•</span>
+                    <span className="hidden sm:inline">{wordCount.toLocaleString()} words</span>
+                  </>
+                )}
+              </div>
+            </div>
+            
+            {/* Status Badges */}
+            {isLoading && (
+              <Badge variant="outline" className="animate-pulse ml-2">
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                Loading...
+              </Badge>
+            )}
+            {hasChanges && !isLoading && (
+              <Badge variant="outline" className="text-orange-600 border-orange-300 ml-2">
+                Unsaved changes
+              </Badge>
+            )}
+            {!hasChanges && lastSaved && !isLoading && (
+              <Badge variant="outline" className="text-green-600 border-green-300 ml-2">
+                <Check className="h-3 w-3 mr-1" />
+                Saved
+              </Badge>
+            )}
+          </div>
+          
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* Undo/Redo */}
+            <div className="hidden md:flex items-center gap-1 mr-2 pr-2 border-r">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={handleUndo}
+                    disabled={isLoading}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Undo2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Undo (Ctrl+Z)</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={handleRedo}
+                    disabled={isLoading}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Redo2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Redo (Ctrl+Y)</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            {/* Zoom Controls */}
+            <div className="hidden lg:flex items-center gap-1 mr-2 pr-2 border-r">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={handleZoomOut}
+                    disabled={zoom <= 50}
+                    className="h-8 w-8 p-0"
+                  >
+                    <ZoomOut className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Zoom Out (Ctrl+-)</p>
+                </TooltipContent>
+              </Tooltip>
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={handleZoomReset}
+                className="text-xs min-w-[3rem] h-8"
+              >
+                {zoom}%
+              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={handleZoomIn}
+                    disabled={zoom >= 200}
+                    className="h-8 w-8 p-0"
+                  >
+                    <ZoomIn className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Zoom In (Ctrl++)</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            {/* Save Button with State */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={handleSave}
+                  disabled={isLoading || !superdoc || !hasChanges || isSaving}
+                  variant={hasChanges ? "default" : "outline"}
+                  size="sm"
+                  className={`${hasChanges ? 'bg-green-600 hover:bg-green-700 text-white' : ''} hidden sm:flex`}
+                >
+                  {isSaving ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4 sm:mr-2" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {isSaving ? 'Saving...' : hasChanges ? 'Save Changes' : 'Saved'}
+                  </span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Save document (Ctrl+S)</p>
+                {lastSaved && <p className="text-xs text-gray-400">Last saved: {lastSaved.toLocaleTimeString()}</p>}
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Mobile Save Button */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={handleSave}
+                  disabled={isLoading || !superdoc || !hasChanges || isSaving}
+                  variant={hasChanges ? "default" : "outline"}
+                  size="sm"
+                  className={`sm:hidden ${hasChanges ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                >
+                  <Save className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Save (Ctrl+S)</TooltipContent>
+            </Tooltip>
+
+            {/* Export Button */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={handleExport}
+                  disabled={isLoading || !superdoc}
+                  size="sm"
+                  className="hidden sm:flex"
+                >
+                  <Download className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Export</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Download as DOCX</p>
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Mobile Export */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={handleExport}
+                  disabled={isLoading || !superdoc}
+                  size="sm"
+                  className="sm:hidden"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Export</TooltipContent>
+            </Tooltip>
+
+            {/* Fullscreen Toggle */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={toggleFullscreen}
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                >
+                  {isFullscreen ? (
+                    <Minimize2 className="h-4 w-4" />
+                  ) : (
+                    <Maximize2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'} (F11)</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
-      )}
-      
-      {/* Custom Action Bar - Save/Export buttons */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-gray-50 shrink-0">
-        <div className="flex items-center gap-2">
-          <h2 className="text-base font-semibold text-gray-900">
-            {fileName || 'Document Editor'}
-          </h2>
-          {isLoading && (
-            <span className="text-xs text-gray-500">Loading...</span>
-          )}
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={handleSave}
-            disabled={isLoading || !superdoc}
-            variant="outline"
-            size="sm"
-          >
-            <Save className="h-4 w-4 mr-2" />
-            Save
-          </Button>
 
-          <Button
-            onClick={handleExport}
-            disabled={isLoading || !superdoc}
-            size="sm"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Export DOCX
-          </Button>
-        </div>
+        {/* SuperDoc Toolbar - Flexible Height */}
+        <div 
+          ref={toolbarRef}
+          className="superdoc-toolbar shrink-0 border-b bg-white overflow-x-auto overflow-y-hidden"
+          style={{ minHeight: '48px', maxHeight: '120px' }}
+        />
+
+        {/* SuperDoc Editor Container */}
+        <div 
+          ref={editorRef} 
+          className="superdoc-editor flex-1 overflow-y-auto overflow-x-auto bg-gray-100 transition-transform duration-200"
+          style={{
+            transform: `scale(${zoom / 100})`,
+            transformOrigin: 'top center',
+          }}
+        />
+
+        {/* Last Saved Timestamp (Mobile) */}
+        {lastSaved && !isLoading && (
+          <div className="sm:hidden px-4 py-2 bg-gray-50 border-t text-xs text-gray-500 text-center">
+            Last saved: {lastSaved.toLocaleTimeString()}
+          </div>
+        )}
       </div>
-
-      {/* SuperDoc Toolbar - Word-like formatting ribbon with all editing tools */}
-      <div 
-        ref={toolbarRef}
-        className="superdoc-toolbar shrink-0 border-b bg-white"
-        style={{ minHeight: '48px' }}
-      />
-
-      {/* SuperDoc Editor Container - Main editing area */}
-      <div 
-        ref={editorRef} 
-        className="superdoc-editor flex-1 overflow-auto bg-gray-100"
-      />
-    </div>
+    </TooltipProvider>
   );
 }
 
