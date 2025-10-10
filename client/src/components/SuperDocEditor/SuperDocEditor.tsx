@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
-import { Download, Save, AlertCircle, Loader2, ZoomIn, ZoomOut, Maximize2, Minimize2, List, Image as ImageIcon, Columns2, Type, ChevronDown, ChevronUp, Search, Settings, FilePlus2, Table as TableIcon } from 'lucide-react';
+import { Download, Save, AlertCircle, Loader2, ZoomIn, ZoomOut, Maximize2, Minimize2, List, Image as ImageIcon, Columns2, Type, ChevronDown, ChevronUp, Search, Settings, FilePlus2, Table as TableIcon, MessageSquare, PenLine, BookMarked } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
@@ -60,6 +60,10 @@ export function SuperDocEditor({
   const [findQuery, setFindQuery] = useState<string>('');
   const [findIndex, setFindIndex] = useState<number>(0);
   const [showTable, setShowTable] = useState<boolean>(false);
+  const [showComments, setShowComments] = useState<boolean>(false);
+  const [showTrack, setShowTrack] = useState<boolean>(false);
+  const [commentDraft, setCommentDraft] = useState<string>('');
+  const [footnoteCount, setFootnoteCount] = useState<number>(0);
 
   const pageSelector = '.pagination-inner';
   const proseSelector = '.ProseMirror';
@@ -828,6 +832,12 @@ export function SuperDocEditor({
           <Button variant="outline" size="sm" onClick={() => setShowTable(v => !v)}>
             <TableIcon className="h-4 w-4 mr-1" /> Table
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowComments(v => !v)}>
+            <MessageSquare className="h-4 w-4 mr-1" /> Comments
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowTrack(v => !v)}>
+            <PenLine className="h-4 w-4 mr-1" /> Track changes
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setShowFind(v => !v)}>
             <Search className="h-4 w-4 mr-1" /> Find
           </Button>
@@ -961,6 +971,47 @@ export function SuperDocEditor({
           <input className="flex-1 border rounded px-2 py-1 text-sm" placeholder="Find…" value={findQuery} onChange={e => setFindQuery(e.target.value)} />
           <Button size="sm" variant="outline" onClick={() => gotoMatch(-1)}>Prev</Button>
           <Button size="sm" variant="outline" onClick={() => gotoMatch(1)}>Next</Button>
+        </div>
+      )}
+
+      {/* Comments panel (local-only UI) */}
+      {showComments && !distractionFree && (
+        <div className="absolute left-2 bottom-10 z-20 w-80 bg-white border rounded shadow p-3 space-y-2">
+          <div className="text-xs font-semibold text-gray-700">Add inline comment</div>
+          <textarea className="w-full border rounded px-2 py-1 text-sm" value={commentDraft} onChange={e => setCommentDraft(e.target.value)} placeholder="Type comment…" />
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => {
+              const sel = document.getSelection();
+              if (!sel || !sel.rangeCount) { toast.info('Select text to comment'); return; }
+              const mark = document.createElement('mark');
+              mark.title = commentDraft || 'Comment';
+              const range = sel.getRangeAt(0); range.surroundContents(mark);
+              setCommentDraft('');
+            }}>Comment selection</Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              document.querySelectorAll('mark[title]')?.forEach(m => m.classList.toggle('hidden'));
+            }}>Toggle highlights</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Track changes panel (local-only visual) */}
+      {showTrack && !distractionFree && (
+        <div className="absolute left-2 bottom-40 z-20 w-80 bg-white border rounded shadow p-3 space-y-2">
+          <div className="text-xs text-gray-700">Track changes (local visual only)</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => document.execCommand('underline', false)}>Mark change</Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              const sel = document.getSelection();
+              if (!sel || !sel.rangeCount) return;
+              const span = document.createElement('span');
+              span.style.background = '#fde68a';
+              const range = sel.getRangeAt(0); range.surroundContents(span);
+            }}>Highlight</Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              document.querySelectorAll('span[style*="background"]')?.forEach(s => (s as HTMLElement).style.background = 'transparent');
+            }}>Clear highlights</Button>
+          </div>
         </div>
       )}
 
