@@ -161,8 +161,12 @@ export function SuperDocEditor({
               : blob;
             const instance = new SuperDocCtor({
               selector: `#${editorId}`,
+              documentMode: 'docx',
+              format: 'docx',
+              pagination: true,
+              rulers: true,
               documents: [
-                { id: 'active-doc', type: 'docx', data: fileObj }
+                { id: 'active-doc', type: 'docx', data: fileObj, name: fileName || 'document.docx' }
               ],
               toolbar: true,
               editable: true,
@@ -179,6 +183,7 @@ export function SuperDocEditor({
               toolbar: true,
               collaboration: false,
               extensions,
+              pagination: true,
               file: blob
             });
             if (typeof instance.mount === 'function' && editorRef.current) {
@@ -192,7 +197,8 @@ export function SuperDocEditor({
               editable: true,
               toolbar: true,
               collaboration: false,
-              extensions
+              extensions,
+              pagination: true
             });
             if (typeof instance.mount === 'function' && editorRef.current) {
               await instance.mount(editorRef.current);
