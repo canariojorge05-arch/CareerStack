@@ -458,7 +458,7 @@ export function SuperDocEditor({
   }
 
   return (
-    <div className={`relative ${className}`} style={{ height, width: '100vw', maxWidth: '100%', overflow: 'hidden' }}>
+    <div className={`relative ${className}`} style={{ height, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
           <div className="text-center">
