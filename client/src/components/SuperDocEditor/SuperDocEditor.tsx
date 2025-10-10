@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
-import { Download, Save, AlertCircle, Loader2, ZoomIn, ZoomOut, Maximize2, Minimize2, List, Image as ImageIcon, Columns2, Type, ChevronDown, ChevronUp, Search, Settings, FilePlus2, Table as TableIcon, MessageSquare, PenLine, BookMarked } from 'lucide-react';
+import { Download, Save, AlertCircle, Loader2, ZoomIn, ZoomOut, Maximize2, Minimize2, List, Image as ImageIcon, Columns2, Type, ChevronDown, ChevronUp, Search, Settings, FilePlus2, Table as TableIcon, MessageSquare, PenLine, BookMarked, History } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 // fallback to main-thread PDF if worker bundling fails
@@ -71,6 +71,8 @@ export function SuperDocEditor({
   const [exportIncludeComments, setExportIncludeComments] = useState<boolean>(true);
   const [exportAcceptTracked, setExportAcceptTracked] = useState<boolean>(false);
   const [exportFlatten, setExportFlatten] = useState<boolean>(false);
+  const [showVersions, setShowVersions] = useState<boolean>(false);
+  const [versions, setVersions] = useState<Array<{ ts: string; label: string; fileName: string; contentLen: number }>>([]);
 
   const pageSelector = '.pagination-inner';
   const proseSelector = '.ProseMirror';
@@ -413,6 +415,14 @@ export function SuperDocEditor({
               generateOutline();
               generateThumbnailsLazy();
             }, 100);
+            // Load server thumbnails if present
+            if (resumeId) {
+              fetch(`/api/resumes/${resumeId}/thumbnails`, { credentials: 'include' })
+                .then(r => r.ok ? r.json() : null)
+                .then((data) => {
+                  if (data?.ready && Array.isArray(data.images) && data.images.length) setThumbnails(data.images);
+                }).catch(() => {});
+            }
           });
 
           editorInstance.on('error', (err: any) => {
@@ -946,6 +956,16 @@ export function SuperDocEditor({
           <Button variant="outline" size="sm" onClick={() => setShowReplace(v => !v)}>
             <Search className="h-4 w-4 mr-1 rotate-180" /> Replace
           </Button>
+          <Button variant="outline" size="sm" onClick={() => {
+            if (!resumeId) return;
+            setShowVersions(true);
+            fetch(`/api/resumes/${resumeId}/versions`, { credentials: 'include' })
+              .then(r => r.ok ? r.json() : [])
+              .then(setVersions)
+              .catch(() => setVersions([]));
+          }}>
+            <History className="h-4 w-4 mr-1" /> Versions
+          </Button>
 
           <Button onClick={handleSave} disabled={isLoading || !editor} variant="outline" size="sm">
             <Save className="h-4 w-4 mr-2" /> Save
@@ -1102,6 +1122,60 @@ export function SuperDocEditor({
               const ww = (document.getElementById('rep-word') as HTMLInputElement)?.checked || false;
               replaceAll(r, cs, ww);
             }}>Replace all</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Versions panel */}
+      {showVersions && !distractionFree && (
+        <div className="absolute right-2 bottom-10 z-20 w-[28rem] max-w-full bg-white border rounded shadow p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold text-gray-700">Versions</div>
+            <Button size="sm" variant="outline" onClick={() => setShowVersions(false)}>Close</Button>
+          </div>
+          <div className="text-xs text-gray-600">Save current as version</div>
+          <div className="flex gap-2">
+            <input id="ver-label" className="border rounded px-2 py-1 text-sm flex-1" placeholder="Label (optional)" />
+            <Button size="sm" variant="outline" onClick={async () => {
+              try {
+                const label = (document.getElementById('ver-label') as HTMLInputElement)?.value || '';
+                if (!resumeId) return;
+                const content = (editorRef.current?.querySelector('.ProseMirror') as HTMLElement | null)?.innerHTML || '';
+                await fetch(`/api/resumes/${resumeId}/versions`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ label, content })
+                });
+                const list = await (await fetch(`/api/resumes/${resumeId}/versions`, { credentials: 'include' })).json();
+                setVersions(list);
+                toast.success('Version saved');
+              } catch { toast.error('Failed to save version'); }
+            }}>Save</Button>
+          </div>
+          <div className="max-h-64 overflow-auto space-y-1 mt-2">
+            {versions.map((v, i) => (
+              <div key={i} className="flex items-center justify-between border rounded px-2 py-1 text-xs">
+                <div>
+                  <div className="font-medium">{v.label || 'auto'} • {new Date(v.ts).toLocaleString()}</div>
+                  <div className="text-gray-500">{v.fileName} • {v.contentLen} chars</div>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    // load content from versions list (requires full fetch if storing content)
+                    try {
+                      // Fetch full list again to get the latest content snapshot
+                      const list = await (await fetch(`/api/resumes/${resumeId}/versions`, { credentials: 'include' })).json();
+                      const item = list[i];
+                      if (item && item.content) {
+                        const prose = editorRef.current?.querySelector('.ProseMirror') as HTMLElement | null;
+                        if (prose) prose.innerHTML = item.content;
+                        toast.success('Version restored');
+                      } else {
+                        toast.error('Content not available in list');
+                      }
+                    } catch { toast.error('Failed to restore version'); }
+                  }}>Restore</Button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
