@@ -92,11 +92,17 @@ export function SuperDocEditor({
         // Initialize SuperDoc with full editing mode and Word-like features
         const superdocInstance = new SuperDoc({
           selector: `#${editorId}`,
-          toolbar: `#${toolbarId}`, // Enable Word-like toolbar
-          document: file, // Pass the File object directly
-          documentMode: 'editing', // Enable full editing mode (not just viewing)
-          pagination: true, // Enable page view like Microsoft Word
-          rulers: true, // Enable rulers like Microsoft Word
+          toolbar: `#${toolbarId}`, // Enable Word-like toolbar (if supported)
+          documents: [ // Use documents array (official API)
+            {
+              id: 'main-document',
+              type: 'docx',
+              data: file, // Pass the File object
+            },
+          ],
+          documentMode: 'editing', // Enable full editing mode (if supported)
+          pagination: true, // Enable page view like Microsoft Word (if supported)
+          rulers: true, // Enable rulers like Microsoft Word (if supported)
           onReady: (event: any) => {
             clearTimeout(initTimeout);
             console.log('SuperDoc ready with full editing mode:', event);
