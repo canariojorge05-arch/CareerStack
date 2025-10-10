@@ -501,6 +501,7 @@ export function SuperDocEditor({
     updateWordCharCounts();
     updateCurrentPage();
     if (fitMode !== 'none') fitToMode(fitMode as 'fitWidth' | 'fitPage');
+    updatePageVisibility();
   };
   const updateCurrentPage = () => {
     const sc = scrollRef.current;
@@ -515,6 +516,20 @@ export function SuperDocEditor({
       if (viewMid >= top && viewMid <= top + height) { idx = i; break; }
     }
     setCurrentPage(idx + 1);
+    updatePageVisibility(idx);
+  };
+
+  // Simple virtualization: keep nearby pages visible
+  const updatePageVisibility = (centerIndex?: number) => {
+    const pages = getPageEls();
+    if (!pages.length) return;
+    const idx = centerIndex ?? Math.max(0, Math.min(currentPage - 1, pages.length - 1));
+    const radius = 2; // show +/- 2
+    for (let i = 0; i < pages.length; i++) {
+      const el = pages[i];
+      const dist = Math.abs(i - idx);
+      (el.style as any).visibility = dist <= radius ? 'visible' : 'hidden';
+    }
   };
   const updateWordCharCounts = () => {
     const root = editorRef.current;
@@ -543,21 +558,26 @@ export function SuperDocEditor({
   const generateThumbnailsLazy = async () => {
     if (isGeneratingThumbs) return;
     setIsGeneratingThumbs(true);
-    try {
-      const pages = getPageEls();
-      const limit = Math.min(pages.length, 30);
-      const imgs: string[] = [];
-      for (let i = 0; i < limit; i++) {
+    const pages = getPageEls();
+    const limit = Math.min(pages.length, 30);
+    const imgs: string[] = [];
+    let i = 0;
+    const step = async () => {
+      if (i >= limit) {
+        setThumbnails(imgs);
+        setIsGeneratingThumbs(false);
+        return;
+      }
+      try {
         const el = pages[i];
         const canvas = await html2canvas(el, { scale: 0.2, useCORS: true, backgroundColor: '#ffffff' });
-        imgs.push(canvas.toDataURL('image/png'));
-      }
-      setThumbnails(imgs);
-    } catch (e) {
-      console.warn('Thumbnail generation failed', e);
-    } finally {
-      setIsGeneratingThumbs(false);
-    }
+        imgs[i] = canvas.toDataURL('image/png');
+        setThumbnails(imgs.slice());
+      } catch {}
+      i++;
+      (window as any).requestIdleCallback ? (window as any).requestIdleCallback(step) : setTimeout(step, 50);
+    };
+    step();
   };
   const fitToMode = (mode: 'fitWidth' | 'fitPage') => {
     const sc = scrollRef.current;

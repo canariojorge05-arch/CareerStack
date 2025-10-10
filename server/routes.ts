@@ -408,6 +408,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Document metadata endpoint (pageCount placeholder, size)
+  app.get('/api/resumes/:id/metadata', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const resume = await storage.getResumeById(id);
+      if (!resume) return res.status(404).json({ message: 'Resume not found' });
+      if (resume.userId !== userId) return res.status(403).json({ message: 'Access denied' });
+      const filePath = path.resolve(process.cwd(), resume.originalPath!);
+      const fs = await import('fs/promises');
+      const stat = await fs.stat(filePath);
+      // Page count: computed client-side today; placeholder null
+      res.json({ fileSize: stat.size, updatedAt: resume.updatedAt, pageCount: null });
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to get metadata' });
+    }
+  });
+
   app.get('/api/admin/errors/stats', isAuthenticated, (req: any, res) => {
     try {
       const stats = ErrorRecoveryService.getInstance().getStats();
