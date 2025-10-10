@@ -430,6 +430,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Thumbnails: upload client-generated thumbnails for caching
+  app.post('/api/resumes/:id/thumbnails', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const resume = await storage.getResumeById(id);
+      if (!resume) return res.status(404).json({ message: 'Resume not found' });
+      if (resume.userId !== userId) return res.status(403).json({ message: 'Access denied' });
+
+      const images: string[] = Array.isArray(req.body?.images) ? req.body.images.slice(0, 50) : [];
+      if (images.length === 0) return res.status(400).json({ message: 'images[] required (data URLs)' });
+
+      const filePath = path.resolve(process.cwd(), resume.originalPath!);
+      const fs = await import('fs/promises');
+      const crypto = await import('crypto');
+      const buf = await fs.readFile(filePath);
+      const hash = crypto.createHash('sha256').update(buf).digest('hex');
+
+      const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+      await enhancedRedisService.set(`thumbs:${hash}`, { ready: true, pages: images.length, images }, { ttl: 86400, namespace: 'files', compress: true });
+      res.json({ success: true, pages: images.length });
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to save thumbnails' });
+    }
+  });
+
+  // Thumbnails: get cached thumbnails
+  app.get('/api/resumes/:id/thumbnails', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const resume = await storage.getResumeById(id);
+      if (!resume) return res.status(404).json({ message: 'Resume not found' });
+      if (resume.userId !== userId) return res.status(403).json({ message: 'Access denied' });
+
+      const filePath = path.resolve(process.cwd(), resume.originalPath!);
+      const fs = await import('fs/promises');
+      const crypto = await import('crypto');
+      const buf = await fs.readFile(filePath);
+      const hash = crypto.createHash('sha256').update(buf).digest('hex');
+
+      const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+      const thumbs = await enhancedRedisService.get(`thumbs:${hash}`, 'files');
+      res.json(thumbs || { ready: false, pages: 0 });
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to get thumbnails' });
+    }
+  });
+
+  // Version history: save a snapshot to Redis
+  app.post('/api/resumes/:id/versions', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const { label, content } = req.body || {};
+      const resume = await storage.getResumeById(id);
+      if (!resume) return res.status(404).json({ message: 'Resume not found' });
+      if (resume.userId !== userId) return res.status(403).json({ message: 'Access denied' });
+
+      const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+      const key = `versions:${id}`;
+      const existing = (await enhancedRedisService.get(key, 'documents')) || [];
+      const snapshot = {
+        ts: new Date().toISOString(),
+        label: label || 'auto',
+        content: typeof content === 'string' ? content : (resume.customizedContent || ''),
+        fileName: resume.fileName
+      };
+      existing.unshift(snapshot);
+      const trimmed = existing.slice(0, 20);
+      await enhancedRedisService.set(key, trimmed, { ttl: 30 * 24 * 3600, namespace: 'documents', compress: true });
+      res.json({ success: true, count: trimmed.length });
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to save version' });
+    }
+  });
+
+  // Version history: list snapshots
+  app.get('/api/resumes/:id/versions', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const resume = await storage.getResumeById(id);
+      if (!resume) return res.status(404).json({ message: 'Resume not found' });
+      if (resume.userId !== userId) return res.status(403).json({ message: 'Access denied' });
+
+      const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+      const key = `versions:${id}`;
+      const list = (await enhancedRedisService.get(key, 'documents')) || [];
+      res.json(list.map((v: any) => ({ ts: v.ts, label: v.label, fileName: v.fileName, contentLen: (v.content || '').length })));
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to list versions' });
+    }
+  });
+
   app.get('/api/admin/errors/stats', isAuthenticated, (req: any, res) => {
     try {
       const stats = ErrorRecoveryService.getInstance().getStats();
