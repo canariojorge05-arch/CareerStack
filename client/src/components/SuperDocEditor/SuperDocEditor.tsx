@@ -72,10 +72,34 @@ export function SuperDocEditor({
   const [exportAcceptTracked, setExportAcceptTracked] = useState<boolean>(false);
   const [exportFlatten, setExportFlatten] = useState<boolean>(false);
   const [showVersions, setShowVersions] = useState<boolean>(false);
-  const [versions, setVersions] = useState<Array<{ ts: string; label: string; fileName: string; contentLen: number }>>([]);
+  const [versions, setVersions] = useState<Array<{ ts: string; label: string; fileName: string; contentLen: number; content?: string }>>([]);
 
   const pageSelector = '.pagination-inner';
   const proseSelector = '.ProseMirror';
+
+  const computeDiffSummary = (oldText: string, newText: string): string => {
+    try {
+      const clean = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const a = clean(oldText);
+      const b = clean(newText);
+      const aWords = a.split(' ');
+      const bWords = b.split(' ');
+      let diffs: string[] = [];
+      const max = Math.max(aWords.length, bWords.length);
+      for (let i = 0; i < max; i++) {
+        if (aWords[i] !== bWords[i]) {
+          if (aWords[i] && !bWords[i]) diffs.push(`- ${aWords[i]}`);
+          else if (!aWords[i] && bWords[i]) diffs.push(`+ ${bWords[i]}`);
+          else if (aWords[i] && bWords[i]) diffs.push(`- ${aWords[i]}\n+ ${bWords[i]}`);
+        }
+        if (diffs.length > 50) break;
+      }
+      if (diffs.length === 0) return 'No changes';
+      return diffs.join('\n');
+    } catch {
+      return 'Diff unavailable';
+    }
+  };
 
   useEffect(() => {
     const initializeEditor = async () => {
@@ -420,7 +444,7 @@ export function SuperDocEditor({
               fetch(`/api/resumes/${resumeId}/thumbnails`, { credentials: 'include' })
                 .then(r => r.ok ? r.json() : null)
                 .then((data) => {
-                  if (data?.ready && Array.isArray(data.images) && data.images.length) setThumbnails(data.images);
+          if (Array.isArray(data?.images) && data.images.length) setThumbnails(data.images);
                 }).catch(() => {});
             }
           });
@@ -1152,28 +1176,34 @@ export function SuperDocEditor({
           </div>
           <div className="max-h-64 overflow-auto space-y-1 mt-2">
             {versions.map((v, i) => (
-              <div key={i} className="flex items-center justify-between border rounded px-2 py-1 text-xs">
-                <div>
-                  <div className="font-medium">{v.label || 'auto'} • {new Date(v.ts).toLocaleString()}</div>
-                  <div className="text-gray-500">{v.fileName} • {v.contentLen} chars</div>
+              <div key={i} className="border rounded px-2 py-1 text-xs">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">{v.label || 'auto'} • {new Date(v.ts).toLocaleString()}</div>
+                    <div className="text-gray-500">{v.fileName} • {v.contentLen} chars</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={async () => {
+                      try {
+                        const list = await (await fetch(`/api/resumes/${resumeId}/versions`, { credentials: 'include' })).json();
+                        const item = list[i];
+                        if (item && item.content) {
+                          const prose = editorRef.current?.querySelector('.ProseMirror') as HTMLElement | null;
+                          if (prose) prose.innerHTML = item.content;
+                          toast.success('Version restored');
+                        } else {
+                          toast.error('Content not available in list');
+                        }
+                      } catch { toast.error('Failed to restore version'); }
+                    }}>Restore</Button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={async () => {
-                    // load content from versions list (requires full fetch if storing content)
-                    try {
-                      // Fetch full list again to get the latest content snapshot
-                      const list = await (await fetch(`/api/resumes/${resumeId}/versions`, { credentials: 'include' })).json();
-                      const item = list[i];
-                      if (item && item.content) {
-                        const prose = editorRef.current?.querySelector('.ProseMirror') as HTMLElement | null;
-                        if (prose) prose.innerHTML = item.content;
-                        toast.success('Version restored');
-                      } else {
-                        toast.error('Content not available in list');
-                      }
-                    } catch { toast.error('Failed to restore version'); }
-                  }}>Restore</Button>
-                </div>
+                {i < versions.length - 1 && versions[i + 1]?.content && v.content && (
+                  <div className="mt-2 bg-gray-50 rounded p-2 overflow-auto max-h-32">
+                    <div className="text-[10px] text-gray-700 mb-1">Diff vs previous</div>
+                    <pre className="text-[10px] whitespace-pre-wrap break-words">{computeDiffSummary(versions[i + 1].content!, v.content!)}</pre>
+                  </div>
+                )}
               </div>
             ))}
           </div>

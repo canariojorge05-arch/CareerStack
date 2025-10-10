@@ -472,7 +472,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hash = crypto.createHash('sha256').update(buf).digest('hex');
 
       const { enhancedRedisService } = await import('./services/enhanced-redis-service');
-      const thumbs = await enhancedRedisService.get(`thumbs:${hash}`, 'files');
+      let thumbs = await enhancedRedisService.get(`thumbs:${hash}`, 'files');
+      if (!thumbs) {
+        // Attempt lightweight server-side first-page preview
+        try {
+          const { generateDocxFirstPageThumbnail } = await import('./utils/docx-thumbnail');
+          const preview = await generateDocxFirstPageThumbnail(buf);
+          if (preview) {
+            thumbs = { ready: false, pages: 1, images: [preview] };
+            await enhancedRedisService.set(`thumbs:${hash}`, thumbs, { ttl: 86400, namespace: 'files', compress: true });
+          }
+        } catch {}
+      }
       res.json(thumbs || { ready: false, pages: 0 });
     } catch (e) {
       res.status(500).json({ message: 'Failed to get thumbnails' });
@@ -519,7 +530,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { enhancedRedisService } = await import('./services/enhanced-redis-service');
       const key = `versions:${id}`;
       const list = (await enhancedRedisService.get(key, 'documents')) || [];
-      res.json(list.map((v: any) => ({ ts: v.ts, label: v.label, fileName: v.fileName, contentLen: (v.content || '').length })));
+      res.json(list.map((v: any) => ({ ts: v.ts, label: v.label, fileName: v.fileName, contentLen: (v.content || '').length, content: v.content })));
     } catch (e) {
       res.status(500).json({ message: 'Failed to list versions' });
     }
