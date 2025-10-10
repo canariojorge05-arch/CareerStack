@@ -13,7 +13,15 @@ import {
   Undo2, 
   Redo2,
   FileText,
-  Check
+  Check,
+  Search,
+  ChevronUp,
+  ChevronDown,
+  Printer,
+  MessageSquare,
+  GitBranch,
+  RefreshCw,
+  History
 } from 'lucide-react';
 import { 
   Tooltip,
@@ -22,12 +30,16 @@ import {
   TooltipTrigger,
 } from '../ui/tooltip';
 import { Badge } from '../ui/badge';
+import { Input } from '../ui/input';
+import { Progress } from '../ui/progress';
+import { validateDOCXFileComprehensive, formatFileSize } from '@/utils/fileValidation';
 
 import '@harbour-enterprises/superdoc/style.css';
 
 interface SuperDocEditorProps {
   fileUrl: string;
   fileName?: string;
+  resumeId: string; // Required for saving to server
   onSave?: (content: any) => void;
   onExport?: (file: Blob) => void;
   className?: string;
@@ -37,6 +49,7 @@ interface SuperDocEditorProps {
 export function SuperDocEditor({
   fileUrl,
   fileName,
+  resumeId,
   onSave,
   onExport,
   className = '',
@@ -58,6 +71,14 @@ export function SuperDocEditor({
   const [zoom, setZoom] = useState(100);
   const [pageCount, setPageCount] = useState(0);
   const [wordCount, setWordCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [replaceTerm, setReplaceTerm] = useState('');
+  const [showTrackChanges, setShowTrackChanges] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -158,8 +179,10 @@ export function SuperDocEditor({
       try {
         setIsLoading(true);
         setError(null);
+        setLoadingProgress(10);
 
         const { SuperDoc } = await import('@harbour-enterprises/superdoc');
+        setLoadingProgress(30);
 
         const editorId = `superdoc-${Date.now()}`;
         const toolbarId = `superdoc-toolbar-${Date.now()}`;
@@ -171,7 +194,9 @@ export function SuperDocEditor({
           toolbarRef.current.id = toolbarId;
         }
 
-        // Fetch the document
+        setLoadingProgress(40);
+
+        // Fetch the document with progress tracking
         const response = await fetch(fileUrl, { 
           credentials: 'include',
           headers: {
@@ -183,6 +208,7 @@ export function SuperDocEditor({
           throw new Error(`Failed to fetch document: ${response.status} ${response.statusText}`);
         }
 
+        setLoadingProgress(60);
         const blob = await response.blob();
         
         // Ensure we have a proper file type
@@ -194,6 +220,14 @@ export function SuperDocEditor({
           type: fileType,
           lastModified: Date.now()
         });
+
+        // Validate file
+        const validation = await validateDOCXFileComprehensive(file);
+        if (!validation.valid) {
+          throw new Error(validation.error || 'Invalid DOCX file');
+        }
+
+        setLoadingProgress(75);
 
         // Add a timeout for initialization
         const initTimeout = setTimeout(() => {
@@ -221,6 +255,7 @@ export function SuperDocEditor({
           onReady: (event: any) => {
             clearTimeout(initTimeout);
             console.log('SuperDoc ready with full editing mode:', event);
+            setLoadingProgress(100);
             setIsLoading(false);
             
             // Extract document info
@@ -294,25 +329,71 @@ export function SuperDocEditor({
         toolbarRef.current.innerHTML = '';
       }
     };
-  }, [fileUrl, fileName]);
+  }, [fileUrl, fileName, retryCount]); // Include retryCount to trigger retry
 
   const handleSave = async () => {
     if (!superdoc || !hasChanges) return;
 
     setIsSaving(true);
+    const toastId = toast.loading('Saving document...', {
+      description: 'Preparing to save your changes',
+    });
+
     try {
-      const content = superdoc.state;
-      onSave?.(content);
+      // Export current document as DOCX blob
+      const exportedBlob = await superdoc.export();
+      
+      if (!exportedBlob) {
+        throw new Error('Failed to export document');
+      }
+
+      toast.loading('Uploading to server...', {
+        id: toastId,
+        description: `Saving ${formatFileSize(exportedBlob.size)}`,
+      });
+
+      // Create FormData with the DOCX file
+      const formData = new FormData();
+      formData.append('file', exportedBlob, fileName || 'document.docx');
+      
+      // Get CSRF token
+      const csrfToken = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('csrf_token='))
+        ?.split('=')[1];
+
+      // Upload to server
+      const response = await fetch(`/api/resumes/${resumeId}/update-file`, {
+        method: 'PUT',
+        body: formData,
+        credentials: 'include',
+        headers: {
+          'X-CSRF-Token': csrfToken || '',
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Save failed');
+      }
+
+      const result = await response.json();
+
+      // Update UI state
       setHasChanges(false);
       setLastSaved(new Date());
-      toast.success(`${fileName || 'Document'} saved successfully`, {
-        description: `Last saved at ${new Date().toLocaleTimeString()}`,
+      onSave?.(exportedBlob);
+      
+      toast.success(`${fileName || 'Document'} saved to server`, {
+        id: toastId,
+        description: `Saved at ${new Date().toLocaleTimeString()} • ${formatFileSize(exportedBlob.size)}`,
         duration: 3000,
       });
     } catch (err) {
       console.error('Save error:', err);
       toast.error('Failed to save document', {
-        description: 'Please check your connection and try again',
+        id: toastId,
+        description: err instanceof Error ? err.message : 'Unknown error',
         action: {
           label: 'Retry',
           onClick: () => handleSave(),
@@ -360,7 +441,7 @@ export function SuperDocEditor({
     }
   };
 
-  // Placeholder undo/redo (SuperDoc handles this internally)
+  // Undo/Redo handlers
   const handleUndo = () => {
     if (superdoc && typeof superdoc.undo === 'function') {
       superdoc.undo();
@@ -377,24 +458,120 @@ export function SuperDocEditor({
     }
   };
 
+  // Print handler
+  const handlePrint = () => {
+    if (typeof window !== 'undefined') {
+      window.print();
+    }
+  };
+
+  // Search handlers
+  const handleSearch = () => {
+    if (!searchTerm) return;
+    // SuperDoc search API (if available)
+    if (superdoc && typeof superdoc.search === 'function') {
+      superdoc.search(searchTerm);
+    } else {
+      // Fallback to browser find (Ctrl+F)
+      // Note: window.find is non-standard, use native browser search
+      if (typeof (window as any).find === 'function') {
+        (window as any).find(searchTerm);
+      } else {
+        toast.info('Use Ctrl+F to search in the document');
+      }
+    }
+  };
+
+  const handleReplace = () => {
+    if (!searchTerm || !replaceTerm) return;
+    if (superdoc && typeof superdoc.replace === 'function') {
+      superdoc.replace(searchTerm, replaceTerm);
+    }
+    toast.success('Text replaced');
+  };
+
+  const handleReplaceAll = () => {
+    if (!searchTerm || !replaceTerm) return;
+    if (superdoc && typeof superdoc.replaceAll === 'function') {
+      superdoc.replaceAll(searchTerm, replaceTerm);
+    }
+    toast.success('All instances replaced');
+  };
+
+  // Page navigation
+  const jumpToPage = (page: number) => {
+    if (page < 1 || page > pageCount) return;
+    
+    const pageElement = document.querySelector(`.superdoc-editor [data-page="${page}"], .superdoc-editor .page:nth-child(${page})`);
+    if (pageElement) {
+      pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setCurrentPage(page);
+    }
+  };
+
+  const handlePrevPage = () => {
+    jumpToPage(Math.max(1, currentPage - 1));
+  };
+
+  const handleNextPage = () => {
+    jumpToPage(Math.min(pageCount, currentPage + 1));
+  };
+
+  // Track changes toggle
+  const toggleTrackChanges = () => {
+    if (superdoc && typeof superdoc.enableTrackChanges === 'function') {
+      const isTracking = superdoc.isTrackingChanges || false;
+      if (isTracking) {
+        superdoc.disableTrackChanges?.();
+      } else {
+        superdoc.enableTrackChanges?.();
+      }
+      setShowTrackChanges(!isTracking);
+    } else {
+      setShowTrackChanges(!showTrackChanges);
+      toast.info(showTrackChanges ? 'Track changes disabled' : 'Track changes enabled');
+    }
+  };
+
+  // Retry loading
+  const handleRetry = () => {
+    setError(null);
+    setRetryCount(prev => prev + 1);
+    setIsLoading(true);
+  };
+
   if (error) {
     return (
       <div className={`flex items-center justify-center p-8 ${className}`} style={{ height }}>
         <div className="text-center max-w-md">
           <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-gray-900 mb-2">Failed to Load Document</h3>
-          <p className="text-gray-600 mb-6">{error}</p>
+          <p className="text-gray-600 mb-2">{error}</p>
+          {retryCount > 0 && (
+            <p className="text-sm text-gray-500 mb-6">
+              Retry attempt: {retryCount}
+            </p>
+          )}
           <div className="flex gap-2 justify-center">
+            <Button 
+              onClick={handleRetry}
+              disabled={isLoading}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              {isLoading ? 'Retrying...' : 'Try Again'}
+            </Button>
             <Button 
               onClick={() => window.location.reload()} 
               variant="outline"
             >
               Reload Page
             </Button>
-            <Button onClick={() => setError(null)}>
-              Try Again
-            </Button>
           </div>
+          {retryCount > 2 && (
+            <p className="text-sm text-gray-500 mt-4">
+              Having trouble? The document might be corrupted or the server may be experiencing issues.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -415,11 +592,13 @@ export function SuperDocEditor({
                 Loading Document
               </h3>
               <p className="text-sm text-gray-600 mb-4 text-center">
-                Preparing your document for editing...
+                {loadingProgress < 30 && 'Initializing editor...'}
+                {loadingProgress >= 30 && loadingProgress < 60 && 'Downloading document...'}
+                {loadingProgress >= 60 && loadingProgress < 90 && 'Validating file...'}
+                {loadingProgress >= 90 && 'Almost ready...'}
               </p>
-              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '70%' }}></div>
-              </div>
+              <Progress value={loadingProgress} className="mb-2" />
+              <p className="text-xs text-center text-gray-500">{loadingProgress}%</p>
             </div>
           </div>
         )}
@@ -629,6 +808,78 @@ export function SuperDocEditor({
               <TooltipContent>Export</TooltipContent>
             </Tooltip>
 
+            {/* Search Toggle */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => setShowSearch(!showSearch)}
+                  disabled={isLoading || !superdoc}
+                  variant={showSearch ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 w-8 p-0 hidden md:flex"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Search (Ctrl+F)</p>
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Print Button */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={handlePrint}
+                  disabled={isLoading || !superdoc}
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 hidden lg:flex"
+                >
+                  <Printer className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Print (Ctrl+P)</p>
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Track Changes Toggle */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={toggleTrackChanges}
+                  disabled={isLoading || !superdoc}
+                  variant={showTrackChanges ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 w-8 p-0 hidden xl:flex"
+                >
+                  <GitBranch className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{showTrackChanges ? 'Tracking Changes' : 'Track Changes'}</p>
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Comments Toggle */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => setShowComments(!showComments)}
+                  disabled={isLoading || !superdoc}
+                  variant={showComments ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 w-8 p-0 hidden xl:flex"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Comments</p>
+              </TooltipContent>
+            </Tooltip>
+
             {/* Fullscreen Toggle */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -652,6 +903,75 @@ export function SuperDocEditor({
           </div>
         </div>
 
+        {/* Search Panel */}
+        {showSearch && (
+          <div className="border-b bg-white p-3 shrink-0">
+            <div className="flex gap-2 items-center max-w-4xl mx-auto">
+              <Input
+                placeholder="Find..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                className="flex-1"
+              />
+              <Input
+                placeholder="Replace with..."
+                value={replaceTerm}
+                onChange={(e) => setReplaceTerm(e.target.value)}
+                className="flex-1"
+              />
+              <Button onClick={handleSearch} size="sm" disabled={!searchTerm}>
+                Find
+              </Button>
+              <Button onClick={handleReplace} size="sm" variant="outline" disabled={!searchTerm || !replaceTerm}>
+                Replace
+              </Button>
+              <Button onClick={handleReplaceAll} size="sm" variant="outline" disabled={!searchTerm || !replaceTerm}>
+                Replace All
+              </Button>
+              <Button onClick={() => setShowSearch(false)} size="sm" variant="ghost">
+                ✕
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Page Navigation Bar */}
+        {pageCount > 1 && !isLoading && (
+          <div className="border-b bg-gray-50 px-4 py-2 shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600 hidden sm:inline">Page:</span>
+              <Button
+                onClick={handlePrevPage}
+                disabled={currentPage <= 1}
+                size="sm"
+                variant="outline"
+                className="h-7 w-7 p-0"
+              >
+                <ChevronUp className="h-3 w-3" />
+              </Button>
+              <Input
+                type="number"
+                min="1"
+                max={pageCount}
+                value={currentPage}
+                onChange={(e) => jumpToPage(parseInt(e.target.value) || 1)}
+                className="w-16 h-7 text-center text-sm"
+              />
+              <span className="text-sm text-gray-600">of {pageCount}</span>
+              <Button
+                onClick={handleNextPage}
+                disabled={currentPage >= pageCount}
+                size="sm"
+                variant="outline"
+                className="h-7 w-7 p-0"
+              >
+                <ChevronDown className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* SuperDoc Toolbar - Flexible Height */}
         <div 
           ref={toolbarRef}
@@ -659,15 +979,85 @@ export function SuperDocEditor({
           style={{ minHeight: '48px', maxHeight: '120px' }}
         />
 
-        {/* SuperDoc Editor Container */}
-        <div 
-          ref={editorRef} 
-          className="superdoc-editor flex-1 overflow-y-auto overflow-x-auto bg-gray-100 transition-transform duration-200"
-          style={{
-            transform: `scale(${zoom / 100})`,
-            transformOrigin: 'top center',
-          }}
-        />
+        {/* Main Content Area with Editor and Sidebars */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* SuperDoc Editor Container */}
+          <div 
+            ref={editorRef} 
+            className="superdoc-editor flex-1 overflow-y-auto overflow-x-auto bg-gray-100 transition-transform duration-200"
+            style={{
+              transform: `scale(${zoom / 100})`,
+              transformOrigin: 'top center',
+            }}
+          />
+
+          {/* Track Changes Panel */}
+          {showTrackChanges && (
+            <div className="w-80 border-l bg-white p-4 overflow-y-auto shrink-0">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <GitBranch className="h-4 w-4" />
+                  Track Changes
+                </h3>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowTrackChanges(false)}
+                  className="h-6 w-6 p-0"
+                >
+                  ✕
+                </Button>
+              </div>
+              
+              <div className="text-sm text-gray-500 text-center py-8">
+                <GitBranch className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>Track changes panel</p>
+                <p className="text-xs mt-1">Changes will appear here</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-4"
+                  onClick={toggleTrackChanges}
+                >
+                  {showTrackChanges ? 'Stop' : 'Start'} Tracking
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Comments Panel */}
+          {showComments && (
+            <div className="w-80 border-l bg-white p-4 overflow-y-auto shrink-0">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" />
+                  Comments
+                </h3>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowComments(false)}
+                  className="h-6 w-6 p-0"
+                >
+                  ✕
+                </Button>
+              </div>
+              
+              <div className="text-sm text-gray-500 text-center py-8">
+                <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No comments yet</p>
+                <p className="text-xs mt-1">Comments will appear here</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-4"
+                >
+                  Add Comment
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Last Saved Timestamp (Mobile) */}
         {lastSaved && !isLoading && (
