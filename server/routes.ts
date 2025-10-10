@@ -849,8 +849,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Serve DOCX files for SuperDoc editor
-  app.get('/api/resumes/:id/file', isAuthenticated, async (req: any, res) => {
+  // Serve DOCX files for SuperDoc editor (with ETag/Last-Modified/Range/HEAD)
+  app.all('/api/resumes/:id/file', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -870,26 +870,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Original file not found" });
       }
       
-      const fs = await import('fs/promises');
-      const fsSync = await import('fs');
+      const fs = await import('fs');
+      const fsp = await import('fs/promises');
       const filePath = path.resolve(process.cwd(), resume.originalPath);
-      
-      // Check if file exists
-      try {
-        await fs.access(filePath);
-      } catch (error) {
-        return res.status(404).json({ message: "File not found on disk" });
-      }
-      
-      // Set appropriate headers for DOCX file
+
+      try { await fsp.access(filePath); } catch { return res.status(404).json({ message: 'File not found on disk' }); }
+
+      const stat = await fsp.stat(filePath);
+      const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
+      const lastModified = stat.mtime.toUTCString();
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `inline; filename="${resume.fileName}"`);
       res.setHeader('Cache-Control', 'private, max-age=3600');
-      
-      // Stream the file
-      const fileStream = fsSync.createReadStream(filePath);
-      fileStream.pipe(res);
-      
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('ETag', etag);
+      res.setHeader('Last-Modified', lastModified);
+
+      if (req.method === 'HEAD') {
+        return res.status(200).end();
+      }
+
+      const ifNoneMatch = req.headers['if-none-match'];
+      if (ifNoneMatch && ifNoneMatch === etag) {
+        return res.status(304).end();
+      }
+
+      const range = req.headers.range as string | undefined;
+      if (range) {
+        const match = range.match(/bytes=(\d*)-(\d*)/);
+        if (!match) return res.status(416).end();
+        const start = match[1] ? parseInt(match[1], 10) : 0;
+        const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
+        if (start >= stat.size || end >= stat.size) return res.status(416).end();
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+        res.setHeader('Content-Length', String(end - start + 1));
+        fs.createReadStream(filePath, { start, end }).pipe(res);
+        console.log(`📁 Served DOCX (range) for resume ${id}`);
+        return;
+      }
+
+      res.setHeader('Content-Length', String(stat.size));
+      fs.createReadStream(filePath).pipe(res);
       console.log(`📁 Served DOCX file for resume ${id}`);
     } catch (error) {
       console.error("Error serving resume file:", error);

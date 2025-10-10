@@ -51,6 +51,8 @@ export function SuperDocEditor({
   const [outline, setOutline] = useState<Array<{ level: number; text: string; top: number }>>([]);
   const [wordCount, setWordCount] = useState<number>(0);
   const [charCount, setCharCount] = useState<number>(0);
+  const [isAutoSaving, setIsAutoSaving] = useState<boolean>(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
   const pageSelector = '.pagination-inner';
   const proseSelector = '.ProseMirror';
@@ -609,6 +611,25 @@ export function SuperDocEditor({
       editor.export();
     }
   };
+
+  // Autosave every 10s if changed
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      try {
+        const active = (editor?.activeEditor) || editor;
+        const changed = active?.docChanged;
+        if (!changed) return;
+        setIsAutoSaving(true);
+        await editor?.save?.();
+        setLastSavedAt(new Date());
+      } catch (e) {
+        // ignore transient errors
+      } finally {
+        setIsAutoSaving(false);
+      }
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [editor]);
 
 
   if (error) {
