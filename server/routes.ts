@@ -420,7 +420,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fs = await import('fs/promises');
       const stat = await fs.stat(filePath);
       // Page count: computed client-side today; placeholder null
-      res.json({ fileSize: stat.size, updatedAt: resume.updatedAt, pageCount: null });
+      // Thumbnails placeholder lookup
+      const { enhancedRedisService } = await import('./services/enhanced-redis-service');
+      const hash = (await import('crypto')).createHash('sha256').update(await (await import('fs/promises')).readFile(filePath)).digest('hex');
+      const thumbs = await enhancedRedisService.get(`thumbs:${hash}`, 'files');
+      res.json({ fileSize: stat.size, updatedAt: resume.updatedAt, pageCount: thumbs?.pages ?? null, thumbnailsReady: !!thumbs?.ready });
     } catch (e) {
       res.status(500).json({ message: 'Failed to get metadata' });
     }
