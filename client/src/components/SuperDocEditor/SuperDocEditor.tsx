@@ -65,6 +65,9 @@ export function SuperDocEditor({
   const [showTrack, setShowTrack] = useState<boolean>(false);
   const [commentDraft, setCommentDraft] = useState<string>('');
   const [footnoteCount, setFootnoteCount] = useState<number>(0);
+  const [exportIncludeComments, setExportIncludeComments] = useState<boolean>(true);
+  const [exportAcceptTracked, setExportAcceptTracked] = useState<boolean>(false);
+  const [exportFlatten, setExportFlatten] = useState<boolean>(false);
 
   const pageSelector = '.pagination-inner';
   const proseSelector = '.ProseMirror';
@@ -688,6 +691,7 @@ export function SuperDocEditor({
   const exportDocxWithOptions = async (opts: { includeComments: boolean; acceptTracked: boolean }) => {
     try {
       const active = (editor?.activeEditor) || editor;
+      if (exportFlatten) flattenFields();
       const blob = await active?.exportDocx?.({
         isFinalDoc: opts.acceptTracked,
         commentsType: opts.includeComments ? 'all' : 'none',
@@ -1019,9 +1023,13 @@ export function SuperDocEditor({
       {showExport && !distractionFree && (
         <div className="absolute right-2 top-16 z-20 w-72 bg-white border rounded shadow p-3 space-y-2">
           <div className="text-xs font-semibold text-gray-700 mb-1">DOCX options</div>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => exportDocxWithOptions({ includeComments: true, acceptTracked: false })}>DOCX (with comments)</Button>
-            <Button size="sm" variant="outline" onClick={() => exportDocxWithOptions({ includeComments: false, acceptTracked: true })}>DOCX (final)</Button>
+          <div className="space-y-2">
+            <label className="text-xs flex items-center gap-2"><input type="checkbox" checked={exportIncludeComments} onChange={e => setExportIncludeComments(e.target.checked)} /> Include comments</label>
+            <label className="text-xs flex items-center gap-2"><input type="checkbox" checked={exportAcceptTracked} onChange={e => setExportAcceptTracked(e.target.checked)} /> Accept tracked changes</label>
+            <label className="text-xs flex items-center gap-2"><input type="checkbox" checked={exportFlatten} onChange={e => setExportFlatten(e.target.checked)} /> Flatten fields</label>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => exportDocxWithOptions({ includeComments: exportIncludeComments, acceptTracked: exportAcceptTracked })}>Export DOCX</Button>
+            </div>
           </div>
           <div className="text-xs font-semibold text-gray-700 mt-2">PDF export</div>
           <div className="flex gap-2">
@@ -1146,6 +1154,23 @@ export function SuperDocEditor({
           </div>
           <div className="text-xs font-semibold text-gray-700 mt-2">Shading</div>
           <div className="flex gap-2 flex-wrap">
+          <div className="text-xs font-semibold text-gray-700 mt-2">Cell ops</div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => {
+              const sel = document.getSelection();
+              const cell = sel?.anchorNode ? (sel.anchorNode as HTMLElement).closest('td,th') as HTMLElement | null : null;
+              const row = cell?.closest('tr') as HTMLElement | null;
+              if (row && cell) {
+                const clone = cell.cloneNode(true);
+                cell.after(clone);
+              }
+            }}>Duplicate cell</Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              const sel = document.getSelection();
+              const cell = sel?.anchorNode ? (sel.anchorNode as HTMLElement).closest('td,th') as HTMLElement | null : null;
+              cell?.remove();
+            }}>Delete cell</Button>
+          </div>
             <Button size="sm" variant="outline" onClick={() => {
               const sel = document.getSelection();
               const cell = sel?.anchorNode ? (sel.anchorNode as HTMLElement).closest('td,th') as HTMLElement | null : null;
