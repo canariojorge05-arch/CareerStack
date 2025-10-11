@@ -3,6 +3,7 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tansta
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { formatDistanceToNow, format } from 'date-fns';
 import { apiRequest } from '@/lib/queryClient';
+import DOMPurify from 'dompurify';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -739,87 +740,106 @@ export default function UltraModernGmailClient() {
                         <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
                       </div>
                     ) : (
-                      <div className="space-y-6 max-w-4xl">
+                      <div className="space-y-4 max-w-4xl">
                         {threadMessages.map((message, index) => (
                           <div key={message.id} className={cn(
-                            "rounded-2xl bg-white transition-all",
-                            index === threadMessages.length - 1 && "border-2 border-gray-200 shadow-sm"
+                            "rounded-lg bg-white transition-all border border-gray-200",
+                            index === threadMessages.length - 1 && "ring-2 ring-blue-100 border-blue-200 shadow-md"
                           )}>
-                            <div className="p-6">
-                              <div className="flex items-start gap-3 mb-4">
-                                <Avatar className="h-10 w-10">
-                                  <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-600 text-white text-sm font-medium">
+                            <div className="p-6 bg-gradient-to-b from-white to-gray-50">
+                              <div className="flex items-start gap-4 mb-6 pb-4 border-b border-gray-100">
+                                <Avatar className="h-12 w-12 ring-2 ring-gray-100">
+                                  <AvatarFallback className="bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 text-white text-sm font-semibold">
                                     {getInitials(message.fromEmail)}
                                   </AvatarFallback>
                                 </Avatar>
 
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <div>
-                                      <span className="font-medium text-gray-900 text-sm">
-                                        {message.fromEmail.split('@')[0]}
-                                      </span>
-                                      <span className="text-xs text-gray-500 ml-2">
-                                        &lt;{message.fromEmail}&gt;
-                                      </span>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-semibold text-gray-900">
+                                          {message.fromEmail.split('@')[0]}
+                                        </span>
+                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-gray-50">
+                                          {message.fromEmail.split('@')[1]}
+                                        </Badge>
+                                      </div>
+                                      <div className="text-xs text-gray-500 mt-0.5">
+                                        to {message.toEmails.join(', ')}
+                                      </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs text-gray-500">
-                                        {message.sentAt && format(new Date(message.sentAt), 'MMM d, yyyy, h:mm a')}
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-xs text-gray-500 mr-2">
+                                        {message.sentAt && format(new Date(message.sentAt), 'MMM d, h:mm a')}
                                       </span>
-                                      <button
-                                        className={cn(
-                                          "transition-colors",
-                                          message.isStarred ? "text-yellow-500" : "text-gray-300 hover:text-yellow-400"
-                                        )}
-                                        onClick={() => starMutation.mutate({ messageId: message.id, isStarred: !message.isStarred })}
-                                      >
-                                        <Star className={cn("h-4 w-4", message.isStarred && "fill-yellow-500")} />
-                                      </button>
-                                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
-                                        <Reply className="h-4 w-4" />
-                                      </Button>
-                                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
-                                        <MoreVertical className="h-4 w-4" />
-                                      </Button>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <button
+                                            className={cn(
+                                              "transition-colors p-1.5 rounded-full hover:bg-gray-100",
+                                              message.isStarred ? "text-yellow-500" : "text-gray-400 hover:text-yellow-400"
+                                            )}
+                                            onClick={() => starMutation.mutate({ messageId: message.id, isStarred: !message.isStarred })}
+                                          >
+                                            <Star className={cn("h-4 w-4", message.isStarred && "fill-yellow-500")} />
+                                          </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Star</TooltipContent>
+                                      </Tooltip>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-gray-100">
+                                            <Reply className="h-4 w-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Reply</TooltipContent>
+                                      </Tooltip>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-gray-100">
+                                            <MoreVertical className="h-4 w-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>More options</TooltipContent>
+                                      </Tooltip>
                                     </div>
-                                  </div>
-                                  <div className="text-xs text-gray-500">
-                                    to {message.toEmails.join(', ')}
                                   </div>
                                 </div>
                               </div>
 
-                              <div className="prose prose-sm max-w-none text-gray-800 leading-relaxed">
-                                {message.htmlBody ? (
-                                  <div dangerouslySetInnerHTML={{ __html: message.htmlBody }} />
-                                ) : (
-                                  <p className="whitespace-pre-wrap">{message.textBody}</p>
-                                )}
-                              </div>
+                              {/* Email Content with proper styling */}
+                              <EmailContent
+                                htmlBody={message.htmlBody}
+                                textBody={message.textBody}
+                              />
 
                               {message.attachments && message.attachments.length > 0 && (
-                                <div className="mt-6 pt-4 border-t border-gray-200">
-                                  <div className="flex items-center gap-2 mb-3">
-                                    <Paperclip className="h-4 w-4 text-gray-400" />
-                                    <span className="text-sm font-medium text-gray-700">
-                                      {message.attachments.length} attachment{message.attachments.length > 1 ? 's' : ''}
+                                <div className="mt-6 pt-6 border-t border-gray-200">
+                                  <div className="flex items-center gap-2 mb-4">
+                                    <Paperclip className="h-4 w-4 text-blue-600" />
+                                    <span className="text-sm font-semibold text-gray-900">
+                                      {message.attachments.length} Attachment{message.attachments.length > 1 ? 's' : ''}
                                     </span>
                                   </div>
-                                  <div className="grid grid-cols-2 gap-2">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     {message.attachments.map((attachment: any, idx: number) => (
                                       <div
                                         key={idx}
-                                        className="flex items-center gap-2 p-2 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+                                        className="group flex items-center gap-3 p-3 border-2 border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50/50 cursor-pointer transition-all"
                                       >
-                                        <FileText className="h-4 w-4 text-gray-400" />
+                                        <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                                          <FileText className="h-5 w-5 text-white" />
+                                        </div>
                                         <div className="flex-1 min-w-0">
-                                          <div className="text-xs font-medium truncate">{attachment.fileName}</div>
-                                          <div className="text-[10px] text-gray-500">
-                                            {attachment.fileSize ? `${(attachment.fileSize / 1024).toFixed(1)} KB` : ''}
+                                          <div className="text-sm font-medium truncate text-gray-900 group-hover:text-blue-600">
+                                            {attachment.fileName}
+                                          </div>
+                                          <div className="text-xs text-gray-500 mt-0.5">
+                                            {attachment.fileSize ? `${(attachment.fileSize / 1024).toFixed(1)} KB` : 'Unknown size'}
                                           </div>
                                         </div>
-                                        <Download className="h-3 w-3 text-gray-400" />
+                                        <Download className="h-4 w-4 text-gray-400 group-hover:text-blue-600 transition-colors" />
                                       </div>
                                     ))}
                                   </div>
@@ -827,11 +847,11 @@ export default function UltraModernGmailClient() {
                               )}
 
                               {index === threadMessages.length - 1 && (
-                                <div className="flex gap-2 mt-6">
+                                <div className="flex gap-3 mt-8 pt-6 border-t border-gray-200">
                                   <Button
                                     variant="outline"
-                                    size="sm"
-                                    className="rounded-full"
+                                    size="default"
+                                    className="rounded-full border-2 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600"
                                     onClick={() => setComposeOpen(true)}
                                   >
                                     <Reply className="h-4 w-4 mr-2" />
@@ -839,8 +859,17 @@ export default function UltraModernGmailClient() {
                                   </Button>
                                   <Button
                                     variant="outline"
-                                    size="sm"
-                                    className="rounded-full"
+                                    size="default"
+                                    className="rounded-full border-2 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600"
+                                    onClick={() => setComposeOpen(true)}
+                                  >
+                                    <ReplyAll className="h-4 w-4 mr-2" />
+                                    Reply All
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="default"
+                                    className="rounded-full border-2 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600"
                                     onClick={() => setComposeOpen(true)}
                                   >
                                     <Forward className="h-4 w-4 mr-2" />
@@ -1375,3 +1404,168 @@ const ThreadRow = React.memo(({
     </div>
   );
 });
+ThreadRow.displayName = 'ThreadRow';
+
+// Email Content Component with Sanitization and Proper Styling
+interface EmailContentProps {
+  htmlBody: string | null;
+  textBody: string | null;
+}
+
+function EmailContent({ htmlBody, textBody }: EmailContentProps) {
+  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+
+  // Sanitize HTML and configure DOMPurify
+  const sanitizedHtml = useMemo(() => {
+    if (!htmlBody) return null;
+
+    // Configure DOMPurify to allow images and common email tags
+    const clean = DOMPurify.sanitize(htmlBody, {
+      ADD_TAGS: ['style'],
+      ADD_ATTR: ['target', 'style', 'class'],
+      ALLOW_DATA_ATTR: false,
+      FORCE_BODY: true,
+    });
+
+    return clean;
+  }, [htmlBody]);
+
+  // Inject custom styles for email content
+  useEffect(() => {
+    if (!htmlBody) return;
+
+    // Add styles for email content
+    const style = document.createElement('style');
+    style.textContent = `
+      .email-content-wrapper {
+        /* Base email styling */
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.6;
+        color: #1f2937;
+      }
+
+      .email-content-wrapper img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 0.5rem 0;
+        border-radius: 0.375rem;
+      }
+
+      .email-content-wrapper a {
+        color: #2563eb;
+        text-decoration: none;
+      }
+
+      .email-content-wrapper a:hover {
+        text-decoration: underline;
+      }
+
+      .email-content-wrapper p {
+        margin: 0.75rem 0;
+      }
+
+      .email-content-wrapper h1,
+      .email-content-wrapper h2,
+      .email-content-wrapper h3,
+      .email-content-wrapper h4,
+      .email-content-wrapper h5,
+      .email-content-wrapper h6 {
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+
+      .email-content-wrapper ul,
+      .email-content-wrapper ol {
+        margin: 0.75rem 0;
+        padding-left: 2rem;
+      }
+
+      .email-content-wrapper blockquote {
+        margin: 1rem 0;
+        padding-left: 1rem;
+        border-left: 4px solid #e5e7eb;
+        color: #6b7280;
+      }
+
+      .email-content-wrapper table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1rem 0;
+      }
+
+      .email-content-wrapper table td,
+      .email-content-wrapper table th {
+        border: 1px solid #e5e7eb;
+        padding: 0.5rem;
+      }
+
+      .email-content-wrapper pre {
+        background: #f3f4f6;
+        padding: 1rem;
+        border-radius: 0.375rem;
+        overflow-x: auto;
+        margin: 1rem 0;
+      }
+
+      .email-content-wrapper code {
+        background: #f3f4f6;
+        padding: 0.125rem 0.25rem;
+        border-radius: 0.25rem;
+        font-family: 'Courier New', monospace;
+        font-size: 0.875em;
+      }
+
+      .email-content-wrapper hr {
+        border: none;
+        border-top: 1px solid #e5e7eb;
+        margin: 1.5rem 0;
+      }
+
+      /* Handle email-specific styling */
+      .email-content-wrapper div[style*="background"],
+      .email-content-wrapper table[style*="background"] {
+        border-radius: 0.375rem;
+      }
+    `;
+    document.head.appendChild(style);
+
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, [htmlBody]);
+
+  if (!htmlBody && !textBody) {
+    return (
+      <div className="flex items-center justify-center py-8 text-gray-400">
+        <div className="text-center">
+          <Mail className="h-12 w-12 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No content to display</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (htmlBody && sanitizedHtml) {
+    return (
+      <div className="email-content-wrapper mt-4 mb-4">
+        <div
+          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+          className="prose prose-sm max-w-none"
+        />
+      </div>
+    );
+  }
+
+  // Fallback to text body
+  return (
+    <div className="email-content-wrapper mt-4 mb-4">
+      <p className="whitespace-pre-wrap text-gray-800 leading-relaxed">
+        {textBody || 'No content available'}
+      </p>
+    </div>
+  );
+}
