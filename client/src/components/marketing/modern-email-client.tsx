@@ -801,7 +801,7 @@ export default function ModernEmailClient({ accountFilter }: { accountFilter?: s
                         <p>Fetching: {isFetching ? 'Yes' : 'No'}</p>
                         <p>Pages: {threadsQuery.data?.pages.length || 0}</p>
                         <p>Has Next: {threadsQuery.hasNextPage ? 'Yes' : 'No'}</p>
-                        <p>Error: {threadsQuery.error ? String(threadsQuery.error) : 'None'}</p>
+                        <p>Error: {threadsQuery.error ? String((threadsQuery as any).error) : 'None'}</p>
                       </div>
                     )}
                     {!searchQuery && emailAccounts.length > 0 && (
