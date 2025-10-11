@@ -165,23 +165,26 @@ export default function ResumeEditor({
                 </Alert>
               ) : (
                 <div className="grid gap-4">
-                  {pointGroups.map((group, index) => (
+                  {pointGroups.map((group, index) => {
+                    const points = Array.isArray(group.points) ? group.points : [];
+                    return (
                     <div key={index} className="bg-white p-4 rounded-lg border">
                       <div className="flex items-center space-x-2 mb-3">
                         <Sparkles className="h-5 w-5 text-blue-600" />
-                        <h4 className="font-medium text-gray-900">{group.techStack}</h4>
-                        <Badge variant="secondary">{group.points.length} points</Badge>
+                        <h4 className="font-medium text-gray-900">{group.name}</h4>
+                        <Badge variant="secondary">{points.length} points</Badge>
                       </div>
                       <div className="space-y-2">
-                        {group.points.map((point, pointIndex) => (
+                        {points.map((point: any, pointIndex: number) => (
                           <div key={pointIndex} className="flex items-start space-x-2">
                             <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
-                            <p className="text-sm text-gray-700">{point.description}</p>
+                            <p className="text-sm text-gray-700">{point.description || point.text || String(point)}</p>
                           </div>
                         ))}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

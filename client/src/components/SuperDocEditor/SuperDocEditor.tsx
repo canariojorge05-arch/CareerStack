@@ -355,7 +355,6 @@ export function SuperDocEditor({
       if (toolbarRef.current) {
         toolbarRef.current.innerHTML = '';
       }
-      window.removeEventListener('keydown', onKeyDownNav);
     };
   }, [fileUrl, fileName, retryCount]); // Include retryCount to trigger retry
 

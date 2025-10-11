@@ -1621,6 +1621,19 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
       });
     }
 
+    // Get sending account (use specified or default) - MOVED BEFORE USAGE
+    let sendingAccount;
+    if (accountId) {
+      sendingAccount = await db.query.emailAccounts.findFirst({
+        where: and(
+          eq(emailAccounts.id, accountId),
+          eq(emailAccounts.userId, req.user!.id)
+        )
+      });
+    } else {
+      sendingAccount = await MultiAccountEmailService.getDefaultAccount(req.user!.id);
+    }
+
     // Check rate limit FIRST to prevent spam behavior
     const provider = sendingAccount?.provider || 'smtp';
     const rateLimitCheck = EmailRateLimiter.canSendEmail(
@@ -1684,19 +1697,6 @@ router.post('/emails/send', upload.array('attachments'), async (req, res) => {
       mimeType: file.mimetype,
       fileContent: file.buffer.toString('base64'),
     })) || [];
-
-    // Get sending account (use specified or default)
-    let sendingAccount;
-    if (accountId) {
-      sendingAccount = await db.query.emailAccounts.findFirst({
-        where: and(
-          eq(emailAccounts.id, accountId),
-          eq(emailAccounts.userId, req.user!.id)
-        )
-      });
-    } else {
-      sendingAccount = await MultiAccountEmailService.getDefaultAccount(req.user!.id);
-    }
 
     let finalThreadId = threadId;
 

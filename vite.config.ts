@@ -126,10 +126,10 @@ export default defineConfig({
         },
       },
     },
-    worker: {
-      format: 'es',
-    },
     chunkSizeWarningLimit: 1000,
+  },
+  worker: {
+    format: 'es',
   },
   server: {
     fs: {
