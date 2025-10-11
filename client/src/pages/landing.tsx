@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { FileText, CreditCard as Edit, Download, Users, Star, ArrowRight } from 'lucide-react';
@@ -7,11 +7,17 @@ import { RegisterForm } from '@/components/auth/register-form';
 import { ForgotPasswordForm } from '@/components/auth/forgot-password-form';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { useLocation } from 'wouter';
+import { PageLoader } from '@/components/ui/page-loader';
 
 export default function Landing() {
   const [showCookieNotice, setShowCookieNotice] = useState(false);
   const { toast } = useToast();
+  const { isAuthenticated, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
 
+  // Move all useState calls to the top to avoid hooks rule violations
   const [authDialog, setAuthDialog] = useState<'login' | 'register' | 'forgot-password' | null>(
     () => {
       // Check URL parameters first
@@ -27,6 +33,18 @@ export default function Landing() {
       return null;
     }
   );
+
+  // Redirect authenticated users to dashboard
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      setLocation('/dashboard');
+    }
+  }, [isAuthenticated, isLoading, setLocation]);
+
+  // Show loading if we're checking auth or redirecting
+  if (isLoading || isAuthenticated) {
+    return <PageLoader variant="branded" text="Loading..." />;
+  }
 
   return (
     <div className="min-h-screen bg-background">

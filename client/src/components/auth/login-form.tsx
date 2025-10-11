@@ -124,6 +124,9 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
               headers: { 'X-Requested-With': 'XMLHttpRequest' },
             });
             if (res.ok) {
+              const userData = await res.json();
+              // Immediately set the user data in the query cache to prevent race conditions
+              queryClient.setQueryData(['/api/auth/user'], userData);
               return true;
             }
           } catch (_) {
@@ -146,8 +149,12 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
       // Close dialog if callback provided
       onSuccess?.();
 
+      // Wait a bit longer to ensure auth state is fully propagated
+      await new Promise(resolve => setTimeout(resolve, 300));
+
       // Redirect to the saved URL or default to dashboard
-      setLocation(redirectUrl || '/dashboard');
+      const targetUrl = redirectUrl || '/dashboard';
+      setLocation(targetUrl);
     } catch (error: any) {
       console.error('Login error caught:', error);
       setAttemptCount((prev) => prev + 1);

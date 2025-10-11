@@ -59,12 +59,12 @@ export function useAuth() {
     },
     retry: false,
     retryDelay: 0,
-    staleTime: 30 * 1000, // 30 seconds - longer to prevent unnecessary refetches during navigation
+    staleTime: 5 * 1000, // 5 seconds - short enough to catch auth changes quickly
     gcTime: 5 * 60 * 1000, // 5 minutes
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
-    refetchOnMount: false,
+    refetchOnMount: true, // Enable refetch on mount to catch auth state changes
     enabled: !isDisabled && !shouldPreventAuth, // Disable if any safety check fails
   });
 
@@ -114,20 +114,14 @@ export function useAuth() {
 
   const logout = async () => {
     try {
-      // Clear local state immediately for instant UI feedback
-      queryClient.setQueryData(["/api/auth/user"], null);
-      
       // Show logout message immediately
       toast({
         title: "Logging out...",
         description: "Please wait a moment.",
-        duration: 2000,
+        duration: 1000,
       });
 
-      // Clear local session data immediately (don't wait for server)
-      clearLocalSession();
-      
-      // Make server logout call in background (don't wait for it)
+      // Make server logout call first
       const csrfToken = document.cookie
         .split('; ')
         .find(row => row.startsWith('csrf_token='))
@@ -146,16 +140,33 @@ export function useAuth() {
         console.log("Server logout failed, but local session cleared");
       });
 
-      // Immediate redirect without delay
-      window.location.replace("/");
+      // Clear local session data
+      await clearLocalSession();
+      
+      // Clear query cache
+      queryClient.setQueryData(["/api/auth/user"], null);
+      queryClient.clear();
+      
+      // Use setTimeout to ensure all state updates are processed
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 100);
       
     } catch (error) {
       console.error("Logout error:", error);
       
-      // Even on error, clear everything and redirect immediately
-      clearLocalSession();
-      queryClient.setQueryData(["/api/auth/user"], null);
-      window.location.replace("/");
+      // Even on error, clear everything and redirect
+      try {
+        await clearLocalSession();
+        queryClient.setQueryData(["/api/auth/user"], null);
+        queryClient.clear();
+      } catch (e) {
+        console.error("Error during cleanup:", e);
+      }
+      
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 100);
     }
   };
 

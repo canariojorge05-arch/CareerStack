@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { fileURLToPath } from 'url';
 
 /**
  * Token Encryption Utility
@@ -121,8 +122,18 @@ export function generateSecureToken(length: number = 32): string {
   return crypto.randomBytes(length).toString('hex');
 }
 
-// Export utility for generating a new encryption key
-if (require.main === module) {
+// If this file is executed directly (rather than imported), print a generated key.
+// In ESM environments `require.main` is not available, so compare the executed
+// script path to this module's URL.
+const isExecutedDirectly = (() => {
+  try {
+    return process.argv[1] === fileURLToPath(import.meta.url);
+  } catch (err) {
+    return false;
+  }
+})();
+
+if (isExecutedDirectly) {
   console.log('\n🔐 Generated TOKEN_ENCRYPTION_KEY:');
   console.log(generateEncryptionKey());
   console.log('\nAdd this to your .env file as:');

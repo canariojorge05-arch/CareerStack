@@ -1,11 +1,11 @@
-import { Switch, Route } from 'wouter';
+import { Switch, Route, useLocation } from 'wouter';
 import { queryClient } from './lib/queryClient';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as SonnerToaster } from 'sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useAuth } from '@/hooks/useAuth';
-import { lazy, Suspense, memo, useEffect } from 'react';
+import { lazy, Suspense, memo, useEffect, useState } from 'react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { PrivateRoute } from '@/components/auth/private-route';
 import { resetAllAuthState } from '@/lib/resetAuthState';
@@ -52,6 +52,7 @@ const Router = memo(() => {
     }
   }, [isAuthenticated, isLoading]);
 
+  // Simplified loading state management
   if (isLoading) {
     return <PageLoader variant="branded" text="Loading..." />;
   }
@@ -59,8 +60,10 @@ const Router = memo(() => {
   return (
     <Suspense fallback={<PageLoader variant="branded" text="Loading application..." />}>
       <Switch>
-        {/* Public Routes */}
+        {/* Root route - redirect based on auth status */}
         <Route path="/" component={Landing} />
+        
+        {/* Public Routes */}
         <Route path="/login" component={Landing} />
         <Route path="/register" component={Landing} />
         <Route path="/verify-email" component={VerifyEmail} />

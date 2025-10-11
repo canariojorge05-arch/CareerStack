@@ -31,6 +31,7 @@
     "env:init": "node scripts/generate-session-secret.mjs",
     "postinstall": "node scripts/generate-session-secret.mjs",
     "check:env": "node scripts/check-env.js",
+  "generate:token-key": "npx tsx scripts/generate-token-key.ts",
     "test:email": "npx tsx scripts/test-send-email.ts",
     "docker:logs": "docker-compose logs -f",
     "docker:down": "docker-compose down",
