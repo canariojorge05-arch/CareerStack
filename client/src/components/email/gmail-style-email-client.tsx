@@ -351,7 +351,7 @@ export default function GmailStyleEmailClient() {
                   {emailAccounts.length > 0 && (
                     <div className="px-2 py-2 border-t border-gray-200">
                       <div className="text-xs font-medium text-gray-500 px-3 mb-2">Accounts</div>
-                      {emailAccounts.map((account) => (
+                      {emailAccounts.map((account: EmailAccount) => (
                         <div key={account.id} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700">
                           <div className={cn(
                             "h-2 w-2 rounded-full",
@@ -575,7 +575,7 @@ export default function GmailStyleEmailClient() {
               {emailAccounts.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium">Connected Accounts</h3>
-                  {emailAccounts.map((account) => (
+                  {emailAccounts.map((account: EmailAccount) => (
                     <div key={account.id} className="flex items-center justify-between p-3 border rounded-lg">
                       <div className="flex items-center gap-3">
                         <Mail className="h-5 w-5 text-red-500" />
