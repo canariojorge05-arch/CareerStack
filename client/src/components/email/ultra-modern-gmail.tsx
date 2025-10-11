@@ -4,6 +4,11 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { formatDistanceToNow, format } from 'date-fns';
 import { apiRequest } from '@/lib/queryClient';
 import DOMPurify from 'dompurify';
+import { useHotkeys } from 'react-hotkeys-hook';
+import { useDropzone } from 'react-dropzone';
+import EmojiPicker from 'emoji-picker-react';
+import { EmailEditor } from './email-editor';
+import { EmailListSkeleton, EmailDetailSkeleton } from './loading-skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -73,6 +78,15 @@ export default function UltraModernGmailClient() {
   const [composeTo, setComposeTo] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
+  const [undoSendTimer, setUndoSendTimer] = useState<NodeJS.Timeout | null>(null);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   
   const queryClient = useQueryClient();
 
@@ -173,45 +187,169 @@ export default function UltraModernGmailClient() {
     },
   });
 
-  // Archive mutation
+  // Archive mutation with undo
   const archiveMutation = useMutation({
     mutationFn: async (threadId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/threads/${threadId}/archive`, { isArchived: true });
       if (!response.ok) throw new Error('Failed');
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (_, threadId) => {
       queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
-      toast.success('Conversation archived');
       setSelectedThread(null);
+      
+      toast.success('Conversation archived', {
+        duration: 5000,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            unarchiveMutation.mutate(threadId);
+          }
+        }
+      });
+    },
+    onError: () => {
+      toast.error('Failed to archive conversation');
     },
   });
 
-  // Send email mutation
+  // Unarchive mutation
+  const unarchiveMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      const response = await apiRequest('PATCH', `/api/marketing/emails/threads/${threadId}/archive`, { isArchived: false });
+      if (!response.ok) throw new Error('Failed');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      toast.success('Moved back to inbox');
+    },
+  });
+
+  // Mark as read mutation
+  const markAsReadMutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/read`, { isRead: true });
+      if (!response.ok) throw new Error('Failed');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      toast.success('Marked as read');
+    },
+  });
+
+  // Mark as unread mutation
+  const markAsUnreadMutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/read`, { isRead: false });
+      if (!response.ok) throw new Error('Failed');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      toast.success('Marked as unread');
+    },
+  });
+
+  // Delete thread mutation
+  const deleteThreadMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      const response = await apiRequest('DELETE', `/api/marketing/emails/threads/${threadId}`);
+      if (!response.ok) throw new Error('Failed');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      setSelectedThread(null);
+      toast.success('Conversation deleted');
+    },
+    onError: () => {
+      toast.error('Failed to delete conversation');
+    },
+  });
+
+  // Bulk archive mutation
+  const bulkArchiveMutation = useMutation({
+    mutationFn: async (threadIds: string[]) => {
+      await Promise.all(
+        threadIds.map(id => 
+          apiRequest('PATCH', `/api/marketing/emails/threads/${id}/archive`, { isArchived: true })
+        )
+      );
+    },
+    onSuccess: (_, threadIds) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      setSelectedThreads(new Set());
+      toast.success(`${threadIds.length} conversations archived`);
+    },
+  });
+
+  // Bulk delete mutation
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (threadIds: string[]) => {
+      await Promise.all(
+        threadIds.map(id => 
+          apiRequest('DELETE', `/api/marketing/emails/threads/${id}`)
+        )
+      );
+    },
+    onSuccess: (_, threadIds) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      setSelectedThreads(new Set());
+      toast.success(`${threadIds.length} conversations deleted`);
+    },
+  });
+
+  // Send email mutation with undo and attachments
   const sendEmailMutation = useMutation({
     mutationFn: async (data: any) => {
       if (!emailAccounts[0]) throw new Error('No account connected');
       
+      // Convert attachments to base64
+      const attachmentData = await Promise.all(
+        attachments.map(async (file) => {
+          const buffer = await file.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          return {
+            filename: file.name,
+            content: base64,
+            contentType: file.type,
+          };
+        })
+      );
+
       const response = await apiRequest('POST', '/api/email/send', {
         accountId: emailAccounts[0].id,
-        to: [data.to],
+        to: data.to.split(',').map((e: string) => e.trim()),
         subject: data.subject,
-        htmlBody: `<p>${data.body}</p>`,
-        textBody: data.body,
+        htmlBody: data.body,
+        textBody: data.body.replace(/<[^>]*>/g, ''),
+        attachments: attachmentData.length > 0 ? attachmentData : undefined,
       });
       
       if (!response.ok) throw new Error('Failed to send');
       return response.json();
     },
     onSuccess: () => {
-      toast.success('Email sent successfully!');
+      const toastId = toast.success('Email sent!', {
+        duration: 5000,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            toast.info('Undo send is not yet implemented');
+          }
+        }
+      });
+      
       setComposeOpen(false);
       setComposeTo('');
       setComposeSubject('');
       setComposeBody('');
+      setAttachments([]);
     },
-    onError: () => {
-      toast.error('Failed to send email');
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to send email');
     },
   });
 
@@ -235,9 +373,118 @@ export default function UltraModernGmailClient() {
     return name.slice(0, 2).toUpperCase();
   };
 
+  // File dropzone configuration
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: (acceptedFiles) => {
+      setAttachments(prev => [...prev, ...acceptedFiles]);
+      toast.success(`${acceptedFiles.length} file(s) attached`);
+    },
+    maxSize: 25 * 1024 * 1024, // 25MB per file
+    multiple: true,
+  });
+
+  // Draft auto-save every 30 seconds
+  useEffect(() => {
+    if (!composeTo && !composeSubject && !composeBody) return;
+    
+    const timer = setInterval(() => {
+      console.log('Auto-saving draft...');
+      localStorage.setItem('emailDraft', JSON.stringify({
+        to: composeTo,
+        subject: composeSubject,
+        body: composeBody,
+        attachments: attachments.map(f => f.name),
+        savedAt: new Date().toISOString(),
+      }));
+      toast.success('Draft saved', { duration: 1000 });
+    }, 30000);
+
+    return () => clearInterval(timer);
+  }, [composeTo, composeSubject, composeBody, attachments]);
+
+  // Load draft on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('emailDraft');
+      if (saved) {
+        const draft = JSON.parse(saved);
+        const savedTime = new Date(draft.savedAt);
+        const hoursSince = (Date.now() - savedTime.getTime()) / (1000 * 60 * 60);
+        
+        if (hoursSince < 24) {
+          toast.info('Draft recovered', {
+            action: {
+              label: 'Restore',
+              onClick: () => {
+                setComposeTo(draft.to);
+                setComposeSubject(draft.subject);
+                setComposeBody(draft.body);
+                setComposeOpen(true);
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load draft:', e);
+    }
+  }, []);
+
+  // Keyboard shortcuts
+  useHotkeys('c', (e) => {
+    e.preventDefault();
+    setComposeOpen(true);
+  }, { enableOnFormTags: false });
+
+  useHotkeys('/', (e) => {
+    e.preventDefault();
+    searchInputRef.current?.focus();
+  }, { enableOnFormTags: false });
+
+  useHotkeys('r', () => {
+    if (selectedThread && threadMessages[0]) {
+      handleReply(threadMessages[0]);
+    }
+  }, { enableOnFormTags: false });
+
+  useHotkeys('e', () => {
+    if (selectedThread) {
+      archiveMutation.mutate(selectedThread);
+    }
+  }, { enableOnFormTags: false });
+
+  useHotkeys('escape', () => {
+    if (composeOpen) setComposeOpen(false);
+    if (selectedThread) setSelectedThread(null);
+  });
+
+  useHotkeys('ctrl+enter', () => {
+    if (composeOpen && composeTo && composeSubject) {
+      handleSend();
+    }
+  }, { enableOnFormTags: true });
+
+  useHotkeys('shift+/', (e) => {
+    e.preventDefault();
+    setShowKeyboardShortcuts(true);
+  }, { enableOnFormTags: false });
+
+  useHotkeys('shift+8,a', (e) => {
+    e.preventDefault();
+    setSelectedThreads(new Set(emailThreads.map(t => t.id)));
+    toast.success(`Selected ${emailThreads.length} conversations`);
+  }, { enableOnFormTags: false });
+
+  useHotkeys('shift+8,n', (e) => {
+    e.preventDefault();
+    setSelectedThreads(new Set());
+    toast.success('Selection cleared');
+  }, { enableOnFormTags: false });
+
+  // Handlers
   const handleSend = () => {
-    if (!composeTo || !composeSubject || !composeBody) {
-      toast.error('Please fill in all fields');
+    if (!composeTo || !composeSubject) {
+      toast.error('Please fill in recipient and subject');
       return;
     }
     
@@ -246,7 +493,62 @@ export default function UltraModernGmailClient() {
       subject: composeSubject,
       body: composeBody,
     });
+
+    // Clear draft after sending
+    localStorage.removeItem('emailDraft');
   };
+
+  const handleReply = (message: EmailMessage) => {
+    setComposeTo(message.fromEmail);
+    setComposeSubject(`Re: ${message.subject}`);
+    setComposeBody('');
+    setComposeOpen(true);
+  };
+
+  const handleDiscardDraft = () => {
+    setComposeTo('');
+    setComposeSubject('');
+    setComposeBody('');
+    setAttachments([]);
+    setComposeOpen(false);
+    localStorage.removeItem('emailDraft');
+    toast.success('Draft discarded');
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const insertLink = () => {
+    const url = prompt('Enter URL:');
+    if (url) {
+      setComposeBody(prev => `${prev}<a href="${url}">${url}</a>`);
+    }
+  };
+
+  const insertImage = () => {
+    const url = prompt('Enter image URL:');
+    if (url) {
+      setComposeBody(prev => `${prev}<img src="${url}" alt="Image" style="max-width: 100%;" />`);
+    }
+  };
+
+  // Search history management
+  const addToSearchHistory = (query: string) => {
+    if (!query.trim()) return;
+    setSearchHistory(prev => {
+      const updated = [query, ...prev.filter(q => q !== query)].slice(0, 10);
+      localStorage.setItem('emailSearchHistory', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('emailSearchHistory');
+      if (saved) setSearchHistory(JSON.parse(saved));
+    } catch (e) {}
+  }, []);
 
   // Prefetch folder data on hover for instant switching
   const handleFolderPrefetch = useCallback((folderId: string) => {
@@ -306,14 +608,26 @@ export default function UltraModernGmailClient() {
             <span className="text-xl font-normal text-gray-700 hidden sm:inline">Gmail</span>
           </div>
 
-          {/* Search Bar - Gmail Style */}
-          <div className="flex-1 max-w-3xl">
+          {/* Search Bar - Gmail Style with Suggestions */}
+          <div className="flex-1 max-w-3xl relative">
             <div className="relative group">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 group-focus-within:text-gray-600" />
               <Input
-                placeholder="Search mail"
+                ref={searchInputRef}
+                placeholder="Search mail (Press / to focus)"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setShowSearchSuggestions(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchQuery.trim()) {
+                    addToSearchHistory(searchQuery);
+                    setShowSearchSuggestions(false);
+                  }
+                }}
+                onFocus={() => setShowSearchSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSearchSuggestions(false), 200)}
                 className="w-full pl-10 pr-12 bg-gray-100 border-0 focus:bg-white focus:shadow-md focus:ring-0 rounded-full h-12 transition-all"
               />
               <Button
@@ -324,17 +638,44 @@ export default function UltraModernGmailClient() {
                 <Filter className="h-4 w-4 text-gray-500" />
               </Button>
             </div>
+
+            {/* Search Suggestions Dropdown */}
+            {showSearchSuggestions && searchHistory.length > 0 && !searchQuery && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-w-3xl">
+                <div className="p-2">
+                  <div className="px-3 py-2 text-xs text-gray-500 font-medium">Recent searches</div>
+                  {searchHistory.map((query, idx) => (
+                    <button
+                      key={idx}
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded text-left"
+                      onClick={() => {
+                        setSearchQuery(query);
+                        setShowSearchSuggestions(false);
+                      }}
+                    >
+                      <Clock className="h-4 w-4 text-gray-400" />
+                      <span className="text-sm text-gray-700">{query}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right Actions */}
           <div className="flex items-center gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="rounded-full"
+                  onClick={() => setShowKeyboardShortcuts(true)}
+                >
                   <HelpCircle className="h-5 w-5 text-gray-600" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Help</TooltipContent>
+              <TooltipContent>Keyboard shortcuts (?)</TooltipContent>
             </Tooltip>
             
             <Tooltip>
@@ -483,70 +824,98 @@ export default function UltraModernGmailClient() {
             {/* Toolbar */}
             <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
               <div className="flex items-center gap-1">
-                {selectedThreads.size === 0 ? (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-full"
-                    onClick={() => {}}
-                  >
-                    <Square className="h-4 w-4" />
-                  </Button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-full"
-                    onClick={() => setSelectedThreads(new Set())}
-                  >
-                    <SquareCheck className="h-4 w-4 text-blue-600" />
-                  </Button>
-                )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="rounded-full"
+                      onClick={() => {
+                        if (selectedThreads.size === emailThreads.length) {
+                          setSelectedThreads(new Set());
+                        } else {
+                          setSelectedThreads(new Set(emailThreads.map(t => t.id)));
+                          toast.success(`Selected ${emailThreads.length} conversations`);
+                        }
+                      }}
+                    >
+                      {selectedThreads.size === emailThreads.length ? (
+                        <SquareCheck className="h-4 w-4 text-blue-600" />
+                      ) : selectedThreads.size > 0 ? (
+                        <SquareCheck className="h-4 w-4 text-blue-400" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Select all (*+a)</TooltipContent>
+                </Tooltip>
 
                 <Separator orientation="vertical" className="h-6 mx-1" />
 
                 {selectedThreads.size > 0 ? (
                   <>
+                    <Badge variant="secondary" className="ml-2">
+                      {selectedThreads.size} selected
+                    </Badge>
+                    
+                    <Separator orientation="vertical" className="h-6 mx-1" />
+
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="rounded-full"
-                          onClick={() => {
-                            selectedThreads.forEach(id => archiveMutation.mutate(id));
-                            setSelectedThreads(new Set());
-                          }}
+                          className="rounded-full hover:bg-green-50"
+                          onClick={() => bulkArchiveMutation.mutate(Array.from(selectedThreads))}
+                          disabled={bulkArchiveMutation.isPending}
                         >
-                          <Archive className="h-4 w-4" />
+                          <Archive className="h-4 w-4 text-green-600" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Archive</TooltipContent>
+                      <TooltipContent>Archive selected</TooltipContent>
                     </Tooltip>
 
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="rounded-full">
-                          <AlertCircle className="h-4 w-4" />
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="rounded-full hover:bg-red-50"
+                          onClick={() => {
+                            if (confirm(`Delete ${selectedThreads.size} conversations?`)) {
+                              bulkDeleteMutation.mutate(Array.from(selectedThreads));
+                            }
+                          }}
+                          disabled={bulkDeleteMutation.isPending}
+                        >
+                          <Trash2 className="h-4 w-4 text-red-600" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Report spam</TooltipContent>
-                    </Tooltip>
-
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="rounded-full">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Delete</TooltipContent>
+                      <TooltipContent>Delete selected</TooltipContent>
                     </Tooltip>
 
                     <Separator orientation="vertical" className="h-6 mx-1" />
 
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="rounded-full">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="rounded-full"
+                          onClick={() => {
+                            // Mark all selected as read
+                            emailThreads
+                              .filter(t => selectedThreads.has(t.id))
+                              .forEach(t => {
+                                const msg = t.messages?.[0];
+                                if (msg && !msg.isRead) {
+                                  markAsReadMutation.mutate(msg.id);
+                                }
+                              });
+                            setSelectedThreads(new Set());
+                          }}
+                        >
                           <MailOpen className="h-4 w-4" />
                         </Button>
                       </TooltipTrigger>
@@ -555,29 +924,16 @@ export default function UltraModernGmailClient() {
 
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="rounded-full">
-                          <Clock className="h-4 w-4" />
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="rounded-full"
+                          onClick={() => setSelectedThreads(new Set())}
+                        >
+                          <X className="h-4 w-4" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Snooze</TooltipContent>
-                    </Tooltip>
-
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="rounded-full">
-                          <Tag className="h-4 w-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Add label</TooltipContent>
-                    </Tooltip>
-
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="rounded-full">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>More</TooltipContent>
+                      <TooltipContent>Clear selection</TooltipContent>
                     </Tooltip>
                   </>
                 ) : (
@@ -616,28 +972,47 @@ export default function UltraModernGmailClient() {
                 selectedThread && view === 'split' ? "w-1/2" : "w-full"
               )}>
                 {isLoading ? (
-                  <div className="flex items-center justify-center h-64">
-                    <div className="text-center">
-                      <RefreshCw className="h-8 w-8 animate-spin text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm text-gray-600">Loading your emails...</p>
-                    </div>
-                  </div>
+                  <EmailListSkeleton />
                 ) : emailThreads.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-96">
-                    <currentFolder.icon className="h-20 w-20 text-gray-300 mb-4" />
-                    <h3 className="text-xl font-normal text-gray-700 mb-2">
+                  <div className="flex flex-col items-center justify-center h-96 p-8">
+                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-8 rounded-full mb-6">
+                      <currentFolder.icon className="h-24 w-24 text-blue-400" />
+                    </div>
+                    <h3 className="text-2xl font-semibold text-gray-900 mb-3">
                       {searchQuery ? 'No emails found' : `Your ${currentFolder.name.toLowerCase()} is empty`}
                     </h3>
-                    <p className="text-sm text-gray-500 mb-6">
-                      {searchQuery ? 'Try a different search term' : emailAccounts.length === 0 ? 'Connect an account to get started' : 'No emails to display'}
+                    <p className="text-base text-gray-600 mb-6 text-center max-w-md">
+                      {searchQuery 
+                        ? 'Try different keywords or check your spelling' 
+                        : emailAccounts.length === 0 
+                        ? 'Connect your email account to start receiving messages' 
+                        : 'When you receive emails, they\'ll appear here'}
                     </p>
-                    {emailAccounts.length === 0 && (
+                    {emailAccounts.length === 0 ? (
                       <Button
                         onClick={() => setAccountsOpen(true)}
-                        className="bg-blue-600 hover:bg-blue-700"
+                        size="lg"
+                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg"
                       >
-                        <Mail className="h-4 w-4 mr-2" />
-                        Connect Account
+                        <Mail className="h-5 w-5 mr-2" />
+                        Connect Email Account
+                      </Button>
+                    ) : searchQuery ? (
+                      <Button
+                        onClick={() => setSearchQuery('')}
+                        variant="outline"
+                        size="lg"
+                      >
+                        Clear search
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={() => setComposeOpen(true)}
+                        size="lg"
+                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg"
+                      >
+                        <Pencil className="h-5 w-5 mr-2" />
+                        Compose your first email
                       </Button>
                     )}
                   </div>
@@ -668,17 +1043,37 @@ export default function UltraModernGmailClient() {
                       <div className="flex items-center gap-1">
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" className="rounded-full">
-                              <Archive className="h-4 w-4" />
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="rounded-full hover:bg-green-50"
+                              onClick={() => {
+                                if (selectedThread) {
+                                  archiveMutation.mutate(selectedThread);
+                                }
+                              }}
+                              disabled={archiveMutation.isPending}
+                            >
+                              <Archive className="h-4 w-4 text-green-600" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Archive</TooltipContent>
+                          <TooltipContent>Archive (E)</TooltipContent>
                         </Tooltip>
 
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" className="rounded-full">
-                              <Trash2 className="h-4 w-4" />
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="rounded-full hover:bg-red-50"
+                              onClick={() => {
+                                if (selectedThread && confirm('Delete this conversation?')) {
+                                  deleteThreadMutation.mutate(selectedThread);
+                                }
+                              }}
+                              disabled={deleteThreadMutation.isPending}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-600" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>Delete</TooltipContent>
@@ -686,38 +1081,41 @@ export default function UltraModernGmailClient() {
 
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" className="rounded-full">
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="rounded-full"
+                              onClick={() => {
+                                const firstMessage = threadMessages[0];
+                                if (firstMessage) {
+                                  if (firstMessage.isRead) {
+                                    markAsUnreadMutation.mutate(firstMessage.id);
+                                  } else {
+                                    markAsReadMutation.mutate(firstMessage.id);
+                                  }
+                                }
+                              }}
+                            >
                               <MailOpen className="h-4 w-4" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Mark as unread</TooltipContent>
+                          <TooltipContent>
+                            {threadMessages[0]?.isRead ? 'Mark as unread' : 'Mark as read'}
+                          </TooltipContent>
                         </Tooltip>
 
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" className="rounded-full">
-                              <Clock className="h-4 w-4" />
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="rounded-full"
+                              onClick={() => setSelectedThread(null)}
+                            >
+                              <ArrowLeft className="h-4 w-4" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Snooze</TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" className="rounded-full">
-                              <Tag className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Add label</TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" className="rounded-full">
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>More</TooltipContent>
+                          <TooltipContent>Back to list</TooltipContent>
                         </Tooltip>
                       </div>
                     </div>
@@ -736,9 +1134,7 @@ export default function UltraModernGmailClient() {
                   {/* Messages */}
                   <ScrollArea className="flex-1 px-6 py-4">
                     {messagesLoading ? (
-                      <div className="flex items-center justify-center h-64">
-                        <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
-                      </div>
+                      <EmailDetailSkeleton />
                     ) : (
                       <div className="space-y-4 max-w-4xl">
                         {threadMessages.map((message, index) => (
@@ -789,11 +1185,19 @@ export default function UltraModernGmailClient() {
                                       </Tooltip>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
-                                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-gray-100">
+                                          <Button 
+                                            variant="ghost" 
+                                            size="icon" 
+                                            className="h-8 w-8 rounded-full hover:bg-gray-100"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleReply(message);
+                                            }}
+                                          >
                                             <Reply className="h-4 w-4" />
                                           </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent>Reply</TooltipContent>
+                                        <TooltipContent>Reply (R)</TooltipContent>
                                       </Tooltip>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
@@ -852,7 +1256,7 @@ export default function UltraModernGmailClient() {
                                     variant="outline"
                                     size="default"
                                     className="rounded-full border-2 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600"
-                                    onClick={() => setComposeOpen(true)}
+                                    onClick={() => handleReply(message)}
                                   >
                                     <Reply className="h-4 w-4 mr-2" />
                                     Reply
@@ -861,7 +1265,12 @@ export default function UltraModernGmailClient() {
                                     variant="outline"
                                     size="default"
                                     className="rounded-full border-2 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600"
-                                    onClick={() => setComposeOpen(true)}
+                                    onClick={() => {
+                                      setComposeTo([message.fromEmail, ...message.toEmails].join(', '));
+                                      setComposeSubject(`Re: ${message.subject}`);
+                                      setComposeBody('');
+                                      setComposeOpen(true);
+                                    }}
                                   >
                                     <ReplyAll className="h-4 w-4 mr-2" />
                                     Reply All
@@ -870,7 +1279,12 @@ export default function UltraModernGmailClient() {
                                     variant="outline"
                                     size="default"
                                     className="rounded-full border-2 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600"
-                                    onClick={() => setComposeOpen(true)}
+                                    onClick={() => {
+                                      setComposeTo('');
+                                      setComposeSubject(`Fwd: ${message.subject}`);
+                                      setComposeBody(message.htmlBody || message.textBody || '');
+                                      setComposeOpen(true);
+                                    }}
                                   >
                                     <Forward className="h-4 w-4 mr-2" />
                                     Forward
@@ -904,21 +1318,28 @@ export default function UltraModernGmailClient() {
           </Tooltip>
         </div>
 
-        {/* Compose Dialog - Gmail Style */}
-        <Dialog open={composeOpen} onOpenChange={setComposeOpen}>
-          <DialogContent className="max-w-3xl h-[600px] p-0 gap-0 rounded-2xl overflow-hidden">
+        {/* Enhanced Compose Dialog with Rich Text Editor */}
+        <Dialog open={composeOpen} onOpenChange={(open) => {
+          if (!open && (composeTo || composeSubject || composeBody)) {
+            if (confirm('Discard unsaved changes?')) {
+              handleDiscardDraft();
+            }
+          } else {
+            setComposeOpen(open);
+          }
+        }}>
+          <DialogContent className="max-w-4xl h-[700px] p-0 gap-0 rounded-2xl overflow-hidden">
             <div className="flex flex-col h-full">
               {/* Compose Header */}
-              <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                <h3 className="font-medium text-gray-900">New Message</h3>
+              <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-blue-50 via-white to-indigo-50 border-b border-gray-200">
+                <h3 className="font-semibold text-gray-900 text-lg">New Message</h3>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
-                    <Minimize2 className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
-                    <Maximize2 className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => setComposeOpen(false)}>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 rounded-full" 
+                    onClick={() => setComposeOpen(false)}
+                  >
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
@@ -926,11 +1347,12 @@ export default function UltraModernGmailClient() {
 
               {/* Compose Fields */}
               <div className="flex-1 flex flex-col overflow-hidden">
-                <div className="px-6 py-3 space-y-0 border-b border-gray-200">
+                {/* To Field */}
+                <div className="px-6 py-3 border-b border-gray-200">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600 w-12">To</span>
+                    <span className="text-sm font-medium text-gray-700 w-16">To</span>
                     <Input
-                      placeholder="Recipients"
+                      placeholder="recipient@example.com"
                       value={composeTo}
                       onChange={(e) => setComposeTo(e.target.value)}
                       className="border-0 focus:ring-0 focus-visible:ring-0 px-0 text-sm"
@@ -938,11 +1360,12 @@ export default function UltraModernGmailClient() {
                   </div>
                 </div>
 
-                <div className="px-6 py-3 space-y-0 border-b border-gray-200">
+                {/* Subject Field */}
+                <div className="px-6 py-3 border-b border-gray-200">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600 w-12">Subject</span>
+                    <span className="text-sm font-medium text-gray-700 w-16">Subject</span>
                     <Input
-                      placeholder="Subject"
+                      placeholder="Email subject"
                       value={composeSubject}
                       onChange={(e) => setComposeSubject(e.target.value)}
                       className="border-0 focus:ring-0 focus-visible:ring-0 px-0 text-sm"
@@ -950,24 +1373,64 @@ export default function UltraModernGmailClient() {
                   </div>
                 </div>
 
-                <div className="flex-1 px-6 py-4 overflow-auto">
-                  <textarea
-                    placeholder="Message"
-                    value={composeBody}
-                    onChange={(e) => setComposeBody(e.target.value)}
-                    className="w-full h-full resize-none border-0 focus:outline-none focus:ring-0 text-sm text-gray-800 font-normal leading-relaxed"
-                    style={{ fontFamily: 'Arial, sans-serif' }}
+                {/* Attachments Preview */}
+                {attachments.length > 0 && (
+                  <div className="px-6 py-3 border-b border-gray-200 bg-blue-50/30">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Paperclip className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-medium text-gray-700">
+                        {attachments.length} attachment{attachments.length > 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {attachments.map((file, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-sm"
+                        >
+                          <FileText className="h-3 w-3 text-gray-400" />
+                          <span className="text-gray-700">{file.name}</span>
+                          <span className="text-gray-400 text-xs">
+                            ({(file.size / 1024).toFixed(1)}KB)
+                          </span>
+                          <button
+                            onClick={() => removeAttachment(idx)}
+                            className="ml-1 hover:bg-gray-100 rounded-full p-0.5"
+                          >
+                            <X className="h-3 w-3 text-gray-500" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Rich Text Editor */}
+                <div className="flex-1 overflow-hidden" {...getRootProps()}>
+                  <input {...getInputProps()} />
+                  {isDragActive && (
+                    <div className="absolute inset-0 bg-blue-50/90 border-2 border-dashed border-blue-400 flex items-center justify-center z-50">
+                      <div className="text-center">
+                        <Paperclip className="h-12 w-12 text-blue-600 mx-auto mb-2" />
+                        <p className="text-lg font-medium text-blue-900">Drop files here to attach</p>
+                      </div>
+                    </div>
+                  )}
+                  <EmailEditor 
+                    content={composeBody}
+                    onChange={setComposeBody}
+                    placeholder="Compose your message..."
                   />
                 </div>
 
                 {/* Compose Footer */}
-                <div className="px-6 py-4 border-t border-gray-200 bg-white">
+                <div className="px-6 py-4 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-white">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-2">
                       <Button
                         onClick={handleSend}
                         disabled={sendEmailMutation.isPending || !composeTo || !composeSubject}
-                        className="bg-blue-600 hover:bg-blue-700 rounded-full px-8"
+                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-full px-10 font-medium shadow-md"
                       >
                         {sendEmailMutation.isPending ? (
                           <>
@@ -976,43 +1439,85 @@ export default function UltraModernGmailClient() {
                           </>
                         ) : (
                           <>
+                            <Send className="h-4 w-4 mr-2" />
                             Send
                           </>
                         )}
                       </Button>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full"
+                        onClick={() => setShowScheduler(!showScheduler)}
+                      >
+                        <Clock className="h-4 w-4 mr-2" />
+                        Schedule
+                      </Button>
                       
-                      <Separator orientation="vertical" className="h-6 mx-2" />
+                      <Separator orientation="vertical" className="h-6 mx-1" />
                       
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" className="rounded-full">
-                            <Paperclip className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Attach files</TooltipContent>
-                      </Tooltip>
+                      <div {...getRootProps({ onClick: e => e.stopPropagation() })}>
+                        <input {...getInputProps()} />
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="rounded-full hover:bg-blue-50">
+                              <Paperclip className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Attach files</TooltipContent>
+                        </Tooltip>
+                      </div>
 
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" className="rounded-full">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="rounded-full"
+                            onClick={insertLink}
+                          >
                             <Link2 className="h-4 w-4" />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>Insert link</TooltipContent>
                       </Tooltip>
 
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" className="rounded-full">
-                            <Smile className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Insert emoji</TooltipContent>
-                      </Tooltip>
+                      <div className="relative">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="rounded-full"
+                              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                            >
+                              <Smile className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Insert emoji</TooltipContent>
+                        </Tooltip>
+                        
+                        {showEmojiPicker && (
+                          <div className="absolute bottom-12 left-0 z-50">
+                            <EmojiPicker
+                              onEmojiClick={(emoji) => {
+                                setComposeBody(prev => prev + emoji.emoji);
+                                setShowEmojiPicker(false);
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
 
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" className="rounded-full">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="rounded-full"
+                            onClick={insertImage}
+                          >
                             <Image className="h-4 w-4" />
                           </Button>
                         </TooltipTrigger>
@@ -1023,17 +1528,13 @@ export default function UltraModernGmailClient() {
                     <div className="flex items-center gap-1">
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" className="rounded-full">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>More options</TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" className="rounded-full">
-                            <Trash2 className="h-4 w-4 text-gray-400" />
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="rounded-full hover:bg-red-50"
+                            onClick={handleDiscardDraft}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-600" />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>Discard draft</TooltipContent>
@@ -1054,6 +1555,40 @@ export default function UltraModernGmailClient() {
                       </select>
                     </div>
                   )}
+                  
+                  {/* Schedule Send Panel */}
+                  {showScheduler && (
+                    <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Clock className="h-5 w-5 text-blue-600" />
+                        <div className="flex-1">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Schedule send time
+                          </label>
+                          <Input
+                            type="datetime-local"
+                            className="text-sm"
+                            onChange={(e) => setScheduledDate(e.target.value ? new Date(e.target.value) : null)}
+                          />
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setShowScheduler(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-2">
+                        {scheduledDate && `Email will be sent on ${format(scheduledDate, 'MMM d, yyyy at h:mm a')}`}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Keyboard Shortcuts Hint */}
+                  <div className="mt-3 text-xs text-gray-500 text-center">
+                    Press <kbd className="px-1.5 py-0.5 bg-gray-200 rounded">Ctrl+Enter</kbd> to send
+                  </div>
                 </div>
               </div>
             </div>
@@ -1170,6 +1705,109 @@ export default function UltraModernGmailClient() {
                   <div className="flex items-center gap-2 text-gray-700">
                     <Check className="h-4 w-4 text-green-600" />
                     Search & filters
+                  </div>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Keyboard Shortcuts Help Dialog */}
+        <Dialog open={showKeyboardShortcuts} onOpenChange={setShowKeyboardShortcuts}>
+          <DialogContent className="max-w-2xl max-h-[600px] overflow-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-semibold flex items-center gap-2">
+                <Zap className="h-6 w-6 text-blue-600" />
+                Keyboard Shortcuts
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-6">
+              {/* Compose & Actions */}
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <Pencil className="h-4 w-4 text-blue-600" />
+                  Compose & Actions
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-700">Compose new message</span>
+                    <kbd className="px-3 py-1 bg-gray-100 rounded font-mono text-sm">C</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-700">Reply to message</span>
+                    <kbd className="px-3 py-1 bg-gray-100 rounded font-mono text-sm">R</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-700">Archive conversation</span>
+                    <kbd className="px-3 py-1 bg-gray-100 rounded font-mono text-sm">E</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-700">Send email</span>
+                    <kbd className="px-3 py-1 bg-gray-100 rounded font-mono text-sm">Ctrl+Enter</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Navigation */}
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <ArrowLeft className="h-4 w-4 text-blue-600" />
+                  Navigation
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-700">Focus search</span>
+                    <kbd className="px-3 py-1 bg-gray-100 rounded font-mono text-sm">/</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-700">Close dialog/Go back</span>
+                    <kbd className="px-3 py-1 bg-gray-100 rounded font-mono text-sm">Esc</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Selection */}
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <SquareCheck className="h-4 w-4 text-blue-600" />
+                  Selection
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-700">Select all conversations</span>
+                    <kbd className="px-3 py-1 bg-gray-100 rounded font-mono text-sm">*+A</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-700">Clear selection</span>
+                    <kbd className="px-3 py-1 bg-gray-100 rounded font-mono text-sm">*+N</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Help */}
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <HelpCircle className="h-4 w-4 text-blue-600" />
+                  Help
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-700">Show keyboard shortcuts</span>
+                    <kbd className="px-3 py-1 bg-gray-100 rounded font-mono text-sm">?</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tips */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <Zap className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-semibold text-blue-900 mb-1">Pro Tip</h4>
+                    <p className="text-sm text-blue-700">
+                      Combine shortcuts for maximum productivity! Press <kbd className="px-1.5 py-0.5 bg-white rounded text-xs">*+A</kbd> to select all, then <kbd className="px-1.5 py-0.5 bg-white rounded text-xs">E</kbd> to archive them all at once.
+                    </p>
                   </div>
                 </div>
               </div>
