@@ -20,13 +20,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Bell, LogOut, Trash2, FileText, CreditCard as Edit, Download, Zap, MessageSquare, Cloud, HardDrive, Mail } from 'lucide-react';
+import { Trash2, CreditCard as Edit, Download, FileText } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import FileUpload from '@/components/file-upload';
 import TechStackModal from '@/components/tech-stack-modal';
 import ProcessingResultsModal from '@/components/processing-results-modal';
 import GoogleDriveInfoModal from '@/components/google-drive-info-modal';
+import { AppHeader } from '@/components/shared/app-header';
 import type { Resume } from '@shared/schema';
 import type { User as ClientUser } from '@/hooks/useAuth';
 
@@ -629,159 +629,8 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background animate-fade-in">
-      {/* Header */}
-      <header className="glass-effect border-b border-border sticky top-0 z-50 shadow-sm" role="banner">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-3">
-              <div className="h-10 w-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center shadow-lg">
-                <FileText className="text-white" size={20} />
-              </div>
-              <h1 className="text-xl font-bold text-foreground tracking-tight">ResumeCustomizer Pro</h1>
-            </div>
-
-            <nav className="flex items-center space-x-4" role="navigation" aria-label="Main navigation">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigate('/email')}
-                    className="bg-red-50 border-red-200 text-red-700 hover:bg-red-100 transition-all duration-200 focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-                    data-testid="button-email"
-                    aria-label="Navigate to email page"
-                  >
-                    <Mail size={16} className="mr-1" />
-                    <span className="hidden sm:inline">Email</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  Gmail-style email client with multi-account support and secure OAuth.
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigate('/marketing')}
-                    className="bg-green-50 border-green-200 text-green-700 hover:bg-green-100 transition-all duration-200 focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                    data-testid="button-marketing"
-                    aria-label="Navigate to marketing page"
-                  >
-                    <MessageSquare size={16} className="mr-1" />
-                    <span className="hidden sm:inline">Marketing</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  Create outreach emails, manage templates, and view engagement insights.
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (hasResumes) {
-                          navigate('/editor');
-                        }
-                      }}
-                      disabled={!hasResumes}
-                      aria-label={hasResumes ? 'Open Multi-Editor to edit multiple resumes' : 'Multi-Editor disabled - upload a resume first'}
-                      className={`transition-all duration-200 focus:ring-2 focus:ring-offset-2 ${
-                        hasResumes
-                          ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-transparent hover:from-blue-700 hover:to-indigo-700 shadow-sm focus:ring-blue-500'
-                          : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed focus:ring-gray-300'
-                      }`}
-                      data-testid="button-multi-editor"
-                    >
-                      <Zap size={16} className="mr-1" />
-                      <span>Multi-Editor</span>
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {hasResumes
-                    ? 'Open Multi-Editor. Select one or more resumes to edit side-by-side.'
-                    : 'Upload at least one resume to enable Multi-Editor.'}
-                </TooltipContent>
-              </Tooltip>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                data-testid="button-notifications"
-                aria-label="View notifications"
-                className="focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <Bell size={18} aria-hidden="true" />
-              </Button>
-              <div className="flex items-center space-x-3">
-                <div className="h-8 w-8 bg-primary rounded-full flex items-center justify-center">
-                  <span className="text-sm font-medium text-primary-foreground">
-                    {(user as ClientUser)?.firstName?.[0] ||
-                      (user as ClientUser)?.email?.[0] ||
-                      'U'}
-                  </span>
-                </div>
-                <span
-                  className="text-sm font-medium text-foreground hidden sm:inline-block"
-                  data-testid="text-username"
-                >
-                  {(user as ClientUser)?.firstName || (user as ClientUser)?.email || 'User'}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      // Get CSRF token from cookie
-                      const csrfToken = document.cookie
-                        .split('; ')
-                        .find(row => row.startsWith('csrf_token='))
-                        ?.split('=')[1];
-
-                      const response = await fetch('/api/auth/logout', {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: {
-                          'X-CSRF-Token': csrfToken || '',
-                        },
-                      });
-                      if (response.ok) {
-                        // Clear authentication state and let Router handle navigation
-                        queryClient.clear();
-                        queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
-                        
-                        toast({
-                          title: 'Logged out',
-                          description: 'You have been successfully logged out.',
-                        });
-                      } else {
-                        throw new Error('Logout failed');
-                      }
-                    } catch (error) {
-                      toast({
-                        title: 'Error',
-                        description: 'Failed to logout. Please try again.',
-                        variant: 'destructive',
-                      });
-                    }
-                  }}
-                  data-testid="button-logout"
-                  className="hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
-                >
-                  <LogOut size={16} className="mr-1.5" />
-                  <span className="hidden sm:inline-block">Logout</span>
-                  <span className="sm:hidden">Log Out</span>
-                </Button>
-              </div>
-            </nav>
-          </div>
-        </div>
-      </header>
+      {/* Shared Header with Auto-hide */}
+      <AppHeader currentPage="dashboard" />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" role="main">
         {/* Welcome Section */}

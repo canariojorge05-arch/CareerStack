@@ -1147,21 +1147,22 @@ router.get('/email-accounts/:id/sync-stats', async (req, res) => {
 // Search emails with optimized search service
 router.get('/emails/search', async (req, res) => {
   try {
-    const { q, page = '1', limit = '20', accountId } = req.query;
+    const { q, page = '1', limit = '50', offset = '0', accountId } = req.query;
     
     if (!q || typeof q !== 'string') {
       return res.status(400).json({ message: 'Search query is required' });
     }
     
-    const pageNum = parseInt(page as string);
-    const limitNum = parseInt(limit as string);
+    // Support both page-based and offset-based pagination
+    const limitNum = Math.min(parseInt(limit as string), 100); // Max 100 per request
+    const offsetNum = offset !== '0' ? parseInt(offset as string) : (parseInt(page as string) - 1) * limitNum;
     
     // Use the optimized EmailSearchService
     const searchOptions = {
       query: q,
       accountIds: accountId ? [accountId as string] : undefined,
       limit: limitNum,
-      offset: (pageNum - 1) * limitNum
+      offset: offsetNum
     };
     
     const searchResult = await EmailSearchService.searchEmails(req.user!.id, searchOptions);
@@ -1194,9 +1195,11 @@ router.get('/emails/search', async (req, res) => {
       return { ...thread, preview };
     });
     
+    const hasMore = (offsetNum + limitNum) < searchResult.totalCount;
     res.json({ 
       threads: threadsWithPreview, 
       total: searchResult.totalCount,
+      nextCursor: hasMore ? offsetNum + limitNum : undefined,
       searchTime: searchResult.searchTime,
       suggestions: searchResult.suggestions || []
     });
@@ -1209,10 +1212,11 @@ router.get('/emails/search', async (req, res) => {
 // Get email threads with optimized query and pagination metadata
 router.get('/emails/threads', async (req, res) => {
   try {
-    const { type = 'inbox', page = '1', limit = '20', accountId } = req.query;
+    const { type = 'inbox', page = '1', limit = '50', offset = '0', accountId } = req.query;
     
-    const pageNum = parseInt(page as string);
-    const limitNum = parseInt(limit as string);
+    // Support both page-based and offset-based pagination
+    const limitNum = Math.min(parseInt(limit as string), 100); // Max 100 per request
+    const offsetNum = offset !== '0' ? parseInt(offset as string) : (parseInt(page as string) - 1) * limitNum;
     
     let whereConditions: any[] = [eq(emailThreads.createdBy, req.user!.id)];
     
@@ -1269,7 +1273,7 @@ router.get('/emails/threads', async (req, res) => {
       },
       orderBy: [desc(emailThreads.lastMessageAt)],
       limit: limitNum,
-      offset: (pageNum - 1) * limitNum,
+      offset: offsetNum,
     });
 
     // Add preview to each thread from the latest message
@@ -1288,13 +1292,18 @@ router.get('/emails/threads', async (req, res) => {
       };
     });
 
+    // Support both old and new response formats
+    const hasMore = (offsetNum + limitNum) < totalCount;
     res.json({
       threads: threadsWithPreview,
+      total: totalCount,
+      nextCursor: hasMore ? offsetNum + limitNum : undefined,
+      // Legacy pagination for backward compatibility
       pagination: {
-        page: pageNum,
+        page: Math.floor(offsetNum / limitNum) + 1,
         limit: limitNum,
         total: totalCount,
-        hasMore: (pageNum * limitNum) < totalCount
+        hasMore
       }
     });
   } catch (error) {
