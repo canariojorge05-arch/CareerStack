@@ -747,7 +747,7 @@ export default function InterviewForm({
                         render={({ field }) => (
                           <Textarea
                             {...field}
-                            value={field.value || ''}
+                            value={field.value ?? ''}
                             placeholder="Any special instructions or notes for the interview..."
                             rows={3}
                           />
@@ -763,7 +763,7 @@ export default function InterviewForm({
                         render={({ field }) => (
                           <Textarea
                             {...field}
-                            value={field.value || ''}
+                            value={field.value ?? ''}
                             placeholder="Job description for the interview (auto-filled from requirement)..."
                             rows={4}
                           />
@@ -779,7 +779,7 @@ export default function InterviewForm({
                         render={({ field }) => (
                           <Textarea
                             {...field}
-                            value={field.value || ''}
+                            value={field.value ?? ''}
                             placeholder="Interview feedback and notes..."
                             rows={4}
                           />

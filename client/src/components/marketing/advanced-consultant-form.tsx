@@ -424,7 +424,7 @@ export default function AdvancedConsultantForm({
                           render={({ field }) => (
                             <Textarea
                               {...field}
-                              value={field.value || ''}
+                              value={field.value ?? ''}
                               placeholder="H1B, Green Card, Citizen, etc."
                               rows={2}
                             />
@@ -471,7 +471,7 @@ export default function AdvancedConsultantForm({
                           render={({ field }) => (
                             <Textarea
                               {...field}
-                              value={field.value || ''}
+                              value={field.value ?? ''}
                               placeholder="EST, PST, CST, etc."
                               rows={2}
                             />
@@ -573,7 +573,7 @@ export default function AdvancedConsultantForm({
                           render={({ field }) => (
                             <Textarea
                               {...field}
-                              value={field.value || ''}
+                              value={field.value ?? ''}
                               placeholder="Explain how you obtained your visa..."
                               rows={3}
                             />
@@ -624,7 +624,7 @@ export default function AdvancedConsultantForm({
                           render={({ field }) => (
                             <Textarea
                               {...field}
-                              value={field.value || ''}
+                              value={field.value ?? ''}
                               placeholder="Explain the reason for job change..."
                               rows={3}
                             />
@@ -775,20 +775,21 @@ export default function AdvancedConsultantForm({
                           </div>
                         </div>
 
-                        <div>
-                          <Label>Project Description *</Label>
-                          <Controller
-                            name={`projects.${index}.projectDescription`}
-                            control={projectsControl}
-                            render={({ field }) => (
-                              <Textarea
-                                {...field}
-                                placeholder="Describe the project, your role, technologies used, and achievements..."
-                                rows={4}
-                              />
-                            )}
-                          />
-                        </div>
+                          <div>
+                            <Label>Project Description *</Label>
+                            <Controller
+                              name={`projects.${index}.projectDescription`}
+                              control={projectsControl}
+                              render={({ field }) => (
+                                <Textarea
+                                  {...field}
+                                  value={field.value ?? ''}
+                                  placeholder="Describe the project, your role, technologies used, and achievements..."
+                                  rows={4}
+                                />
+                              )}
+                            />
+                          </div>
                       </CardContent>
                     </Card>
                   ))}
