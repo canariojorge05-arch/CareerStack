@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { formatDistanceToNow, format } from 'date-fns';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
@@ -98,28 +99,52 @@ export default function UltraModernGmailClient() {
 
   const emailAccounts: EmailAccount[] = accountsData?.accounts || accountsData || [];
 
-  // Fetch email threads with optimized caching
-  const { data: emailThreads = [], isLoading, refetch } = useQuery<EmailThread[]>({
+  // Infinite query with pagination for email threads
+  const {
+    data: emailThreadsData,
+    isLoading,
+    isFetchingNextPage,
+    fetchNextPage,
+    hasNextPage,
+    refetch,
+  } = useInfiniteQuery({
     queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
-    queryFn: async () => {
+    queryFn: async ({ pageParam = 0 }): Promise<{ threads: EmailThread[]; nextCursor?: number; total: number }> => {
       try {
+        const limit = 50; // Fetch 50 threads per page
         const endpoint = debouncedSearchQuery.trim()
-          ? `/api/marketing/emails/search?q=${encodeURIComponent(debouncedSearchQuery)}&limit=100`
-          : `/api/marketing/emails/threads?type=${selectedFolder}&limit=100`;
+          ? `/api/marketing/emails/search?q=${encodeURIComponent(debouncedSearchQuery)}&limit=${limit}&offset=${pageParam}`
+          : `/api/marketing/emails/threads?type=${selectedFolder}&limit=${limit}&offset=${pageParam}`;
         
         const response = await apiRequest('GET', endpoint);
-        if (!response.ok) return [];
+        if (!response.ok) return { threads: [], nextCursor: undefined, total: 0 };
         
         const data = await response.json();
-        return Array.isArray(data) ? data : data.threads || [];
+        const threads = Array.isArray(data) ? data : data.threads || [];
+        
+        return {
+          threads,
+          nextCursor: threads.length === limit ? (pageParam as number) + limit : undefined,
+          total: data.total || threads.length,
+        };
       } catch {
-        return [];
+        return { threads: [], nextCursor: undefined, total: 0 };
       }
     },
-    staleTime: 1 * 60 * 1000, // 1 minute - threads update frequently
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: 0,
+    staleTime: 1 * 60 * 1000, // 1 minute
     gcTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnMount: false, // Prevent unnecessary refetches
+    refetchOnMount: false,
   });
+
+  // Flatten threads from all pages
+  const emailThreads = useMemo(() => {
+    if (!emailThreadsData?.pages) return [];
+    return emailThreadsData.pages.flatMap((page) => page.threads || []);
+  }, [emailThreadsData]);
+
+  const totalThreadCount = emailThreadsData?.pages?.[0]?.total ?? 0;
 
   // Fetch messages for selected thread with caching
   const { data: threadMessages = [], isLoading: messagesLoading } = useQuery<EmailMessage[]>({
@@ -221,6 +246,33 @@ export default function UltraModernGmailClient() {
       body: composeBody,
     });
   };
+
+  // Prefetch folder data on hover for instant switching
+  const handleFolderPrefetch = useCallback((folderId: string) => {
+    queryClient.prefetchInfiniteQuery({
+      queryKey: ['/api/marketing/emails/threads', folderId, debouncedSearchQuery],
+      queryFn: async ({ pageParam = 0 }) => {
+        const limit = 50;
+        const endpoint = debouncedSearchQuery.trim()
+          ? `/api/marketing/emails/search?q=${encodeURIComponent(debouncedSearchQuery)}&limit=${limit}&offset=${pageParam}`
+          : `/api/marketing/emails/threads?type=${folderId}&limit=${limit}&offset=${pageParam}`;
+        
+        const response = await apiRequest('GET', endpoint);
+        if (!response.ok) return { threads: [], nextCursor: undefined, total: 0 };
+        
+        const data = await response.json();
+        const threads = Array.isArray(data) ? data : data.threads || [];
+        
+        return {
+          threads,
+          nextCursor: threads.length === limit ? (pageParam as number) + limit : undefined,
+          total: data.total || threads.length,
+        };
+      },
+      initialPageParam: 0,
+      staleTime: 1 * 60 * 1000,
+    });
+  }, [queryClient, debouncedSearchQuery]);
 
   const folders = [
     { id: 'inbox', name: 'Inbox', icon: Inbox, color: 'text-blue-600', bgColor: 'bg-blue-50', count: emailThreads.filter((t: EmailThread) => !t.isArchived).length },
@@ -336,6 +388,7 @@ export default function UltraModernGmailClient() {
                             : "text-gray-700 hover:bg-gray-100 font-normal"
                         )}
                         onClick={() => setSelectedFolder(folder.id)}
+                        onMouseEnter={() => handleFolderPrefetch(folder.id)}
                       >
                         <folder.icon className={cn(
                           "h-5 w-5",
@@ -546,148 +599,60 @@ export default function UltraModernGmailClient() {
 
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-600">
-                  1-{emailThreads.length} of {emailThreads.length}
+                  {emailThreads.length > 0 ? '1' : '0'}-{emailThreads.length} of {totalThreadCount}
                 </span>
-                <Separator orientation="vertical" className="h-6" />
-                <div className="flex">
-                  <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
+                {isFetchingNextPage && (
+                  <RefreshCw className="h-3 w-3 animate-spin text-gray-400" />
+                )}
               </div>
             </div>
 
             {/* Email List or Split View */}
             <div className="flex-1 flex overflow-hidden">
-              {/* Email List */}
+              {/* Email List with Virtual Scrolling */}
               <div className={cn(
                 "bg-white overflow-hidden flex flex-col border-r border-gray-200",
                 selectedThread && view === 'split' ? "w-1/2" : "w-full"
               )}>
-                <ScrollArea className="flex-1">
-                  {isLoading ? (
-                    <div className="flex items-center justify-center h-64">
-                      <div className="text-center">
-                        <RefreshCw className="h-8 w-8 animate-spin text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600">Loading your emails...</p>
-                      </div>
+                {isLoading ? (
+                  <div className="flex items-center justify-center h-64">
+                    <div className="text-center">
+                      <RefreshCw className="h-8 w-8 animate-spin text-gray-400 mx-auto mb-2" />
+                      <p className="text-sm text-gray-600">Loading your emails...</p>
                     </div>
-                  ) : emailThreads.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-96">
-                      <currentFolder.icon className="h-20 w-20 text-gray-300 mb-4" />
-                      <h3 className="text-xl font-normal text-gray-700 mb-2">
-                        {searchQuery ? 'No emails found' : `Your ${currentFolder.name.toLowerCase()} is empty`}
-                      </h3>
-                      <p className="text-sm text-gray-500 mb-6">
-                        {searchQuery ? 'Try a different search term' : emailAccounts.length === 0 ? 'Connect an account to get started' : 'No emails to display'}
-                      </p>
-                      {emailAccounts.length === 0 && (
-                        <Button
-                          onClick={() => setAccountsOpen(true)}
-                          className="bg-blue-600 hover:bg-blue-700"
-                        >
-                          <Mail className="h-4 w-4 mr-2" />
-                          Connect Account
-                        </Button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-gray-100">
-                      {emailThreads.map((thread: EmailThread) => (
-                        <div
-                          key={thread.id}
-                          className={cn(
-                            "flex items-center gap-3 px-4 py-3 cursor-pointer transition-all group relative",
-                            selectedThread === thread.id 
-                              ? "bg-blue-50 shadow-sm" 
-                              : thread.messages?.[0]?.isRead === false
-                              ? "bg-white hover:shadow-sm"
-                              : "bg-gray-50 hover:bg-gray-100",
-                            selectedThread === thread.id && "border-l-4 border-blue-600"
-                          )}
-                          onClick={() => setSelectedThread(thread.id)}
-                        >
-                          <input
-                            type="checkbox"
-                            className="accent-blue-600 rounded cursor-pointer"
-                            checked={selectedThreads.has(thread.id)}
-                            onChange={(e) => {
-                              const newSet = new Set(selectedThreads);
-                              if (e.target.checked) newSet.add(thread.id);
-                              else newSet.delete(thread.id);
-                              setSelectedThreads(newSet);
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-
-                          <button
-                            className={cn(
-                              "transition-all focus:outline-none",
-                              thread.messages?.[0]?.isStarred 
-                                ? "text-yellow-500" 
-                                : "text-gray-300 group-hover:text-gray-400"
-                            )}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const message = thread.messages?.[0];
-                              if (message) {
-                                starMutation.mutate({ messageId: message.id, isStarred: !message.isStarred });
-                              }
-                            }}
-                          >
-                            <Star className={cn("h-4 w-4", thread.messages?.[0]?.isStarred && "fill-yellow-500")} />
-                          </button>
-
-                          {thread.messages?.[0]?.isRead === false && (
-                            <div className="h-2 w-2 rounded-full bg-blue-600" />
-                          )}
-
-                          <div className="flex-1 min-w-0 grid grid-cols-[200px,1fr,auto] gap-3 items-center">
-                            <span className={cn(
-                              "truncate text-sm",
-                              thread.messages?.[0]?.isRead === false ? "font-bold text-gray-900" : "font-normal text-gray-800"
-                            )}>
-                              {thread.participantEmails[0]?.split('@')[0] || 'Unknown'}
-                            </span>
-
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className={cn(
-                                "truncate text-sm max-w-xs",
-                                thread.messages?.[0]?.isRead === false ? "font-bold text-gray-900" : "font-normal text-gray-700"
-                              )}>
-                                {thread.subject || '(no subject)'}
-                              </span>
-                              <span className="text-sm text-gray-500 truncate">
-                                — {thread.preview || 'No preview'}
-                              </span>
-                            </div>
-
-                            <span className="text-xs text-gray-500 whitespace-nowrap flex-shrink-0">
-                              {thread.lastMessageAt && (
-                                new Date(thread.lastMessageAt).toDateString() === new Date().toDateString()
-                                  ? format(new Date(thread.lastMessageAt), 'h:mm a')
-                                  : format(new Date(thread.lastMessageAt), 'MMM d')
-                              )}
-                            </span>
-                          </div>
-
-                          {thread.labels && thread.labels.length > 0 && (
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {thread.labels.slice(0, 2).map((label) => (
-                                <Badge key={label} variant="secondary" className="text-[10px] px-1.5 py-0">
-                                  {label}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
+                  </div>
+                ) : emailThreads.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-96">
+                    <currentFolder.icon className="h-20 w-20 text-gray-300 mb-4" />
+                    <h3 className="text-xl font-normal text-gray-700 mb-2">
+                      {searchQuery ? 'No emails found' : `Your ${currentFolder.name.toLowerCase()} is empty`}
+                    </h3>
+                    <p className="text-sm text-gray-500 mb-6">
+                      {searchQuery ? 'Try a different search term' : emailAccounts.length === 0 ? 'Connect an account to get started' : 'No emails to display'}
+                    </p>
+                    {emailAccounts.length === 0 && (
+                      <Button
+                        onClick={() => setAccountsOpen(true)}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        <Mail className="h-4 w-4 mr-2" />
+                        Connect Account
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <VirtualizedThreadList
+                    threads={emailThreads}
+                    selectedThread={selectedThread}
+                    selectedThreads={selectedThreads}
+                    onThreadSelect={setSelectedThread}
+                    onThreadsSelect={setSelectedThreads}
+                    onStarToggle={(messageId, isStarred) => starMutation.mutate({ messageId, isStarred })}
+                    hasNextPage={hasNextPage}
+                    isFetchingNextPage={isFetchingNextPage}
+                    fetchNextPage={fetchNextPage}
+                  />
+                )}
               </div>
 
               {/* Email Detail View (Split View) */}
@@ -1186,3 +1151,227 @@ export default function UltraModernGmailClient() {
     </TooltipProvider>
   );
 }
+
+// Virtualized Thread List Component for Performance
+interface VirtualizedThreadListProps {
+  threads: EmailThread[];
+  selectedThread: string | null;
+  selectedThreads: Set<string>;
+  onThreadSelect: (threadId: string) => void;
+  onThreadsSelect: (threads: Set<string>) => void;
+  onStarToggle: (messageId: string, isStarred: boolean) => void;
+  hasNextPage?: boolean;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => void;
+}
+
+function VirtualizedThreadList({
+  threads,
+  selectedThread,
+  selectedThreads,
+  onThreadSelect,
+  onThreadsSelect,
+  onStarToggle,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+}: VirtualizedThreadListProps) {
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  // Virtual scrolling configuration
+  const rowVirtualizer = useVirtualizer({
+    count: threads.length + (hasNextPage ? 1 : 0),
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 72, // Estimated height of each thread row
+    overscan: 5, // Render 5 extra items above and below viewport
+  });
+
+  // Infinite scroll: load more when near bottom
+  useEffect(() => {
+    const [lastItem] = [...rowVirtualizer.getVirtualItems()].reverse();
+
+    if (!lastItem) return;
+
+    if (
+      lastItem.index >= threads.length - 1 &&
+      hasNextPage &&
+      !isFetchingNextPage
+    ) {
+      fetchNextPage();
+    }
+  }, [
+    hasNextPage,
+    fetchNextPage,
+    threads.length,
+    isFetchingNextPage,
+    rowVirtualizer.getVirtualItems(),
+  ]);
+
+  return (
+    <div
+      ref={parentRef}
+      className="flex-1 overflow-auto"
+      style={{ contain: 'strict' }}
+    >
+      <div
+        style={{
+          height: `${rowVirtualizer.getTotalSize()}px`,
+          width: '100%',
+          position: 'relative',
+        }}
+      >
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          const isLoaderRow = virtualRow.index > threads.length - 1;
+          const thread = threads[virtualRow.index];
+
+          return (
+            <div
+              key={virtualRow.key}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: `${virtualRow.size}px`,
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              {isLoaderRow ? (
+                hasNextPage ? (
+                  <div className="flex items-center justify-center py-4 border-t border-gray-100">
+                    <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+                    <span className="ml-2 text-sm text-gray-600">Loading more...</span>
+                  </div>
+                ) : null
+              ) : (
+                <ThreadRow
+                  thread={thread}
+                  isSelected={selectedThread === thread.id}
+                  isChecked={selectedThreads.has(thread.id)}
+                  onSelect={() => onThreadSelect(thread.id)}
+                  onCheck={(checked) => {
+                    const newSet = new Set(selectedThreads);
+                    if (checked) newSet.add(thread.id);
+                    else newSet.delete(thread.id);
+                    onThreadsSelect(newSet);
+                  }}
+                  onStarToggle={() => {
+                    const message = thread.messages?.[0];
+                    if (message) {
+                      onStarToggle(message.id, !message.isStarred);
+                    }
+                  }}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Thread Row Component (Memoized for performance)
+const ThreadRow = React.memo(({
+  thread,
+  isSelected,
+  isChecked,
+  onSelect,
+  onCheck,
+  onStarToggle,
+}: {
+  thread: EmailThread;
+  isSelected: boolean;
+  isChecked: boolean;
+  onSelect: () => void;
+  onCheck: (checked: boolean) => void;
+  onStarToggle: () => void;
+}) => {
+  const isUnread = thread.messages?.[0]?.isRead === false;
+  const isStarred = thread.messages?.[0]?.isStarred;
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 px-4 py-3 cursor-pointer transition-all group relative border-b border-gray-100",
+        isSelected
+          ? "bg-blue-50 shadow-sm"
+          : isUnread
+          ? "bg-white hover:shadow-sm"
+          : "bg-gray-50 hover:bg-gray-100",
+        isSelected && "border-l-4 border-blue-600"
+      )}
+      onClick={onSelect}
+    >
+      <input
+        type="checkbox"
+        className="accent-blue-600 rounded cursor-pointer"
+        checked={isChecked}
+        onChange={(e) => onCheck(e.target.checked)}
+        onClick={(e) => e.stopPropagation()}
+      />
+
+      <button
+        className={cn(
+          "transition-all focus:outline-none",
+          isStarred ? "text-yellow-500" : "text-gray-300 group-hover:text-gray-400"
+        )}
+        onClick={(e) => {
+          e.stopPropagation();
+          onStarToggle();
+        }}
+      >
+        <Star className={cn("h-4 w-4", isStarred && "fill-yellow-500")} />
+      </button>
+
+      {isUnread && <div className="h-2 w-2 rounded-full bg-blue-600" />}
+
+      <div className="flex-1 min-w-0 grid grid-cols-[200px,1fr,auto] gap-3 items-center">
+        <span
+          className={cn(
+            "truncate text-sm",
+            isUnread ? "font-bold text-gray-900" : "font-normal text-gray-800"
+          )}
+        >
+          {thread.participantEmails[0]?.split('@')[0] || 'Unknown'}
+        </span>
+
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className={cn(
+              "truncate text-sm max-w-xs",
+              isUnread ? "font-bold text-gray-900" : "font-normal text-gray-700"
+            )}
+          >
+            {thread.subject || '(no subject)'}
+          </span>
+          <span className="text-sm text-gray-500 truncate">
+            — {thread.preview || 'No preview'}
+          </span>
+        </div>
+
+        <span className="text-xs text-gray-500 whitespace-nowrap flex-shrink-0">
+          {thread.lastMessageAt &&
+            (new Date(thread.lastMessageAt).toDateString() ===
+            new Date().toDateString()
+              ? format(new Date(thread.lastMessageAt), 'h:mm a')
+              : format(new Date(thread.lastMessageAt), 'MMM d'))}
+        </span>
+      </div>
+
+      {thread.labels && thread.labels.length > 0 && (
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {thread.labels.slice(0, 2).map((label) => (
+            <Badge
+              key={label}
+              variant="secondary"
+              className="text-[10px] px-1.5 py-0"
+            >
+              {label}
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
