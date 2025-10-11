@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { z } from 'zod';
 import { isAuthenticated } from '../middleware/auth';
 import { EnhancedGmailOAuthService } from '../services/enhancedGmailOAuthService';
@@ -75,7 +75,10 @@ const getAttachmentSchema = z.object({
 /**
  * Verify user owns the email account
  */
-async function verifyAccountOwnership(accountId: string, userId: string) {
+async function verifyAccountOwnership(accountId: string, userId: string): Promise<
+  | { error: string; status: number; account?: never }
+  | { account: any; error?: never; status?: never }
+> {
   const account = await db.query.emailAccounts.findFirst({
     where: and(
       eq(emailAccounts.id, accountId),
@@ -112,7 +115,7 @@ function formatError(error: any): string {
  * Get Gmail OAuth authorization URL
  * GET /api/email/gmail/auth-url
  */
-router.get('/gmail/auth-url', isAuthenticated, async (req: any, res) => {
+router.get('/gmail/auth-url', isAuthenticated, async (req: any, res: Response) => {
   try {
     const userId = req.user.id;
     const authUrl = EnhancedGmailOAuthService.getAuthUrl(userId);
@@ -139,7 +142,7 @@ router.get('/gmail/auth-url', isAuthenticated, async (req: any, res) => {
  * Get Outlook OAuth authorization URL
  * GET /api/email/outlook/auth-url
  */
-router.get('/outlook/auth-url', isAuthenticated, async (req: any, res) => {
+router.get('/outlook/auth-url', isAuthenticated, async (req: any, res: Response) => {
   try {
     const userId = req.user.id;
     const authUrl = OutlookOAuthService.getAuthUrl(userId);
@@ -166,7 +169,7 @@ router.get('/outlook/auth-url', isAuthenticated, async (req: any, res) => {
  * Handle OAuth callback
  * POST /api/email/oauth/callback
  */
-router.post('/oauth/callback', isAuthenticated, async (req: any, res) => {
+router.post('/oauth/callback', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { code, state, provider } = oauthCallbackSchema.parse(req.body);
     const userId = req.user.id;
@@ -229,7 +232,7 @@ router.post('/oauth/callback', isAuthenticated, async (req: any, res) => {
  * Get all connected email accounts
  * GET /api/email/accounts
  */
-router.get('/accounts', isAuthenticated, async (req: any, res) => {
+router.get('/accounts', isAuthenticated, async (req: any, res: Response) => {
   try {
     const userId = req.user.id;
     
@@ -269,7 +272,7 @@ router.get('/accounts', isAuthenticated, async (req: any, res) => {
  * Get specific email account
  * GET /api/email/accounts/:accountId
  */
-router.get('/accounts/:accountId', isAuthenticated, async (req: any, res) => {
+router.get('/accounts/:accountId', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId } = req.params;
     const userId = req.user.id;
@@ -318,7 +321,7 @@ router.get('/accounts/:accountId', isAuthenticated, async (req: any, res) => {
  * Test email account connection
  * POST /api/email/accounts/:accountId/test
  */
-router.post('/accounts/:accountId/test', isAuthenticated, async (req: any, res) => {
+router.post('/accounts/:accountId/test', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId } = req.params;
     const userId = req.user.id;
@@ -351,7 +354,7 @@ router.post('/accounts/:accountId/test', isAuthenticated, async (req: any, res) 
         success: true,
         message: 'Email account connection is working',
         provider: account.provider,
-        profile: result.profile || undefined
+        profile: (result as any).profile || undefined
       });
     } else {
       res.status(503).json({
@@ -375,7 +378,7 @@ router.post('/accounts/:accountId/test', isAuthenticated, async (req: any, res) 
  * Delete email account
  * DELETE /api/email/accounts/:accountId
  */
-router.delete('/accounts/:accountId', isAuthenticated, async (req: any, res) => {
+router.delete('/accounts/:accountId', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId } = req.params;
     const userId = req.user.id;
@@ -433,7 +436,7 @@ router.delete('/accounts/:accountId', isAuthenticated, async (req: any, res) => 
  * Update account settings
  * PATCH /api/email/accounts/:accountId
  */
-router.patch('/accounts/:accountId', isAuthenticated, async (req: any, res) => {
+router.patch('/accounts/:accountId', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId } = req.params;
     const userId = req.user.id;
@@ -498,7 +501,7 @@ router.patch('/accounts/:accountId', isAuthenticated, async (req: any, res) => {
  * Send email
  * POST /api/email/send
  */
-router.post('/send', isAuthenticated, async (req: any, res) => {
+router.post('/send', isAuthenticated, async (req: any, res: Response) => {
   try {
     const userId = req.user.id;
     const data = sendEmailSchema.parse(req.body);
@@ -576,7 +579,7 @@ router.post('/send', isAuthenticated, async (req: any, res) => {
  * Sync emails from account
  * POST /api/email/sync
  */
-router.post('/sync', isAuthenticated, async (req: any, res) => {
+router.post('/sync', isAuthenticated, async (req: any, res: Response) => {
   try {
     const userId = req.user.id;
     const data = syncAccountSchema.parse(req.body);
@@ -632,7 +635,7 @@ router.post('/sync', isAuthenticated, async (req: any, res) => {
  * Get Gmail labels
  * GET /api/email/gmail/:accountId/labels
  */
-router.get('/gmail/:accountId/labels', isAuthenticated, async (req: any, res) => {
+router.get('/gmail/:accountId/labels', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId } = req.params;
     const userId = req.user.id;
@@ -676,7 +679,7 @@ router.get('/gmail/:accountId/labels', isAuthenticated, async (req: any, res) =>
  * Create Gmail label
  * POST /api/email/gmail/:accountId/labels
  */
-router.post('/gmail/:accountId/labels', isAuthenticated, async (req: any, res) => {
+router.post('/gmail/:accountId/labels', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId } = req.params;
     const userId = req.user.id;
@@ -744,7 +747,7 @@ router.post('/gmail/:accountId/labels', isAuthenticated, async (req: any, res) =
  * Modify message labels
  * POST /api/email/gmail/labels/modify
  */
-router.post('/gmail/labels/modify', isAuthenticated, async (req: any, res) => {
+router.post('/gmail/labels/modify', isAuthenticated, async (req: any, res: Response) => {
   try {
     const userId = req.user.id;
     const data = labelActionSchema.parse(req.body);
@@ -807,7 +810,7 @@ router.post('/gmail/labels/modify', isAuthenticated, async (req: any, res) => {
  * Get attachment
  * GET /api/email/gmail/attachments
  */
-router.get('/gmail/attachments', isAuthenticated, async (req: any, res) => {
+router.get('/gmail/attachments', isAuthenticated, async (req: any, res: Response) => {
   try {
     const userId = req.user.id;
     const data = getAttachmentSchema.parse(req.query);
@@ -870,7 +873,7 @@ router.get('/gmail/attachments', isAuthenticated, async (req: any, res) => {
 /**
  * Quick actions for Gmail messages
  */
-router.post('/gmail/:accountId/messages/:messageId/archive', isAuthenticated, async (req: any, res) => {
+router.post('/gmail/:accountId/messages/:messageId/archive', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId, messageId } = req.params;
     const userId = req.user.id;
@@ -884,7 +887,7 @@ router.post('/gmail/:accountId/messages/:messageId/archive', isAuthenticated, as
   }
 });
 
-router.post('/gmail/:accountId/messages/:messageId/read', isAuthenticated, async (req: any, res) => {
+router.post('/gmail/:accountId/messages/:messageId/read', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId, messageId } = req.params;
     const userId = req.user.id;
@@ -898,7 +901,7 @@ router.post('/gmail/:accountId/messages/:messageId/read', isAuthenticated, async
   }
 });
 
-router.post('/gmail/:accountId/messages/:messageId/unread', isAuthenticated, async (req: any, res) => {
+router.post('/gmail/:accountId/messages/:messageId/unread', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId, messageId } = req.params;
     const userId = req.user.id;
@@ -912,7 +915,7 @@ router.post('/gmail/:accountId/messages/:messageId/unread', isAuthenticated, asy
   }
 });
 
-router.post('/gmail/:accountId/messages/:messageId/star', isAuthenticated, async (req: any, res) => {
+router.post('/gmail/:accountId/messages/:messageId/star', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId, messageId } = req.params;
     const userId = req.user.id;
@@ -926,7 +929,7 @@ router.post('/gmail/:accountId/messages/:messageId/star', isAuthenticated, async
   }
 });
 
-router.post('/gmail/:accountId/messages/:messageId/trash', isAuthenticated, async (req: any, res) => {
+router.post('/gmail/:accountId/messages/:messageId/trash', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { accountId, messageId } = req.params;
     const userId = req.user.id;

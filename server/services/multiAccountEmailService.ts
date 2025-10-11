@@ -71,7 +71,10 @@ export class MultiAccountEmailService {
           textBody: emailData.textBody,
           cc: emailData.cc || [],
           bcc: emailData.bcc || [],
-          attachments: emailData.attachments
+          attachments: emailData.attachments?.map(att => ({
+            ...att,
+            contentType: att.contentType || 'application/octet-stream'
+          }))
         }
       );
     } catch (error) {

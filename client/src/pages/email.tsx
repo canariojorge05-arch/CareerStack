@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { Navigate } from 'wouter';
+import { Redirect } from 'wouter';
 import { Mail } from 'lucide-react';
 import UltraModernGmailClient from '@/components/email/ultra-modern-gmail';
 
@@ -22,7 +22,7 @@ export default function EmailPage() {
   }
 
   if (!user) {
-    return <Navigate to="/login" />;
+    return <Redirect to="/login" />;
   }
 
   return (
