@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow, format } from 'date-fns';
 import { apiRequest } from '@/lib/queryClient';
@@ -63,6 +63,7 @@ export default function UltraModernGmailClient() {
   const [selectedFolder, setSelectedFolder] = useState('inbox');
   const [selectedThread, setSelectedThread] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [composeOpen, setComposeOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [selectedThreads, setSelectedThreads] = useState<Set<string>>(new Set());
@@ -73,7 +74,16 @@ export default function UltraModernGmailClient() {
   
   const queryClient = useQueryClient();
 
-  // Fetch email accounts
+  // Debounced search to prevent excessive API calls (500ms delay)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Fetch email accounts - cached for 5 minutes
   const { data: accountsData } = useQuery({
     queryKey: ['/api/email/accounts'],
     queryFn: async () => {
@@ -82,17 +92,19 @@ export default function UltraModernGmailClient() {
       const data = await response.json();
       return data;
     },
+    staleTime: 5 * 60 * 1000, // 5 minutes - accounts don't change often
+    gcTime: 30 * 60 * 1000, // 30 minutes
   });
 
   const emailAccounts: EmailAccount[] = accountsData?.accounts || accountsData || [];
 
-  // Fetch email threads
+  // Fetch email threads with optimized caching
   const { data: emailThreads = [], isLoading, refetch } = useQuery<EmailThread[]>({
-    queryKey: ['/api/marketing/emails/threads', selectedFolder, searchQuery],
+    queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
     queryFn: async () => {
       try {
-        const endpoint = searchQuery.trim()
-          ? `/api/marketing/emails/search?q=${encodeURIComponent(searchQuery)}&limit=100`
+        const endpoint = debouncedSearchQuery.trim()
+          ? `/api/marketing/emails/search?q=${encodeURIComponent(debouncedSearchQuery)}&limit=100`
           : `/api/marketing/emails/threads?type=${selectedFolder}&limit=100`;
         
         const response = await apiRequest('GET', endpoint);
@@ -104,9 +116,12 @@ export default function UltraModernGmailClient() {
         return [];
       }
     },
+    staleTime: 1 * 60 * 1000, // 1 minute - threads update frequently
+    gcTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnMount: false, // Prevent unnecessary refetches
   });
 
-  // Fetch messages for selected thread
+  // Fetch messages for selected thread with caching
   const { data: threadMessages = [], isLoading: messagesLoading } = useQuery<EmailMessage[]>({
     queryKey: ['/api/marketing/emails/threads', selectedThread, 'messages'],
     queryFn: async () => {
@@ -116,6 +131,8 @@ export default function UltraModernGmailClient() {
       return response.json();
     },
     enabled: !!selectedThread,
+    staleTime: 2 * 60 * 1000, // 2 minutes - messages are fairly static
+    gcTime: 10 * 60 * 1000, // 10 minutes
   });
 
   // Star mutation
