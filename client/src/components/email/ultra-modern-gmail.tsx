@@ -618,6 +618,20 @@ export default function UltraModernGmailClient() {
       <div className="flex flex-col h-full bg-white">
         {/* Gmail Subheader - Toolbar and Search */}
         <header className="flex items-center gap-4 px-4 py-2 border-b border-gray-200 bg-white">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full"
+                onClick={() => navigate('/dashboard')}
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Back to Dashboard</TooltipContent>
+          </Tooltip>
+
           <Button
             variant="ghost"
             size="icon"

@@ -14,10 +14,11 @@ import {
   Archive, Clock, Tag, RefreshCw, ChevronDown, ChevronLeft, ChevronRight,
   MoreVertical, Pencil, Check, X, AlertCircle, Filter, Users, 
   Reply, ReplyAll, Forward, Paperclip, Image, Link, Smile, AtSign,
-  Download, Flag, Eye, EyeOff, MailOpen, CircleDot, Circle
+  Download, Flag, Eye, EyeOff, MailOpen, CircleDot, Circle, ArrowLeft
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useLocation } from 'wouter';
 
 interface EmailAccount {
   id: string;
@@ -54,6 +55,7 @@ interface EmailMessage {
 }
 
 export default function GmailStyleEmailClient() {
+  const [, navigate] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedFolder, setSelectedFolder] = useState('inbox');
   const [selectedThread, setSelectedThread] = useState<string | null>(null);
@@ -206,6 +208,18 @@ export default function GmailStyleEmailClient() {
         {/* Gmail-style Top Bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white">
           <div className="flex items-center gap-4">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => navigate('/dashboard')}
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Back to Dashboard</TooltipContent>
+            </Tooltip>
             <Button
               variant="ghost"
               size="icon"

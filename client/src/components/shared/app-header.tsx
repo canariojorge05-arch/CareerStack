@@ -96,29 +96,6 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
           </div>
 
           <nav className="flex items-center space-x-4" role="navigation" aria-label="Main navigation">
-            {/* Dashboard Button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={currentPage === 'dashboard' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => navigate('/dashboard')}
-                  className={`transition-all duration-200 ${
-                    currentPage === 'dashboard'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'hover:bg-gray-100'
-                  }`}
-                  aria-label="Navigate to dashboard"
-                >
-                  <FileText size={16} className="mr-1" />
-                  <span className="hidden sm:inline">Dashboard</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                View your dashboard and resumes
-              </TooltipContent>
-            </Tooltip>
-
             {/* Email Button */}
             <Tooltip>
               <TooltipTrigger asChild>
