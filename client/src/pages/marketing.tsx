@@ -4,7 +4,7 @@ import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Calendar, Users, MessageSquare, Plus } from 'lucide-react';
+import { FileText, Calendar, Users } from 'lucide-react';
 import { AppHeader } from '@/components/shared/app-header';
 
 // Import Marketing components
@@ -194,27 +194,7 @@ export default function MarketingPage() {
                 })()}
               </CardTitle>
 
-              {/* Section-specific action buttons */}
-              <div className="flex items-center space-x-2">
-                {activeSection === 'requirements' && (
-                  <Button size="sm" className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 shadow-lg shadow-green-500/30 hover:shadow-xl hover:shadow-green-500/40 transition-all duration-300">
-                    <Plus size={16} className="mr-2" />
-                    New Requirement
-                  </Button>
-                )}
-                {activeSection === 'interviews' && (
-                  <Button size="sm" className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all duration-300">
-                    <Plus size={16} className="mr-2" />
-                    Schedule Interview
-                  </Button>
-                )}
-                {activeSection === 'consultants' && (
-                  <Button size="sm" className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-lg shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/40 transition-all duration-300">
-                    <Plus size={16} className="mr-2" />
-                    Add Consultant
-                  </Button>
-                )}
-              </div>
+              {/* Section-specific action buttons removed - they're handled by each section component */}
             </div>
           </CardHeader>
 

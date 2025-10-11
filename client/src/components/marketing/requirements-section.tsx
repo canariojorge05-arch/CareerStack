@@ -1,19 +1,31 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { FileText, Plus, Search, Filter, CreditCard as Edit, Eye, Trash2 } from 'lucide-react';
+import { FileText, Plus, Search, Filter, CreditCard as Edit, Eye, Trash2, Loader2, AlertCircle } from 'lucide-react';
 import AdvancedRequirementsForm from './advanced-requirements-form';
+import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function RequirementsSection() {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [showRequirementForm, setShowRequirementForm] = useState(false);
   const [selectedRequirement, setSelectedRequirement] = useState<any>(null);
   const [showEditForm, setShowEditForm] = useState(false);
+  const [viewRequirement, setViewRequirement] = useState<any>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   // Fetch consultants for assignment
   const { data: consultants = [] } = useQuery({
@@ -30,26 +42,104 @@ export default function RequirementsSection() {
     retry: false,
   });
 
-  const mockRequirements = [
-    {
-      id: '1',
-      jobTitle: 'Senior React Developer',
-      clientCompany: 'Tech Solutions Inc',
-      status: 'New',
-      assignedTo: 'John Doe',
-      primaryTechStack: 'React, TypeScript, Node.js',
-      createdAt: new Date(),
+  // Fetch requirements with proper error handling
+  const { data: requirements = [], isLoading, isError, error } = useQuery({
+    queryKey: ['/api/marketing/requirements'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/marketing/requirements');
+      if (!response.ok) {
+        throw new Error('Failed to fetch requirements');
+      }
+      return response.json();
     },
-    {
-      id: '2',
-      jobTitle: 'Full Stack Developer',
-      clientCompany: 'StartupCorp',
-      status: 'Working',
-      assignedTo: 'Jane Smith',
-      primaryTechStack: 'Python, Django, React',
-      createdAt: new Date(),
+    retry: 1,
+  });
+
+  // Create requirement mutation
+  const createMutation = useMutation({
+    mutationFn: async (requirementData: any) => {
+      const response = await apiRequest('POST', '/api/marketing/requirements', {
+        ...requirementData,
+        single: true,
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to create requirement');
+      }
+      return response.json();
     },
-  ];
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/requirements'] });
+      toast.success('Requirement created successfully!');
+      handleFormClose();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create requirement');
+    },
+  });
+
+  // Update requirement mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const response = await apiRequest('PATCH', `/api/marketing/requirements/${id}`, data);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to update requirement');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/requirements'] });
+      toast.success('Requirement updated successfully!');
+      handleFormClose();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update requirement');
+    },
+  });
+
+  // Delete requirement mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest('DELETE', `/api/marketing/requirements/${id}`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to delete requirement');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/requirements'] });
+      toast.success('Requirement deleted successfully!');
+      setDeleteConfirm(null);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete requirement');
+    },
+  });
+
+  // Filter requirements based on search and status
+  const filteredRequirements = useMemo(() => {
+    let filtered = requirements;
+
+    // Apply status filter
+    if (statusFilter && statusFilter !== 'All') {
+      filtered = filtered.filter((req: any) => req.status === statusFilter);
+    }
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((req: any) => 
+        req.jobTitle?.toLowerCase().includes(query) ||
+        req.clientCompany?.toLowerCase().includes(query) ||
+        req.primaryTechStack?.toLowerCase().includes(query) ||
+        req.appliedFor?.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
+  }, [requirements, statusFilter, searchQuery]);
 
   const statusOptions = ['All', 'New', 'Working', 'Applied', 'Submitted', 'Interviewed', 'Cancelled'];
 
@@ -82,15 +172,62 @@ export default function RequirementsSection() {
   };
 
   const handleFormSubmit = async (requirementData: any[]) => {
-    console.log('Submitting requirements:', requirementData);
-    // Handle form submission
-    return Promise.resolve();
+    if (showEditForm && selectedRequirement) {
+      // Update existing requirement
+      await updateMutation.mutateAsync({ 
+        id: selectedRequirement.id, 
+        data: requirementData[0] 
+      });
+    } else {
+      // Create new requirement
+      await createMutation.mutateAsync(requirementData[0]);
+    }
+  };
+
+  const handleViewRequirement = (requirement: any) => {
+    setViewRequirement(requirement);
+  };
+
+  const handleDeleteRequirement = (id: string) => {
+    setDeleteConfirm(id);
+  };
+
+  const confirmDelete = () => {
+    if (deleteConfirm) {
+      deleteMutation.mutate(deleteConfirm);
+    }
   };
 
   const getConsultantName = (consultantId: string) => {
     const consultant = consultants.find((c: any) => c.id === consultantId);
     return consultant?.name || 'Unassigned';
   };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="ml-3 text-slate-600">Loading requirements...</span>
+      </div>
+    );
+  }
+
+  // Error state
+  if (isError) {
+    return (
+      <div className="text-center py-16">
+        <div className="h-20 w-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-red-100 to-red-200 flex items-center justify-center shadow-md">
+          <AlertCircle className="h-10 w-10 text-red-600" />
+        </div>
+        <h3 className="text-xl font-semibold text-slate-800 mb-2">Failed to load requirements</h3>
+        <p className="text-slate-500 mb-6">{error?.message || 'An error occurred while fetching requirements'}</p>
+        <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/marketing/requirements'] })}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -130,7 +267,7 @@ export default function RequirementsSection() {
       </div>
 
       <div className="space-y-4">
-        {mockRequirements.map((requirement, index) => (
+        {filteredRequirements.map((requirement: any, index: number) => (
           <Card key={requirement.id} className="hover:shadow-xl transition-all duration-300 border-slate-200 hover:border-blue-300 group animate-in slide-in-from-bottom-4" style={{ animationDelay: `${index * 50}ms` }}>
             <CardContent className="p-6">
               <div className="flex items-start justify-between">
@@ -146,8 +283,8 @@ export default function RequirementsSection() {
                       <span>{requirement.clientCompany}</span>
                     </div>
                     <div className="flex items-start space-x-2">
-                      <span className="font-semibold text-slate-700">Assigned to:</span>
-                      <span>{requirement.assignedTo}</span>
+                      <span className="font-semibold text-slate-700">Applied For:</span>
+                      <span>{requirement.appliedFor || 'N/A'}</span>
                     </div>
                     <div className="flex items-start space-x-2">
                       <span className="font-semibold text-slate-700">Tech Stack:</span>
@@ -155,20 +292,43 @@ export default function RequirementsSection() {
                     </div>
                     <div className="flex items-start space-x-2">
                       <span className="font-semibold text-slate-700">Created:</span>
-                      <span>{requirement.createdAt.toLocaleDateString()}</span>
+                      <span>{new Date(requirement.createdAt).toLocaleDateString()}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button variant="ghost" size="sm" className="hover:bg-blue-50 hover:text-blue-600">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => handleViewRequirement(requirement)} 
+                    className="hover:bg-blue-50 hover:text-blue-600"
+                    title="View details"
+                  >
                     <Eye size={16} />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleEditRequirement(requirement)} className="hover:bg-blue-50 hover:text-blue-600">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => handleEditRequirement(requirement)} 
+                    className="hover:bg-blue-50 hover:text-blue-600"
+                    title="Edit requirement"
+                  >
                     <Edit size={16} />
                   </Button>
-                  <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50">
-                    <Trash2 size={16} />
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => handleDeleteRequirement(requirement.id)} 
+                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    disabled={deleteMutation.isPending}
+                    title="Delete requirement"
+                  >
+                    {deleteMutation.isPending && deleteConfirm === requirement.id ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={16} />
+                    )}
                   </Button>
                 </div>
               </div>
@@ -177,7 +337,22 @@ export default function RequirementsSection() {
         ))}
       </div>
 
-      {mockRequirements.length === 0 && (
+      {filteredRequirements.length === 0 && requirements.length > 0 && (
+        <Card className="border-slate-200 shadow-lg">
+          <CardContent className="p-16 text-center">
+            <div className="h-20 w-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center shadow-md">
+              <Search className="h-10 w-10 text-slate-400" />
+            </div>
+            <h3 className="text-xl font-semibold text-slate-800 mb-2">No matching requirements</h3>
+            <p className="text-slate-500 mb-6 max-w-md mx-auto">Try adjusting your search or filters to find what you're looking for.</p>
+            <Button onClick={() => { setSearchQuery(''); setStatusFilter('All'); }} variant="outline">
+              Clear Filters
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {requirements.length === 0 && (
         <Card className="border-slate-200 shadow-lg">
           <CardContent className="p-16 text-center">
             <div className="h-20 w-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center shadow-md">
@@ -242,7 +417,134 @@ export default function RequirementsSection() {
           consultants={consultants}
           initialData={showEditForm ? selectedRequirement : undefined}
           editMode={showEditForm}
+          isSubmitting={createMutation.isPending || updateMutation.isPending}
         />
+      )}
+
+      {/* View Requirement Dialog */}
+      {viewRequirement && (
+        <Dialog open={!!viewRequirement} onOpenChange={() => setViewRequirement(null)}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center space-x-2">
+                <FileText size={20} />
+                <span>{viewRequirement.jobTitle}</span>
+              </DialogTitle>
+              <DialogDescription>
+                View requirement details
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Status</label>
+                  <p className="text-slate-600"><Badge className={getStatusColor(viewRequirement.status)}>{viewRequirement.status}</Badge></p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Client Company</label>
+                  <p className="text-slate-600">{viewRequirement.clientCompany}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Applied For</label>
+                  <p className="text-slate-600">{viewRequirement.appliedFor || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Primary Tech Stack</label>
+                  <p className="text-slate-600">{viewRequirement.primaryTechStack}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Rate</label>
+                  <p className="text-slate-600">{viewRequirement.rate || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Duration</label>
+                  <p className="text-slate-600">{viewRequirement.duration || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Remote</label>
+                  <p className="text-slate-600">{viewRequirement.remote || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Created</label>
+                  <p className="text-slate-600">{new Date(viewRequirement.createdAt).toLocaleDateString()}</p>
+                </div>
+              </div>
+
+              {viewRequirement.impName && (
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">IMP Name</label>
+                  <p className="text-slate-600">{viewRequirement.impName}</p>
+                </div>
+              )}
+
+              {viewRequirement.vendorCompany && (
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Vendor Company</label>
+                  <p className="text-slate-600">{viewRequirement.vendorCompany}</p>
+                </div>
+              )}
+
+              <div>
+                <label className="text-sm font-semibold text-slate-700">Job Description</label>
+                <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200 whitespace-pre-wrap text-sm text-slate-600">
+                  {viewRequirement.completeJobDescription}
+                </div>
+              </div>
+
+              {viewRequirement.nextStep && (
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Next Step</label>
+                  <p className="text-slate-600 mt-2">{viewRequirement.nextStep}</p>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setViewRequirement(null)}>Close</Button>
+              <Button onClick={() => {
+                setViewRequirement(null);
+                handleEditRequirement(viewRequirement);
+              }}>
+                <Edit size={16} className="mr-2" />
+                Edit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirm && (
+        <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Requirement</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete this requirement? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleteMutation.isPending}>
+                Cancel
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={confirmDelete} 
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? (
+                  <>
+                    <Loader2 size={16} className="mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
