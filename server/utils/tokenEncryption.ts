@@ -1,57 +1,131 @@
 import crypto from 'crypto';
 
-const KEY_ENV = process.env.TOKEN_ENCRYPTION_KEY || '';
-let key: Buffer | null = null;
+/**
+ * Token Encryption Utility
+ * Provides secure encryption/decryption for sensitive OAuth tokens
+ * Uses AES-256-GCM for authenticated encryption
+ */
 
-if (KEY_ENV) {
-  // Accept hex or base64 encoded key; prefer 32 bytes (256-bit)
-  try {
-    if (/^[0-9a-fA-F]+$/.test(KEY_ENV) && KEY_ENV.length === 64) {
-      key = Buffer.from(KEY_ENV, 'hex');
-    } else {
-      key = Buffer.from(KEY_ENV, 'base64');
+const ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 16;
+const AUTH_TAG_LENGTH = 16;
+const SALT_LENGTH = 64;
+
+/**
+ * Get encryption key from environment variable
+ * Throws error if not configured in production
+ */
+function getEncryptionKey(): Buffer {
+  const key = process.env.TOKEN_ENCRYPTION_KEY;
+  
+  if (!key) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('TOKEN_ENCRYPTION_KEY must be set in production environment');
     }
-  } catch (e) {
-    console.warn('Invalid TOKEN_ENCRYPTION_KEY format — token encryption disabled');
-    key = null;
+    // Use a default key for development (NOT SECURE - for dev only)
+    console.warn('⚠️  WARNING: Using default encryption key. Set TOKEN_ENCRYPTION_KEY in production!');
+    return crypto.scryptSync('development-key-not-secure', 'salt', 32);
   }
-} else {
-  console.warn('TOKEN_ENCRYPTION_KEY not set — token encryption disabled');
+  
+  // Derive key from the provided secret
+  return crypto.scryptSync(key, 'gmail-token-salt', 32);
 }
 
-// Enforce presence in production environments
-if (!key && process.env.NODE_ENV === 'production') {
-  throw new Error('TOKEN_ENCRYPTION_KEY is required in production. Set a 32-byte key (hex or base64).');
-}
-
-export function encryptToken(plaintext: string | null): string | null {
-  if (!plaintext) return null;
-  if (!key) return plaintext; // fallback to plaintext if key missing
-
-  const iv = crypto.randomBytes(12); // recommended 12 bytes for GCM
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-
-  // store as base64(iv|tag|ciphertext)
-  return Buffer.concat([iv, tag, encrypted]).toString('base64');
-}
-
-export function decryptToken(encrypted: string | null): string | null {
-  if (!encrypted) return null;
-  if (!key) return encrypted as string;
-
+/**
+ * Encrypt a token string
+ * @param token - The token to encrypt
+ * @returns Encrypted token in format: iv:authTag:encryptedData (all hex encoded)
+ */
+export function encryptToken(token: string | null | undefined): string | null {
+  if (!token) return null;
+  
   try {
-    const data = Buffer.from(encrypted, 'base64');
-    const iv = data.slice(0, 12);
-    const tag = data.slice(12, 28);
-    const ciphertext = data.slice(28);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(tag);
-    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    return decrypted.toString('utf8');
-  } catch (e) {
-    console.warn('Failed to decrypt token, returning null');
-    return null;
+    const key = getEncryptionKey();
+    const iv = crypto.randomBytes(IV_LENGTH);
+    const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+    
+    let encrypted = cipher.update(token, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    
+    const authTag = cipher.getAuthTag();
+    
+    // Return format: iv:authTag:encryptedData
+    return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+  } catch (error) {
+    console.error('Token encryption failed:', error);
+    throw new Error('Failed to encrypt token');
   }
+}
+
+/**
+ * Decrypt a token string
+ * @param encryptedToken - The encrypted token in format: iv:authTag:encryptedData
+ * @returns Decrypted token string
+ */
+export function decryptToken(encryptedToken: string | null | undefined): string | null {
+  if (!encryptedToken) return null;
+  
+  try {
+    const key = getEncryptionKey();
+    const parts = encryptedToken.split(':');
+    
+    if (parts.length !== 3) {
+      throw new Error('Invalid encrypted token format');
+    }
+    
+    const iv = Buffer.from(parts[0], 'hex');
+    const authTag = Buffer.from(parts[1], 'hex');
+    const encryptedData = parts[2];
+    
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    
+    let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    
+    return decrypted;
+  } catch (error) {
+    console.error('Token decryption failed:', error);
+    throw new Error('Failed to decrypt token');
+  }
+}
+
+/**
+ * Generate a secure encryption key for TOKEN_ENCRYPTION_KEY
+ * Use this to generate a key for your .env file
+ */
+export function generateEncryptionKey(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Hash a token for storage verification (one-way)
+ * Useful for session tokens or verification tokens
+ */
+export function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * Verify a token against a hash
+ */
+export function verifyTokenHash(token: string, hash: string): boolean {
+  return hashToken(token) === hash;
+}
+
+/**
+ * Generate a secure random token
+ * @param length - Length in bytes (default 32)
+ */
+export function generateSecureToken(length: number = 32): string {
+  return crypto.randomBytes(length).toString('hex');
+}
+
+// Export utility for generating a new encryption key
+if (require.main === module) {
+  console.log('\n🔐 Generated TOKEN_ENCRYPTION_KEY:');
+  console.log(generateEncryptionKey());
+  console.log('\nAdd this to your .env file as:');
+  console.log('TOKEN_ENCRYPTION_KEY=<generated_key>');
+  console.log('\n⚠️  Keep this key secure and never commit it to version control!\n');
 }

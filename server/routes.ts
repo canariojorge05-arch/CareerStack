@@ -12,6 +12,7 @@ import adminActivityRoutes from "./routes/adminActivityRoutes";
 import googleDriveRoutes from "./routes/googleDriveRoutes";
 import marketingRoutes from "./routes/marketingRoutes";
 import emailEnhancementsRoutes from "./routes/emailEnhancementsRoutes";
+import emailOAuthRoutes from "./routes/emailOAuthRoutes";
 import { eq, and } from "drizzle-orm";
 import { ActivityTracker } from "./utils/activityTracker";
 import multer from "multer";
@@ -562,6 +563,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Email enhancements routes
   app.use('/api/email-enhancements', emailEnhancementsRoutes);
+
+  // Email OAuth routes (Gmail, Outlook integration)
+  app.use('/api/email', emailOAuthRoutes);
 
   // File attachment routes
   app.use('/api/attachments', attachmentRoutes);
