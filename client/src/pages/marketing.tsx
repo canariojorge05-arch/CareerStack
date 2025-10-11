@@ -1,18 +1,12 @@
-import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Mail, FileText, Calendar, Users, ChartBar as BarChart3, MessageSquare, Inbox, Send, File as FileEdit, Plus, Settings, LogOut, ArrowLeft } from 'lucide-react';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import { toast } from 'sonner';
+import { FileText, Calendar, Users, MessageSquare, Plus, ArrowLeft } from 'lucide-react';
 
 // Import Marketing components
-import ModernEmailClient from '@/components/marketing/modern-email-client';
 import RequirementsSection from '@/components/marketing/requirements-section';
 import InterviewsSection from '@/components/marketing/interviews-section';
 import ConsultantsSection from '@/components/marketing/consultants-section';
@@ -20,11 +14,9 @@ import ConsultantsSection from '@/components/marketing/consultants-section';
 export default function MarketingPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
-  const [activeSection, setActiveSection] = useState('emails');
-  const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState('requirements');
 
   const navigationItems = [
-    { id: 'emails', label: 'Emails', icon: Mail, description: 'Gmail-like email management' },
     {
       id: 'requirements',
       label: 'Requirements',
@@ -47,8 +39,6 @@ export default function MarketingPage() {
 
   const renderActiveSection = () => {
     switch (activeSection) {
-      case 'emails':
-        return <ModernEmailClient accountFilter={selectedEmailAccountId} />;
       case 'consultants':
         return <ConsultantsSection />;
       case 'requirements':
@@ -56,7 +46,7 @@ export default function MarketingPage() {
       case 'interviews':
         return <InterviewsSection />;
       default:
-        return <ModernEmailClient />;
+        return <RequirementsSection />;
     }
   };
 
@@ -68,75 +58,6 @@ export default function MarketingPage() {
 
   const marketingUser = user as MarketingUser;
 
-  // Fetch total unread messages count from server (more efficient for large inboxes)
-  const { data: unreadData = { unreadCount: 0, perAccount: [] }, isLoading: inboxLoading } = useQuery<{ unreadCount: number; perAccount?: any[] } | undefined>({
-    queryKey: ['/api/marketing/emails/unread-count'],
-    queryFn: async () => {
-      try {
-        const response = await apiRequest('GET', '/api/marketing/emails/unread-count');
-        if (!response.ok) return { unreadCount: 0 } as { unreadCount: number };
-        return response.json();
-      } catch (e) {
-        return { unreadCount: 0 } as { unreadCount: number };
-      }
-    },
-    staleTime: 15_000,
-    retry: false,
-  });
-
-  const unreadCount = unreadData?.unreadCount || 0;
-  const [srMessage, setSrMessage] = useState('');
-  const [filterHistory, setFilterHistory] = useState<Array<string | null>>([]);
-
-  // Load persisted filter history and selected account from localStorage
-  useEffect(() => {
-    try {
-      const rawHistory = localStorage.getItem('marketing.filterHistory');
-      if (rawHistory) {
-        const parsed = JSON.parse(rawHistory) as Array<string | null>;
-        setFilterHistory(parsed || []);
-      }
-      const rawSelected = localStorage.getItem('marketing.selectedEmailAccount');
-      if (rawSelected !== null) {
-        setSelectedEmailAccountId(rawSelected || null);
-      }
-    } catch (e) {
-      // ignore
-    }
-  }, []);
-
-  // Persist selectedEmailAccountId to localStorage
-  useEffect(() => {
-    try {
-      if (selectedEmailAccountId) {
-        localStorage.setItem('marketing.selectedEmailAccount', selectedEmailAccountId);
-      } else {
-        localStorage.removeItem('marketing.selectedEmailAccount');
-      }
-    } catch (e) {}
-  }, [selectedEmailAccountId]);
-
-  const pushHistory = (prev: string | null) => {
-    setFilterHistory((h) => {
-      const next = [...h, prev];
-      try { localStorage.setItem('marketing.filterHistory', JSON.stringify(next)); } catch (e) {}
-      return next;
-    });
-  };
-
-  const undoFilter = () => {
-    setFilterHistory((h) => {
-      if (h.length === 0) return h;
-      const last = h[h.length - 1];
-      const rest = h.slice(0, -1);
-      setSelectedEmailAccountId(last || null);
-      setSrMessage(last ? 'Filter restored' : 'Filter cleared');
-      try { localStorage.setItem('marketing.filterHistory', JSON.stringify(rest)); } catch (e) {}
-      try { if (last) localStorage.setItem('marketing.selectedEmailAccount', last); else localStorage.removeItem('marketing.selectedEmailAccount'); } catch (e) {}
-      toast.success('Filter restored', { duration: 1500 });
-      return rest;
-    });
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-indigo-50/30 relative overflow-hidden">
@@ -152,10 +73,6 @@ export default function MarketingPage() {
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-            {/* Screen reader live region for filter announcements */}
-            <div aria-live="polite" role="status" className="sr-only">
-              {srMessage}
-            </div>
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
               <div className="h-10 w-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
@@ -197,7 +114,7 @@ export default function MarketingPage() {
   <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Navigation */}
         <div className="mb-10">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {navigationItems.map((item) => {
               const IconComponent = item.icon;
               const isActive = activeSection === item.id;
@@ -235,18 +152,6 @@ export default function MarketingPage() {
                     <p className={`text-xs leading-relaxed transition-colors duration-300 ${
                       isActive ? 'text-blue-700' : 'text-slate-500 group-hover:text-slate-600'
                     }`}>{item.description}</p>
-                    
-                    {item.id === 'emails' && (
-                      <div className="mt-3 flex justify-center">
-                        <Badge className={`transition-all duration-300 ${
-                          isActive 
-                            ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/30' 
-                            : 'bg-gradient-to-r from-orange-600 to-amber-600 text-white group-hover:shadow-lg group-hover:shadow-orange-500/20'
-                        }`}>
-                          {inboxLoading ? '...' : unreadCount} unread
-                        </Badge>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               );
@@ -312,15 +217,15 @@ export default function MarketingPage() {
               <CardTitle className="flex items-center space-x-4 text-slate-800">
                 {(() => {
                   const activeItem = navigationItems.find((item) => item.id === activeSection);
-                  const IconComponent = activeItem?.icon || Mail;
+                  const IconComponent = activeItem?.icon || FileText;
                   return (
                     <>
                       <div className="h-10 w-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
                         <IconComponent size={20} className="text-white drop-shadow-sm" />
                       </div>
                       <div>
-                        <h2 className="text-xl font-bold text-slate-900">{activeItem?.label || 'Emails'}</h2>
-                        <p className="text-sm text-slate-600 font-normal">{activeItem?.description || 'Gmail-like email management'}</p>
+                        <h2 className="text-xl font-bold text-slate-900">{activeItem?.label || 'Requirements'}</h2>
+                        <p className="text-sm text-slate-600 font-normal">{activeItem?.description || 'Manage job requirements'}</p>
                       </div>
                     </>
                   );
@@ -329,93 +234,6 @@ export default function MarketingPage() {
 
               {/* Section-specific action buttons */}
               <div className="flex items-center space-x-2">
-                {activeSection === 'emails' && (
-                  <div className="flex items-center gap-3">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <div className="h-9 w-auto flex items-center bg-gradient-to-br from-orange-100 to-amber-100 rounded-md px-3 py-1 shadow-sm cursor-pointer">
-                          <Inbox className="text-orange-600" size={16} />
-                          <span className="ml-2 text-sm font-medium text-slate-700">Unread</span>
-                          <Badge className="ml-3 bg-gradient-to-r from-orange-600 to-amber-600 text-white">
-                            {inboxLoading ? '...' : unreadCount}
-                          </Badge>
-                        </div>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <div className="p-2 text-xs text-slate-500">Unread by account</div>
-                        <DropdownMenuItem className="text-sm" onClick={() => {
-                          const previous = selectedEmailAccountId;
-                          setFilterHistory(h => [...h, previous]);
-                          setSelectedEmailAccountId(null);
-                          setActiveSection('emails');
-                          setSrMessage('Showing all accounts');
-                          toast.info('Showing all accounts', {
-                            duration: 3000,
-                            action: {
-                              label: 'Undo',
-                              onClick: () => {
-                                // Pop last history and restore
-                                setFilterHistory(h => {
-                                  const last = h[h.length - 1];
-                                  const rest = h.slice(0, -1);
-                                  setSelectedEmailAccountId(last || null);
-                                  setSrMessage(last ? `Filter restored` : 'Filter cleared');
-                                  toast.success('Filter restored', { duration: 1500 });
-                                  return rest;
-                                });
-                              }
-                            }
-                          });
-                        }}>
-                          Show all accounts
-                        </DropdownMenuItem>
-                        {Array.isArray(unreadData?.perAccount) && unreadData!.perAccount.length > 0 ? (
-                          unreadData!.perAccount.map((acc: any) => (
-                            <DropdownMenuItem key={acc.accountId || acc.emailAddress} className="flex justify-between items-center" onClick={() => {
-                              const previous = selectedEmailAccountId;
-                              setFilterHistory(h => [...h, previous]);
-                              setSelectedEmailAccountId(acc.accountId || null);
-                              setActiveSection('emails');
-                              setSrMessage(`Filtering to ${acc.accountName || acc.emailAddress}`);
-                              toast.info(`Filtering to ${acc.accountName || acc.emailAddress}`, {
-                                duration: 3000,
-                                action: {
-                                  label: 'Undo',
-                                  onClick: () => {
-                                    // Restore most recent previous value from history
-                                    setFilterHistory(h => {
-                                      const last = h[h.length - 1];
-                                      const rest = h.slice(0, -1);
-                                      setSelectedEmailAccountId(last || null);
-                                      setSrMessage(last ? `Filter restored` : 'Filter cleared');
-                                      toast.success('Filter restored', { duration: 1500 });
-                                      return rest;
-                                    });
-                                  }
-                                }
-                              });
-                            }}>
-                              <div className="text-sm">
-                                <div className="font-medium">{acc.accountName || acc.emailAddress || 'Unknown'}</div>
-                                {acc.emailAddress && <div className="text-xs text-slate-400">{acc.emailAddress}</div>}
-                              </div>
-                              <div className="ml-4">
-                                <Badge className="bg-gradient-to-r from-orange-600 to-amber-600 text-white">{acc.unreadCount}</Badge>
-                              </div>
-                            </DropdownMenuItem>
-                          ))
-                        ) : (
-                          <DropdownMenuItem className="text-sm text-slate-500">No unread messages</DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    {filterHistory.length > 0 && (
-                      <Button size="sm" variant="outline" onClick={() => undoFilter()} className="ml-2">
-                        Undo
-                      </Button>
-                    )}
-                  </div>
-                )}
                 {activeSection === 'requirements' && (
                   <Button size="sm" className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 shadow-lg shadow-green-500/30 hover:shadow-xl hover:shadow-green-500/40 transition-all duration-300">
                     <Plus size={16} className="mr-2" />
