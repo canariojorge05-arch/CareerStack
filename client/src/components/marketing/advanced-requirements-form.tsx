@@ -497,6 +497,7 @@ Additional Information:
                         <Textarea
                           {...field}
                           value={field.value || ''}
+                          onChange={(e) => field.onChange(e.target.value)}
                           placeholder="Describe the next steps for this requirement..."
                           rows={3}
                         />
@@ -719,6 +720,8 @@ Additional Information:
                         render={({ field }) => (
                           <Textarea
                             {...field}
+                            value={field.value || ''}
+                            onChange={(e) => field.onChange(e.target.value)}
                             placeholder="Enter the complete job description including requirements, responsibilities, and qualifications..."
                             rows={10}
                             className={`resize-none ${
