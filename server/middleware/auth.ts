@@ -105,16 +105,21 @@ export const requireRole = (_roles: string | string[]) => {
   };
 };
 
-// Check if user is authenticated
-export const isAuthenticated = [
-  passport.authenticate('jwt', { session: false }),
-  (req: Request, res: Response, next: NextFunction) => {
-    if (req.user) {
-      return next();
-    }
-    res.status(401).json({ message: 'Authentication required' });
-  },
-];
+// Check if user is authenticated using session-based auth
+export const isAuthenticated = (req: Request, res: Response, next: NextFunction) => {
+  // Check if user is authenticated via session
+  if (req.isAuthenticated && req.isAuthenticated()) {
+    return next();
+  }
+  
+  // If no session auth, return 401
+  res.status(401).json({ 
+    message: 'Authentication required',
+    category: 'auth',
+    recoverable: true,
+    details: 'Please log in to access this resource'
+  });
+};
 
 // Check if user has verified email
 export const requireVerifiedEmail = async (req: Request, res: Response, next: NextFunction) => {

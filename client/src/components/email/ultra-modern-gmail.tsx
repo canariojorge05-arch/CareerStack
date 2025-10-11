@@ -29,6 +29,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
+import { useAuth } from '@/hooks/useAuth';
 
 interface EmailAccount {
   id: string;
@@ -67,6 +68,7 @@ interface EmailMessage {
 }
 
 export default function UltraModernGmailClient() {
+  const { isAuthenticated, isLoading: isAuthLoading, isAuthChecked } = useAuth();
   const [, navigate] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedFolder, setSelectedFolder] = useState('inbox');
@@ -112,6 +114,7 @@ export default function UltraModernGmailClient() {
     },
     staleTime: 5 * 60 * 1000, // 5 minutes - accounts don't change often
     gcTime: 30 * 60 * 1000, // 30 minutes
+    enabled: isAuthChecked && isAuthenticated === true, // Only run when auth is checked and user is authenticated
   });
 
   const emailAccounts: EmailAccount[] = accountsData?.accounts || accountsData || [];
@@ -153,6 +156,7 @@ export default function UltraModernGmailClient() {
     staleTime: 1 * 60 * 1000, // 1 minute
     gcTime: 5 * 60 * 1000, // 5 minutes
     refetchOnMount: false,
+    enabled: isAuthChecked && isAuthenticated === true, // Only run when auth is checked and user is authenticated
   });
 
   // Flatten threads from all pages
@@ -172,7 +176,7 @@ export default function UltraModernGmailClient() {
       if (!response.ok) return [];
       return response.json();
     },
-    enabled: !!selectedThread,
+    enabled: !!selectedThread && isAuthChecked && isAuthenticated === true,
     staleTime: 2 * 60 * 1000, // 2 minutes - messages are fairly static
     gcTime: 10 * 60 * 1000, // 10 minutes
   });

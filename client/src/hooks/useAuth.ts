@@ -64,12 +64,12 @@ export function useAuth() {
     },
     retry: false,
     retryDelay: 0,
-    staleTime: 5 * 1000, // 5 seconds - short enough to catch auth changes quickly
+    staleTime: 30 * 1000, // 30 seconds - longer to reduce requests during startup
     gcTime: 5 * 60 * 1000, // 5 minutes
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
-    refetchOnMount: 'always', // Enable refetch on mount to catch auth state changes
+    refetchOnMount: 'always', // Always check auth on mount but React Query will deduplicate
     enabled: !isDisabled && !shouldPreventAuth, // Disable if any safety check fails
   });
 
@@ -240,6 +240,7 @@ export function useAuth() {
       user: null,
       isLoading: false,
       isAuthenticated: false,
+      isAuthChecked: true, // Auth is prevented, so consider it checked
       error: null,
       logout: async () => {},
       refreshUser: async () => {},
@@ -250,6 +251,7 @@ export function useAuth() {
     user,
     isLoading,
     isAuthenticated: !!user,
+    isAuthChecked: !isLoading && (!!user || !!error), // Auth has been checked if not loading and we have user or error
     error,
     logout,
     refreshUser,

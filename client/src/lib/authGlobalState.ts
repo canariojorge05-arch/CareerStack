@@ -3,26 +3,26 @@ let authLoopDetected = false;
 let authRequestCount = 0;
 let lastResetTime = Date.now();
 let appStartTime = Date.now();
-const APP_STARTUP_GRACE_PERIOD = 10000; // 10 seconds grace period for app startup
-
-export const authGlobalState = {
-  shouldPreventAuthRequest(): boolean {
+const APP_STARTUP_GRACE_PERIOD = 15000; // 15 seconds// Enhanced auth loop detection with startup grace period
+const authGlobalState = {
+  recordAuthRequest: () => {
     const now = Date.now();
+    const isAppStartup = now - appStartTime < 20000; // 20 second startup grace period (increased)
+    const threshold = isAppStartup ? 30 : 12; // More lenient thresholds
     
-    // During app startup (first 10 seconds), be more lenient
-    const isAppStartup = (now - appStartTime) < APP_STARTUP_GRACE_PERIOD;
+    // Reset counter every 15 seconds during startup, 10 seconds otherwise
+    const resetInterval = isAppStartup ? 15000 : 10000;
     
-    // Reset counter every 5 seconds
-    if (now - lastResetTime > 5000) {
+    if (now - lastResetTime > resetInterval) {
       authRequestCount = 0;
       authLoopDetected = false;
-      lastResetTime = now;
+      localStorage.removeItem('authLoopDetected');
     }
     
-    // More lenient threshold during startup (10 requests), stricter after (5 requests)
-    const threshold = isAppStartup ? 10 : 5;
+    authRequestCount++;
+    lastResetTime = now;
     
-    // If we've made too many requests in 5 seconds, stop
+    // If we've made too many requests, stop
     if (authRequestCount > threshold) {
       authLoopDetected = true;
       localStorage.setItem('authLoopDetected', 'true');
@@ -37,9 +37,6 @@ export const authGlobalState = {
     return authLoopDetected;
   },
 
-  recordAuthRequest(): void {
-    authRequestCount++;
-  },
 
   reset(): void {
     authLoopDetected = false;
@@ -50,5 +47,13 @@ export const authGlobalState = {
 
   isLoopDetected(): boolean {
     return authLoopDetected;
+  },
+
+  shouldPreventAuthRequest(): boolean {
+    // Check if auth loop is detected or if we're in localStorage
+    const storedLoop = localStorage.getItem('authLoopDetected');
+    return authLoopDetected || storedLoop === 'true';
   }
 };
+
+export { authGlobalState };

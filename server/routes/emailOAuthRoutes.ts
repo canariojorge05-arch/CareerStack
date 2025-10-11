@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import { isAuthenticated } from '../middleware/auth';
+import { isAuthenticated } from '../localAuth';
 import { EnhancedGmailOAuthService } from '../services/enhancedGmailOAuthService';
 import { OutlookOAuthService } from '../services/outlookOAuthService';
 import { MultiAccountEmailService } from '../services/multiAccountEmailService';
@@ -166,9 +166,44 @@ router.get('/outlook/auth-url', isAuthenticated, async (req: any, res: Response)
 });
 
 /**
- * Handle OAuth callback
+ * Handle OAuth callback (GET request from OAuth providers)
+ * GET /api/email/oauth/callback
+ */
+router.get('/oauth/callback', isAuthenticated, async (req: any, res: Response) => {
+  try {
+    const { code, state } = req.query;
+    const userId = req.user.id;
+    
+    if (!code || !state) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing authorization code or state parameter'
+      });
+    }
+
+    console.log(`📧 Processing OAuth callback for Gmail - User: ${userId}`);
+
+    // For now, assume Gmail since that's what we're setting up
+    const result = await EnhancedGmailOAuthService.handleCallback(code as string, userId);
+    
+    if (result.success) {
+      // Redirect to email page with success message
+      res.redirect('/email?connected=true');
+    } else {
+      // Redirect to email page with error
+      res.redirect('/email?error=connection_failed');
+    }
+  } catch (error) {
+    console.error('OAuth callback error:', error);
+    res.redirect('/email?error=callback_failed');
+  }
+});
+
+/**
+ * Handle OAuth callback (POST request - legacy support)
  * POST /api/email/oauth/callback
  */
+
 router.post('/oauth/callback', isAuthenticated, async (req: any, res: Response) => {
   try {
     const { code, state, provider } = oauthCallbackSchema.parse(req.body);

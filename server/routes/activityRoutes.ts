@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { isAuthenticated } from '../middleware/auth';
+import { isAuthenticated } from '../localAuth';
 import { ActivityTracker } from '../utils/activityTracker';
 import { sql } from '../db';
 

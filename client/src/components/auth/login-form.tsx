@@ -105,16 +105,13 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
         localStorage.removeItem('authLastRedirectAt');
       } catch (e) {}
 
-      // Proactively refresh the user query and wait for session to be readable
-      await queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
-
       // Get any saved redirect URL
       const redirectUrl = localStorage.getItem('redirectAfterLogin');
       localStorage.removeItem('redirectAfterLogin'); // Clear it after reading
 
       // Poll the user endpoint briefly to avoid race conditions where the session
       // cookie isn't yet available to subsequent requests.
-      const waitForSession = async (timeoutMs = 2500, intervalMs = 150) => {
+      const waitForSession = async (timeoutMs = 3000, intervalMs = 200) => {
         const start = Date.now();
         // eslint-disable-next-line no-constant-condition
         while (true) {
@@ -127,21 +124,23 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
               const userData = await res.json();
               // Immediately set the user data in the query cache to prevent race conditions
               queryClient.setQueryData(['/api/auth/user'], userData);
-              return true;
+              // Also invalidate to trigger refetch in other components
+              await queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+              return userData;
             }
           } catch (_) {
             // ignore and retry until timeout
           }
-          if (Date.now() - start > timeoutMs) return false;
+          if (Date.now() - start > timeoutMs) return null;
           await new Promise((r) => setTimeout(r, intervalMs));
         }
       };
 
-      const sessionReady = await waitForSession();
+      const userData = await waitForSession();
 
       toast({
         title: 'Welcome back!',
-        description: sessionReady
+        description: userData
           ? "You've been successfully logged in."
           : 'Logged in. Initializing your session...',
       });
@@ -149,12 +148,14 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
       // Close dialog if callback provided
       onSuccess?.();
 
-      // Wait a bit longer to ensure auth state is fully propagated
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Wait longer to ensure auth state is fully propagated across all components
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       // Redirect to the saved URL or default to dashboard
       const targetUrl = redirectUrl || '/dashboard';
-      setLocation(targetUrl);
+      
+      // Use window.location.href for a clean redirect that resets all state
+      window.location.href = targetUrl;
     } catch (error: any) {
       console.error('Login error caught:', error);
       setAttemptCount((prev) => prev + 1);

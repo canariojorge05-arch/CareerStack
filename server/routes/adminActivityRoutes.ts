@@ -1,11 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { isAuthenticated, requireRole } from '../middleware/auth';
+import { isAuthenticated } from '../localAuth';
+
 import { db } from '../db';
 import { userActivities } from '@shared/activity';
 import { sql } from 'drizzle-orm';
 
 const router = Router();
-const isAdmin = requireRole('admin');
+// Role-based access control removed for now - using basic authentication only
 
 interface ActivityQuery {
   startDate?: string;
@@ -17,7 +18,7 @@ interface ActivityQuery {
 }
 
 // Query activities with filters
-router.get('/activities', isAuthenticated, isAdmin, async (req: Request, res: Response) => {
+router.get('/activities', isAuthenticated, async (req: Request, res: Response) => {
   try {
     const {
       startDate: startDateStr,
@@ -60,7 +61,7 @@ router.get('/activities', isAuthenticated, isAdmin, async (req: Request, res: Re
 });
 
 // Device/browser/OS distribution
-router.get('/devices', isAuthenticated, isAdmin, async (req: Request, res: Response) => {
+router.get('/devices', isAuthenticated, async (req: Request, res: Response) => {
   try {
     const {
       startDate: startDateStr,
@@ -114,7 +115,7 @@ router.get('/devices', isAuthenticated, isAdmin, async (req: Request, res: Respo
 });
 
 // Geo distribution
-router.get('/geo', isAuthenticated, isAdmin, async (req: Request, res: Response) => {
+router.get('/geo', isAuthenticated, async (req: Request, res: Response) => {
   try {
     const {
       startDate: startDateStr,

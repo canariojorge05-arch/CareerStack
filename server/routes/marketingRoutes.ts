@@ -693,53 +693,8 @@ router.delete('/interviews/:id', async (req, res) => {
   }
 });
 
-// OAUTH2 ROUTES
+// OAUTH2 ROUTES REMOVED - Use /api/email routes instead
 
-// Gmail OAuth2 - Get authorization URL
-router.get('/oauth/gmail/auth', async (req, res) => {
-  try {
-    const authUrl = EnhancedGmailOAuthService.getAuthUrl(req.user!.id);
-    res.json({ authUrl });
-  } catch (error) {
-    console.error('Error generating Gmail auth URL:', error);
-    res.status(500).json({ message: 'Failed to generate authorization URL' });
-  }
-});
-
-// Gmail OAuth2 - Handle callback (GET for OAuth redirect with query params)
-router.get('/oauth/gmail/callback', async (req, res) => {
-  try {
-    const code = String(req.query.code || '');
-    if (!code) {
-      return res.status(400).send('<html><body>Missing authorization code</body></html>');
-    }
-
-    const result = await EnhancedGmailOAuthService.handleCallback(code, req.user!.id);
-
-    const success = !!result.success;
-    const msg = success ? 'Gmail account connected successfully' : (result.error || 'Failed to connect Gmail account');
-
-    // Return a tiny HTML page that notifies the opener window and closes.
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Gmail OAuth</title></head><body>
-<script>
-  (function(){
-    try {
-      if (window.opener) {
-        window.opener.postMessage({ type: 'GMAIL_OAUTH_SUCCESS', success: ${success ? 'true' : 'false'}, message: ${JSON.stringify(msg)} }, '*');
-      }
-    } catch (e) {}
-    window.close();
-  })();
-</script>
-<p>${msg}. You may close this window.</p>
-</body></html>`;
-    res.setHeader('Content-Type', 'text/html');
-    return res.status(success ? 200 : 400).send(html);
-  } catch (error) {
-    console.error('Error handling Gmail callback (GET):', error);
-    res.status(500).send('<html><body>Failed to process Gmail authorization</body></html>');
-  }
-});
 
 // Gmail OAuth2 - Handle callback (legacy POST support if popup posts code)
 router.post('/oauth/gmail/callback', async (req, res) => {

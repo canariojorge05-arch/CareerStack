@@ -397,15 +397,19 @@ app.use((req, res, next) => {
     const { OutlookOAuthService } = await import('./services/outlookOAuthService');
     
     // Initialize Enhanced Gmail OAuth with secure token encryption
-    if (process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET) {
+    // Use GOOGLE_CLIENT_ID/SECRET if GMAIL_CLIENT_ID/SECRET are not available
+    const gmailClientId = process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+    const gmailClientSecret = process.env.GMAIL_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+    
+    if (gmailClientId && gmailClientSecret) {
       EnhancedGmailOAuthService.initialize({
-        clientId: process.env.GMAIL_CLIENT_ID,
-        clientSecret: process.env.GMAIL_CLIENT_SECRET,
+        clientId: gmailClientId,
+        clientSecret: gmailClientSecret,
         redirectUri: process.env.GMAIL_REDIRECT_URI || `${process.env.BASE_URL || 'http://localhost:5000'}/api/email/oauth/callback`,
       });
       log('✅ Enhanced Gmail OAuth service initialized');
     } else {
-      console.warn('⚠️  Gmail OAuth not configured - skipping initialization');
+      console.warn('⚠️  Gmail OAuth not configured - missing GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET or GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET');
     }
     
     // Initialize Outlook OAuth

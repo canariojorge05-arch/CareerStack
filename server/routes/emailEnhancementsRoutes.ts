@@ -3,7 +3,7 @@ import { EmailStorageOptimizer } from '../services/emailStorageOptimizer';
 import { EmailSpamFilter } from '../services/emailSpamFilter';
 import { EmailExportService } from '../services/emailExportService';
 import { EmailSignatureService } from '../services/emailSignatureService';
-import { isAuthenticated } from '../middleware/auth';
+import { isAuthenticated } from '../localAuth';
 
 const router = Router();
 
