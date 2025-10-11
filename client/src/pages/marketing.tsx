@@ -4,7 +4,8 @@ import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Calendar, Users, MessageSquare, Plus, ArrowLeft } from 'lucide-react';
+import { FileText, Calendar, Users, MessageSquare, Plus } from 'lucide-react';
+import { AppHeader } from '@/components/shared/app-header';
 
 // Import Marketing components
 import RequirementsSection from '@/components/marketing/requirements-section';
@@ -70,47 +71,8 @@ export default function MarketingPage() {
         }} />
       </div>
       <div className="relative z-10">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-4">
-              <div className="h-10 w-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
-                <MessageSquare className="text-white" size={20} />
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">Marketing Module</h1>
-                <p className="text-xs text-slate-500">Resume Customizer Pro</p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-4">
-              <Badge variant="outline" className="bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border-blue-200/50 shadow-sm">
-                Marketing Team
-              </Badge>
-              <div className="flex items-center space-x-3">
-                <div className="h-8 w-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center shadow-md">
-                  <span className="text-sm font-medium text-white">
-                    {marketingUser?.firstName?.[0] || marketingUser?.email?.[0] || 'M'}
-                  </span>
-                </div>
-                <span className="text-sm font-medium text-slate-700 hidden sm:inline-block">
-                  {marketingUser?.firstName || marketingUser?.email || 'Marketing User'}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setLocation('/dashboard')}
-                  className="hover:bg-slate-50 border-slate-200 transition-all hover:shadow-md"
-                >
-                  <ArrowLeft size={16} className="mr-1.5" />
-                  <span>Back</span>
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
+      {/* Shared Header with Auto-hide */}
+      <AppHeader currentPage="marketing" />
   <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Navigation */}
         <div className="mb-10">

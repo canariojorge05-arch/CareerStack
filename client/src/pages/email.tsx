@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Redirect } from 'wouter';
 import { Mail } from 'lucide-react';
 import UltraModernGmailClient from '@/components/email/ultra-modern-gmail';
+import { AppHeader } from '@/components/shared/app-header';
 
 export default function EmailPage() {
   const { user, isLoading } = useAuth();
@@ -26,8 +27,13 @@ export default function EmailPage() {
   }
 
   return (
-    <div className="h-screen overflow-hidden">
-      <UltraModernGmailClient />
+    <div className="min-h-screen bg-background">
+      {/* Shared Header with Auto-hide */}
+      <AppHeader currentPage="email" />
+      
+      <div className="h-[calc(100vh-4rem)] overflow-hidden">
+        <UltraModernGmailClient />
+      </div>
     </div>
   );
 }

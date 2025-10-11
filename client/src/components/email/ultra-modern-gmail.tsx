@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useLocation } from 'wouter';
 
 interface EmailAccount {
   id: string;
@@ -66,6 +67,7 @@ interface EmailMessage {
 }
 
 export default function UltraModernGmailClient() {
+  const [, navigate] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedFolder, setSelectedFolder] = useState('inbox');
   const [selectedThread, setSelectedThread] = useState<string | null>(null);
@@ -591,9 +593,9 @@ export default function UltraModernGmailClient() {
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen bg-white">
-        {/* Gmail Header */}
-        <header className="flex items-center gap-4 px-4 py-2 border-b border-gray-200">
+      <div className="flex flex-col h-full bg-white">
+        {/* Gmail Subheader - Toolbar and Search */}
+        <header className="flex items-center gap-4 px-4 py-2 border-b border-gray-200 bg-white">
           <Button
             variant="ghost"
             size="icon"
