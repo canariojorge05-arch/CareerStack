@@ -2104,13 +2104,24 @@ function EmailContent({ htmlBody, textBody }: EmailContentProps) {
   const sanitizedHtml = useMemo(() => {
     if (!htmlBody) return null;
 
-    // Configure DOMPurify to allow images and common email tags
-    const clean = DOMPurify.sanitize(htmlBody, {
-      ADD_TAGS: ['style'],
-      ADD_ATTR: ['target', 'style', 'class'],
-      ALLOW_DATA_ATTR: false,
-      FORCE_BODY: true,
+    // Configure DOMPurify to allow images, links and common email tags
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      // Make all links open in new tab for security
+      if (node.tagName === 'A') {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+      }
     });
+
+    const clean = DOMPurify.sanitize(htmlBody, {
+      ADD_TAGS: ['style', 'img', 'a', 'table', 'tbody', 'thead', 'tr', 'td', 'th'],
+      ADD_ATTR: ['href', 'target', 'rel', 'style', 'class', 'src', 'alt', 'width', 'height', 'border', 'cellpadding', 'cellspacing', 'align', 'valign', 'bgcolor'],
+      ALLOW_DATA_ATTR: true,
+      FORCE_BODY: true,
+      ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    });
+
+    DOMPurify.removeHook('afterSanitizeAttributes');
 
     return clean;
   }, [htmlBody]);
@@ -2139,12 +2150,19 @@ function EmailContent({ htmlBody, textBody }: EmailContentProps) {
       }
 
       .email-content-wrapper a {
-        color: #2563eb;
-        text-decoration: none;
+        color: #2563eb !important;
+        text-decoration: underline !important;
+        cursor: pointer;
+        display: inline;
       }
 
       .email-content-wrapper a:hover {
-        text-decoration: underline;
+        color: #1d4ed8 !important;
+        text-decoration: underline !important;
+      }
+
+      .email-content-wrapper a:visited {
+        color: #7c3aed;
       }
 
       .email-content-wrapper p {

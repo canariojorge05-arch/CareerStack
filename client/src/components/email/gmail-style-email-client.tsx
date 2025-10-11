@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow, format } from 'date-fns';
 import { apiRequest } from '@/lib/queryClient';
+import DOMPurify from 'dompurify';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -542,13 +543,7 @@ export default function GmailStyleEmailClient() {
                         </div>
                       </div>
                     </div>
-                    <div className="prose prose-sm max-w-none">
-                      {message.htmlBody ? (
-                        <div dangerouslySetInnerHTML={{ __html: message.htmlBody }} />
-                      ) : (
-                        <p className="whitespace-pre-wrap">{message.textBody}</p>
-                      )}
-                    </div>
+                    <EmailContent htmlBody={message.htmlBody} textBody={message.textBody} />
                     {index === threadMessages.length - 1 && (
                       <div className="flex gap-2 mt-4">
                         <Button variant="outline" size="sm">
@@ -682,5 +677,178 @@ export default function GmailStyleEmailClient() {
         </Dialog>
       </div>
     </TooltipProvider>
+  );
+}
+
+// Email Content Component with Sanitization and Proper Styling
+interface EmailContentProps {
+  htmlBody: string | null;
+  textBody: string | null;
+}
+
+function EmailContent({ htmlBody, textBody }: EmailContentProps) {
+  // Sanitize HTML and configure DOMPurify
+  const sanitizedHtml = useMemo(() => {
+    if (!htmlBody) return null;
+
+    // Configure DOMPurify to allow images, links and common email tags
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      // Make all links open in new tab for security
+      if (node.tagName === 'A') {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+      }
+    });
+
+    const clean = DOMPurify.sanitize(htmlBody, {
+      ADD_TAGS: ['style', 'img', 'a', 'table', 'tbody', 'thead', 'tr', 'td', 'th'],
+      ADD_ATTR: ['href', 'target', 'rel', 'style', 'class', 'src', 'alt', 'width', 'height', 'border', 'cellpadding', 'cellspacing', 'align', 'valign', 'bgcolor'],
+      ALLOW_DATA_ATTR: true,
+      FORCE_BODY: true,
+      ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    });
+
+    DOMPurify.removeHook('afterSanitizeAttributes');
+
+    return clean;
+  }, [htmlBody]);
+
+  // Inject custom styles for email content
+  useEffect(() => {
+    if (!htmlBody) return;
+
+    // Add styles for email content
+    const style = document.createElement('style');
+    style.textContent = `
+      .email-content-wrapper {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.6;
+        color: #1f2937;
+      }
+
+      .email-content-wrapper img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 0.5rem 0;
+        border-radius: 0.375rem;
+      }
+
+      .email-content-wrapper a {
+        color: #2563eb !important;
+        text-decoration: underline !important;
+        cursor: pointer;
+        display: inline;
+      }
+
+      .email-content-wrapper a:hover {
+        color: #1d4ed8 !important;
+        text-decoration: underline !important;
+      }
+
+      .email-content-wrapper a:visited {
+        color: #7c3aed;
+      }
+
+      .email-content-wrapper p {
+        margin: 0.75rem 0;
+      }
+
+      .email-content-wrapper h1,
+      .email-content-wrapper h2,
+      .email-content-wrapper h3,
+      .email-content-wrapper h4,
+      .email-content-wrapper h5,
+      .email-content-wrapper h6 {
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+
+      .email-content-wrapper ul,
+      .email-content-wrapper ol {
+        margin: 0.75rem 0;
+        padding-left: 2rem;
+      }
+
+      .email-content-wrapper blockquote {
+        margin: 1rem 0;
+        padding-left: 1rem;
+        border-left: 4px solid #e5e7eb;
+        color: #6b7280;
+      }
+
+      .email-content-wrapper table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1rem 0;
+      }
+
+      .email-content-wrapper table td,
+      .email-content-wrapper table th {
+        border: 1px solid #e5e7eb;
+        padding: 0.5rem;
+      }
+
+      .email-content-wrapper pre {
+        background: #f3f4f6;
+        padding: 1rem;
+        border-radius: 0.375rem;
+        overflow-x: auto;
+        margin: 1rem 0;
+      }
+
+      .email-content-wrapper code {
+        background: #f3f4f6;
+        padding: 0.125rem 0.25rem;
+        border-radius: 0.25rem;
+        font-family: 'Courier New', monospace;
+        font-size: 0.875em;
+      }
+
+      .email-content-wrapper hr {
+        border: none;
+        border-top: 1px solid #e5e7eb;
+        margin: 1.5rem 0;
+      }
+    `;
+    document.head.appendChild(style);
+
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, [htmlBody]);
+
+  if (!htmlBody && !textBody) {
+    return (
+      <div className="flex items-center justify-center py-8 text-gray-400">
+        <div className="text-center">
+          <Mail className="h-12 w-12 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No content to display</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (htmlBody && sanitizedHtml) {
+    return (
+      <div className="email-content-wrapper mt-4 mb-4">
+        <div
+          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+          className="prose prose-sm max-w-none"
+        />
+      </div>
+    );
+  }
+
+  // Fallback to text body
+  return (
+    <div className="email-content-wrapper mt-4 mb-4">
+      <p className="whitespace-pre-wrap text-gray-800 leading-relaxed">
+        {textBody || 'No content available'}
+      </p>
+    </div>
   );
 }
