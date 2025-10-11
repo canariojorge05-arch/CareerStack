@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Bell, LogOut, Trash2, FileText, CreditCard as Edit, Download, Zap, MessageSquare, Cloud, HardDrive } from 'lucide-react';
+import { Bell, LogOut, Trash2, FileText, CreditCard as Edit, Download, Zap, MessageSquare, Cloud, HardDrive, Mail } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import FileUpload from '@/components/file-upload';
@@ -641,6 +641,25 @@ export default function Dashboard() {
             </div>
 
             <nav className="flex items-center space-x-4" role="navigation" aria-label="Main navigation">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate('/email')}
+                    className="bg-red-50 border-red-200 text-red-700 hover:bg-red-100 transition-all duration-200 focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                    data-testid="button-email"
+                    aria-label="Navigate to email page"
+                  >
+                    <Mail size={16} className="mr-1" />
+                    <span className="hidden sm:inline">Email</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Gmail-style email client with multi-account support and secure OAuth.
+                </TooltipContent>
+              </Tooltip>
+
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

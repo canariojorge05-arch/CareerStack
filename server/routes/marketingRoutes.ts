@@ -3,7 +3,7 @@ import { db } from '../db';
 import { isAuthenticated } from '../localAuth';
 import { EmailService } from '../services/emailService';
 import { ImapService } from '../services/imapService';
-import { GmailOAuthService } from '../services/gmailOAuthService';
+import { EnhancedGmailOAuthService } from '../services/enhancedGmailOAuthService';
 import { OutlookOAuthService } from '../services/outlookOAuthService';
 import { MultiAccountEmailService } from '../services/multiAccountEmailService';
 import { EmailSyncService } from '../services/emailSyncService';
@@ -54,7 +54,7 @@ router.get('/oauth/gmail/callback', async (req, res) => {
         .send('<html><body>Missing authorization code or state</body></html>');
     }
 
-    const result = await GmailOAuthService.handleCallback(code, userId);
+    const result = await EnhancedGmailOAuthService.handleCallback(code, userId);
     const success = !!result.success;
     const msg = success
       ? 'Gmail account connected successfully'
@@ -698,7 +698,7 @@ router.delete('/interviews/:id', async (req, res) => {
 // Gmail OAuth2 - Get authorization URL
 router.get('/oauth/gmail/auth', async (req, res) => {
   try {
-    const authUrl = GmailOAuthService.getAuthUrl(req.user!.id);
+    const authUrl = EnhancedGmailOAuthService.getAuthUrl(req.user!.id);
     res.json({ authUrl });
   } catch (error) {
     console.error('Error generating Gmail auth URL:', error);
@@ -714,7 +714,7 @@ router.get('/oauth/gmail/callback', async (req, res) => {
       return res.status(400).send('<html><body>Missing authorization code</body></html>');
     }
 
-    const result = await GmailOAuthService.handleCallback(code, req.user!.id);
+    const result = await EnhancedGmailOAuthService.handleCallback(code, req.user!.id);
 
     const success = !!result.success;
     const msg = success ? 'Gmail account connected successfully' : (result.error || 'Failed to connect Gmail account');
@@ -750,7 +750,7 @@ router.post('/oauth/gmail/callback', async (req, res) => {
       return res.status(400).json({ message: 'Authorization code is required' });
     }
 
-    const result = await GmailOAuthService.handleCallback(code, req.user!.id);
+    const result = await EnhancedGmailOAuthService.handleCallback(code, req.user!.id);
     
     if (result.success) {
       res.json({ 

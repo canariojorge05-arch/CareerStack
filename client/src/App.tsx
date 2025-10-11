@@ -16,6 +16,7 @@ const Landing = lazy(() => import('@/pages/landing'));
 const Dashboard = lazy(() => import('@/pages/dashboard'));
 const MultiResumeEditorPage = lazy(() => import('@/pages/multi-resume-editor-page'));
 const MarketingPage = lazy(() => import('@/pages/marketing'));
+const EmailPage = lazy(() => import('@/pages/email'));
 const VerifyEmail = lazy(() => import('@/pages/verify-email'));
 const ResetPassword = lazy(() => import('@/pages/reset-password'));
 const Privacy = lazy(() => import('@/pages/privacy'));
@@ -41,6 +42,7 @@ const Router = memo(() => {
           // Preload dashboard and marketing for authenticated users
           import('@/pages/dashboard');
           import('@/pages/marketing');
+          import('@/pages/email');
         } else {
           // Preload landing for non-authenticated users
           import('@/pages/landing');
@@ -69,6 +71,7 @@ const Router = memo(() => {
         <PrivateRoute path="/dashboard" component={Dashboard} />
         <PrivateRoute path="/editor" component={MultiResumeEditorPage} />
         <PrivateRoute path="/marketing" component={MarketingPage} />
+        <PrivateRoute path="/email" component={EmailPage} />
 
         {/* Catch-all route */}
         <Route component={NotFound} />

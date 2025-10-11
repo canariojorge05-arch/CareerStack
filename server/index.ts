@@ -391,29 +391,39 @@ app.use((req, res, next) => {
     }
   });
 
-  // Initialize OAuth services
+  // Initialize Enhanced Email OAuth services
   try {
-    const { GmailOAuthService } = await import('./services/gmailOAuthService');
+    const { EnhancedGmailOAuthService } = await import('./services/enhancedGmailOAuthService');
     const { OutlookOAuthService } = await import('./services/outlookOAuthService');
     
-    // Initialize Gmail OAuth (use existing Google credentials)
-    GmailOAuthService.initialize({
-      clientId: process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '',
-      clientSecret: process.env.GMAIL_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '',
-      redirectUri: process.env.GMAIL_REDIRECT_URI || `${process.env.BASE_URL || 'http://localhost:5000'}/api/marketing/oauth/gmail/callback`,
-    });
+    // Initialize Enhanced Gmail OAuth with secure token encryption
+    if (process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET) {
+      EnhancedGmailOAuthService.initialize({
+        clientId: process.env.GMAIL_CLIENT_ID,
+        clientSecret: process.env.GMAIL_CLIENT_SECRET,
+        redirectUri: process.env.GMAIL_REDIRECT_URI || `${process.env.BASE_URL || 'http://localhost:5000'}/api/email/oauth/callback`,
+      });
+      log('✅ Enhanced Gmail OAuth service initialized');
+    } else {
+      console.warn('⚠️  Gmail OAuth not configured - skipping initialization');
+    }
     
     // Initialize Outlook OAuth
-    OutlookOAuthService.initialize({
-      clientId: process.env.OUTLOOK_CLIENT_ID || '',
-      clientSecret: process.env.OUTLOOK_CLIENT_SECRET || '',
-      redirectUri: process.env.OUTLOOK_REDIRECT_URI || `${process.env.BASE_URL || 'http://localhost:5000'}/api/marketing/oauth/outlook/callback`,
-      tenantId: process.env.OUTLOOK_TENANT_ID || 'common',
-    });
+    if (process.env.OUTLOOK_CLIENT_ID && process.env.OUTLOOK_CLIENT_SECRET) {
+      OutlookOAuthService.initialize({
+        clientId: process.env.OUTLOOK_CLIENT_ID,
+        clientSecret: process.env.OUTLOOK_CLIENT_SECRET,
+        redirectUri: process.env.OUTLOOK_REDIRECT_URI || `${process.env.BASE_URL || 'http://localhost:5000'}/api/email/oauth/callback`,
+        tenantId: process.env.OUTLOOK_TENANT_ID || 'common',
+      });
+      log('✅ Outlook OAuth service initialized');
+    } else {
+      console.warn('⚠️  Outlook OAuth not configured - skipping initialization');
+    }
     
-    log('OAuth services initialized');
+    log('Email OAuth services initialized');
   } catch (e) {
-    console.warn('Could not initialize OAuth services:', e);
+    console.error('❌ Failed to initialize Email OAuth services:', e);
   }
 
   // Start email background sync service
