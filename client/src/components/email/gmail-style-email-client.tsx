@@ -65,18 +65,16 @@ export default function GmailStyleEmailClient() {
   const queryClient = useQueryClient();
 
   // Fetch email accounts
-  const { data: emailAccounts = [] } = useQuery<EmailAccount[]>({
+  const { data: emailAccountsData, isError: accountsError } = useQuery({
     queryKey: ['/api/email/accounts'],
     queryFn: async () => {
-      try {
-        const response = await apiRequest('GET', '/api/email/accounts');
-        if (!response.ok) return [];
-        return response.json();
-      } catch {
-        return [];
-      }
+      const response = await apiRequest('GET', '/api/email/accounts');
+      const data = await response.json();
+      return data.accounts || [];
     },
   });
+  
+  const emailAccounts = emailAccountsData || [];
 
   // Fetch email threads
   const { data: emailThreads = [], isLoading, refetch } = useQuery<EmailThread[]>({
@@ -137,6 +135,22 @@ export default function GmailStyleEmailClient() {
     },
   });
 
+  // Delete account mutation
+  const deleteAccountMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      const response = await apiRequest('DELETE', `/api/email/accounts/${accountId}`);
+      if (!response.ok) throw new Error('Failed to delete account');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/email/accounts'] });
+      toast.success('Account removed successfully');
+    },
+    onError: () => {
+      toast.error('Failed to remove account');
+    },
+  });
+
   // OAuth handlers
   const handleConnectAccount = async (provider: 'gmail' | 'outlook') => {
     try {
@@ -163,6 +177,12 @@ export default function GmailStyleEmailClient() {
       }
     } catch (error) {
       toast.error('Failed to connect account');
+    }
+  };
+
+  const handleRemoveAccount = (accountId: string, accountName: string) => {
+    if (confirm(`Are you sure you want to remove ${accountName}?`)) {
+      deleteAccountMutation.mutate(accountId);
     }
   };
 
@@ -555,9 +575,20 @@ export default function GmailStyleEmailClient() {
                           <div className="text-xs text-gray-500">{account.emailAddress}</div>
                         </div>
                       </div>
-                      <Badge variant={account.isActive ? "default" : "secondary"}>
-                        {account.isActive ? "Active" : "Inactive"}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={account.isActive ? "default" : "secondary"}>
+                          {account.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => handleRemoveAccount(account.id, account.accountName)}
+                          disabled={deleteAccountMutation.isPending}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

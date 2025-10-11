@@ -355,6 +355,22 @@ export default function UltraModernGmailClient() {
     },
   });
 
+  // Delete account mutation
+  const deleteAccountMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      const response = await apiRequest('DELETE', `/api/email/accounts/${accountId}`);
+      if (!response.ok) throw new Error('Failed to delete account');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/email/accounts'] });
+      toast.success('Account removed successfully');
+    },
+    onError: () => {
+      toast.error('Failed to remove account');
+    },
+  });
+
   // OAuth handlers
   const handleConnectAccount = async (provider: 'gmail' | 'outlook') => {
     try {
@@ -367,6 +383,12 @@ export default function UltraModernGmailClient() {
       }
     } catch (error) {
       toast.error('Failed to connect account');
+    }
+  };
+
+  const handleRemoveAccount = (accountId: string, accountName: string) => {
+    if (confirm(`Are you sure you want to remove ${accountName}?`)) {
+      deleteAccountMutation.mutate(accountId);
     }
   };
 
@@ -1658,6 +1680,15 @@ export default function UltraModernGmailClient() {
                               Default
                             </Badge>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleRemoveAccount(account.id, account.accountName)}
+                            disabled={deleteAccountMutation.isPending}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     ))}

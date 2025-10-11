@@ -47,7 +47,7 @@ app.use(
       directives: {
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
         "script-src": ["'self'"],
-        "img-src": ["'self'", "data:", "blob:"],
+        "img-src": ["'self'", "data:", "blob:", "https:", "http:"],
         "script-src-elem": ["'self'"],
         "worker-src": ["'self'", "blob:"],
         "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
@@ -64,7 +64,7 @@ app.use(
         "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         "style-src-elem": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         "font-src": ["'self'", "data:", "https://fonts.gstatic.com"],
-        "img-src": ["'self'", "data:", "blob:"],
+        "img-src": ["'self'", "data:", "blob:", "https:", "http:"],
         "connect-src": ["'self'", "ws:", "wss:"],
       },
     },
