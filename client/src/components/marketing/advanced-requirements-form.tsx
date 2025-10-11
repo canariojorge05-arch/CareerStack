@@ -52,8 +52,6 @@ const requirementSchema = yup.object({
     .required('Status is required')
     .oneOf(Object.values(RequirementStatus), 'Invalid status'),
 
-  assignedTo: yup.string().nullable(),
-
   consultantId: yup.string().nullable(),
 
   appliedFor: yup
@@ -90,7 +88,7 @@ const requirementSchema = yup.object({
 
   vendorPhone: yup
     .string()
-    .matches(/^[\+]?[1-9][\d]{0,15}$/, 'Phone number must be valid (e.g., +1234567890)')
+    .matches(/^[\+]?[1-9][\d]{0,15}(\s*(ext|x|extension)\.?\s*\d{1,6})?$/i, 'Phone number must be valid (e.g., +1234567890 ext. 123)')
     .nullable(),
 
   vendorEmail: yup.string().email('Vendor email must be valid').nullable(),
@@ -112,10 +110,11 @@ type RequirementFormData = yup.InferType<typeof requirementSchema>;
 interface AdvancedRequirementsFormProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (requirements: RequirementFormData[], isMultiple: boolean) => Promise<void>;
+  onSubmit: (requirements: RequirementFormData[]) => Promise<void>;
   consultants?: Array<{id: string; name: string; email: string; status: string}>;
   initialData?: Partial<RequirementFormData>;
   editMode?: boolean;
+  isSubmitting?: boolean;
 }
 
 export default function AdvancedRequirementsForm({
@@ -125,11 +124,10 @@ export default function AdvancedRequirementsForm({
   consultants = [],
   initialData,
   editMode = false,
+  isSubmitting = false,
 }: AdvancedRequirementsFormProps) {
-  const [isMultiple, setIsMultiple] = useState(false);
   const [activeTab, setActiveTab] = useState('requirement');
   const [showPreview, setShowPreview] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
     control,
@@ -168,21 +166,17 @@ export default function AdvancedRequirementsForm({
 
   const handleFormSubmit = async (data: RequirementFormData) => {
     try {
-      setIsSubmitting(true);
-      await onSubmit([data], isMultiple);
+      await onSubmit([data]);
       reset();
-      toast.success('Requirement created successfully!');
-      onClose();
     } catch (error: any) {
-      toast.error(error.message || 'Failed to create requirement');
-    } finally {
-      setIsSubmitting(false);
+      // Error handling is done in the parent component
+      console.error('Form submission error:', error);
     }
   };
 
   const handleValidateSection = async (section: string) => {
     const fieldsMap = {
-      requirement: ['jobTitle', 'status', 'assignedTo', 'appliedFor', 'primaryTechStack'],
+      requirement: ['jobTitle', 'status', 'consultantId', 'appliedFor', 'primaryTechStack'],
       client: ['clientCompany', 'impName', 'clientWebsite', 'impWebsite'],
       vendor: ['vendorCompany', 'vendorWebsite', 'vendorPersonName', 'vendorPhone', 'vendorEmail'],
       job: ['completeJobDescription', 'nextStep', 'remote', 'duration'],
@@ -271,11 +265,6 @@ Additional Information:
               <Badge variant={isValid ? 'default' : 'secondary'}>
                 {isValid ? 'Valid' : 'Incomplete'}
               </Badge>
-              {!editMode && (
-                <Button variant="outline" size="sm" onClick={() => setIsMultiple(!isMultiple)}>
-                  {isMultiple ? 'Single Entry' : 'Multi-Entry'}
-                </Button>
-              )}
             </div>
           </div>
         </DialogHeader>
@@ -674,7 +663,7 @@ Additional Information:
                             <Input
                               {...field}
                               value={field.value || ''}
-                              placeholder="+1 (555) 123-4567 ext. 123"
+                              placeholder="+1234567890 or +1234567890 ext. 123"
                             />
                           )}
                         />
