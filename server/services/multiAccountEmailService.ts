@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 import { db } from '../db';
 import { emailAccounts } from '@shared/schema';
 import { eq, desc } from 'drizzle-orm';
-import { GmailOAuthService } from './gmailOAuthService';
+import { EnhancedGmailOAuthService } from './enhancedGmailOAuthService';
 import { OutlookOAuthService } from './outlookOAuthService';
 
 export interface EmailData {
@@ -62,14 +62,17 @@ export class MultiAccountEmailService {
     emailData: EmailData
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     try {
-      return await GmailOAuthService.sendGmailMessage(
+      return await EnhancedGmailOAuthService.sendGmailMessage(
         account,
-        emailData.to,
-        emailData.subject,
-        emailData.htmlBody,
-        emailData.textBody,
-        emailData.cc || [],
-        emailData.bcc || []
+        {
+          to: emailData.to,
+          subject: emailData.subject,
+          htmlBody: emailData.htmlBody,
+          textBody: emailData.textBody,
+          cc: emailData.cc || [],
+          bcc: emailData.bcc || [],
+          attachments: emailData.attachments
+        }
       );
     } catch (error) {
       console.error('Gmail send error:', error);
@@ -181,7 +184,7 @@ export class MultiAccountEmailService {
 
       switch (account.provider) {
         case 'gmail':
-          return await GmailOAuthService.testGmailConnection(account);
+          return await EnhancedGmailOAuthService.testGmailConnection(account);
         case 'outlook':
           return await OutlookOAuthService.testOutlookConnection(account);
         case 'smtp':
@@ -242,8 +245,8 @@ export class MultiAccountEmailService {
       switch (account.provider) {
         case 'gmail':
           // Use Gmail API to fetch messages
-          const gmailMessages = await GmailOAuthService.fetchGmailMessages(account, 50);
-          syncedCount = await this.saveMessagesToDatabase(account, gmailMessages, userId);
+          const gmailResult = await EnhancedGmailOAuthService.fetchGmailMessages(account, { maxResults: 50 });
+          syncedCount = await this.saveMessagesToDatabase(account, gmailResult.messages, userId);
           break;
         case 'outlook':
           // Use Graph API to fetch messages
