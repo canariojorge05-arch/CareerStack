@@ -26,11 +26,22 @@ const Router = memo(() => {
 
   // Reset auth state only if there are detected loops, not on every mount
   useEffect(() => {
-    // Only reset if we detect auth loops, not on normal navigation
+    // Only reset if we detect auth loops AND it's been at least 3 seconds since last check
     const hasAuthLoop = localStorage.getItem('authLoopDetected');
+    const lastLoopReset = localStorage.getItem('lastAuthLoopReset');
+    const now = Date.now();
+    
     if (hasAuthLoop === 'true') {
-      resetAllAuthState();
-      localStorage.removeItem('authLoopDetected');
+      // Prevent rapid resets that cause reload loops
+      if (!lastLoopReset || (now - parseInt(lastLoopReset)) > 3000) {
+        console.log('Resetting auth state due to detected loop');
+        localStorage.setItem('lastAuthLoopReset', now.toString());
+        localStorage.removeItem('authLoopDetected');
+        resetAllAuthState();
+      } else {
+        // Just remove the flag if we reset too recently
+        localStorage.removeItem('authLoopDetected');
+      }
     }
   }, []);
 

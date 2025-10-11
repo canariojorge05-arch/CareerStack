@@ -355,6 +355,22 @@ export default function UltraModernGmailClient() {
     },
   });
 
+  // Delete account mutation
+  const deleteAccountMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      const response = await apiRequest('DELETE', `/api/email/accounts/${accountId}`);
+      if (!response.ok) throw new Error('Failed to delete account');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/email/accounts'] });
+      toast.success('Account removed successfully');
+    },
+    onError: () => {
+      toast.error('Failed to remove account');
+    },
+  });
+
   // OAuth handlers
   const handleConnectAccount = async (provider: 'gmail' | 'outlook') => {
     try {
@@ -367,6 +383,12 @@ export default function UltraModernGmailClient() {
       }
     } catch (error) {
       toast.error('Failed to connect account');
+    }
+  };
+
+  const handleRemoveAccount = (accountId: string, accountName: string) => {
+    if (confirm(`Are you sure you want to remove ${accountName}?`)) {
+      deleteAccountMutation.mutate(accountId);
     }
   };
 
@@ -596,6 +618,20 @@ export default function UltraModernGmailClient() {
       <div className="flex flex-col h-full bg-white">
         {/* Gmail Subheader - Toolbar and Search */}
         <header className="flex items-center gap-4 px-4 py-2 border-b border-gray-200 bg-white">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full"
+                onClick={() => navigate('/dashboard')}
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Back to Dashboard</TooltipContent>
+          </Tooltip>
+
           <Button
             variant="ghost"
             size="icon"
@@ -1658,6 +1694,15 @@ export default function UltraModernGmailClient() {
                               Default
                             </Badge>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleRemoveAccount(account.id, account.accountName)}
+                            disabled={deleteAccountMutation.isPending}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -2059,13 +2104,24 @@ function EmailContent({ htmlBody, textBody }: EmailContentProps) {
   const sanitizedHtml = useMemo(() => {
     if (!htmlBody) return null;
 
-    // Configure DOMPurify to allow images and common email tags
-    const clean = DOMPurify.sanitize(htmlBody, {
-      ADD_TAGS: ['style'],
-      ADD_ATTR: ['target', 'style', 'class'],
-      ALLOW_DATA_ATTR: false,
-      FORCE_BODY: true,
+    // Configure DOMPurify to allow images, links and common email tags
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      // Make all links open in new tab for security
+      if (node.tagName === 'A') {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+      }
     });
+
+    const clean = DOMPurify.sanitize(htmlBody, {
+      ADD_TAGS: ['style', 'img', 'a', 'table', 'tbody', 'thead', 'tr', 'td', 'th'],
+      ADD_ATTR: ['href', 'target', 'rel', 'style', 'class', 'src', 'alt', 'width', 'height', 'border', 'cellpadding', 'cellspacing', 'align', 'valign', 'bgcolor'],
+      ALLOW_DATA_ATTR: true,
+      FORCE_BODY: true,
+      ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    });
+
+    DOMPurify.removeHook('afterSanitizeAttributes');
 
     return clean;
   }, [htmlBody]);
@@ -2094,12 +2150,19 @@ function EmailContent({ htmlBody, textBody }: EmailContentProps) {
       }
 
       .email-content-wrapper a {
-        color: #2563eb;
-        text-decoration: none;
+        color: #2563eb !important;
+        text-decoration: underline !important;
+        cursor: pointer;
+        display: inline;
       }
 
       .email-content-wrapper a:hover {
-        text-decoration: underline;
+        color: #1d4ed8 !important;
+        text-decoration: underline !important;
+      }
+
+      .email-content-wrapper a:visited {
+        color: #7c3aed;
       }
 
       .email-content-wrapper p {
