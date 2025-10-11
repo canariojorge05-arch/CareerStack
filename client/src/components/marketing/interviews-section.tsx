@@ -1,44 +1,111 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Plus, Clock, User, Building } from 'lucide-react';
+import { Calendar, Plus, Clock, User, Building, Loader2, AlertCircle, Eye, Edit as EditIcon, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import InterviewForm from './interview-form';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function InterviewsSection() {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('All');
   const [showInterviewForm, setShowInterviewForm] = useState(false);
   const [selectedInterview, setSelectedInterview] = useState<any>(null);
   const [showEditForm, setShowEditForm] = useState(false);
+  const [viewInterview, setViewInterview] = useState<any>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const interviewTabs = ['All', 'Cancelled', 'Re-Scheduled', 'Confirmed', 'Completed'];
-  // Mock data
-  const mockInterviews = [
-    {
-      id: '1',
-      jobTitle: 'Senior React Developer',
-      consultantName: 'John Doe',
-      interviewDate: '2024-01-15',
-      interviewTime: '10:30 AM',
-      status: 'Confirmed',
-      round: '1',
-      mode: 'Video',
-      vendorCompany: 'Tech Solutions Inc',
+
+  // Fetch interviews with proper error handling
+  const { data: interviews = [], isLoading, isError, error } = useQuery({
+    queryKey: ['/api/marketing/interviews'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/marketing/interviews');
+      if (!response.ok) {
+        throw new Error('Failed to fetch interviews');
+      }
+      return response.json();
     },
-    {
-      id: '2',
-      jobTitle: 'Full Stack Developer',
-      consultantName: 'Jane Smith',
-      interviewDate: '2024-01-16',
-      interviewTime: '2:00 PM',
-      status: 'Completed',
-      round: 'Final',
-      mode: 'Phone',
-      vendorCompany: 'StartupCorp',
+    retry: 1,
+  });
+
+  // Create interview mutation
+  const createMutation = useMutation({
+    mutationFn: async (interviewData: any) => {
+      const response = await apiRequest('POST', '/api/marketing/interviews', interviewData);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to create interview');
+      }
+      return response.json();
     },
-  ];
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/interviews'] });
+      toast.success('Interview scheduled successfully!');
+      handleFormClose();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to schedule interview');
+    },
+  });
+
+  // Update interview mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const response = await apiRequest('PATCH', `/api/marketing/interviews/${id}`, data);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to update interview');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/interviews'] });
+      toast.success('Interview updated successfully!');
+      handleFormClose();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update interview');
+    },
+  });
+
+  // Delete interview mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest('DELETE', `/api/marketing/interviews/${id}`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to delete interview');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/interviews'] });
+      toast.success('Interview deleted successfully!');
+      setDeleteConfirm(null);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete interview');
+    },
+  });
+
+  // Filter interviews by tab
+  const filteredInterviews = useMemo(() => {
+    if (activeTab === 'All') return interviews;
+    return interviews.filter((interview: any) => interview.status === activeTab);
+  }, [interviews, activeTab]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -60,6 +127,20 @@ export default function InterviewsSection() {
     setShowEditForm(true);
   };
 
+  const handleViewInterview = (interview: any) => {
+    setViewInterview(interview);
+  };
+
+  const handleDeleteInterview = (id: string) => {
+    setDeleteConfirm(id);
+  };
+
+  const confirmDelete = () => {
+    if (deleteConfirm) {
+      deleteMutation.mutate(deleteConfirm);
+    }
+  };
+
   const handleFormClose = () => {
     setShowInterviewForm(false);
     setShowEditForm(false);
@@ -67,11 +148,38 @@ export default function InterviewsSection() {
   };
 
   const handleFormSubmit = async (interviewData: any) => {
-    console.log('Submitting interview:', interviewData);
-    // Handle form submission - this would typically call an API
-    toast.success('Interview scheduled successfully!');
-    return Promise.resolve();
+    if (showEditForm && selectedInterview) {
+      await updateMutation.mutateAsync({ id: selectedInterview.id, data: interviewData });
+    } else {
+      await createMutation.mutateAsync(interviewData);
+    }
   };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="ml-3 text-slate-600">Loading interviews...</span>
+      </div>
+    );
+  }
+
+  // Error state
+  if (isError) {
+    return (
+      <div className="text-center py-16">
+        <div className="h-20 w-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-red-100 to-red-200 flex items-center justify-center shadow-md">
+          <AlertCircle className="h-10 w-10 text-red-600" />
+        </div>
+        <h3 className="text-xl font-semibold text-slate-800 mb-2">Failed to load interviews</h3>
+        <p className="text-slate-500 mb-6">{error?.message || 'An error occurred while fetching interviews'}</p>
+        <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/marketing/interviews'] })}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -94,49 +202,73 @@ export default function InterviewsSection() {
 
         {interviewTabs.map((tab) => (
           <TabsContent key={tab} value={tab} className="space-y-4">
-            {mockInterviews
-              .filter(interview => tab === 'All' || interview.status === tab)
-              .map((interview) => (
-                <Card key={interview.id} className="hover:shadow-md transition-shadow">
+            {filteredInterviews
+              .filter((interview: any) => tab === 'All' || interview.status === tab)
+              .map((interview: any) => (
+                <Card key={interview.id} className="hover:shadow-md transition-shadow group">
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center space-x-3 mb-3">
-                          <h3 className="font-semibold text-lg">{interview.jobTitle}</h3>
+                          <h3 className="font-semibold text-lg">{interview.jobTitle || 'Untitled Interview'}</h3>
                           <Badge className={getStatusColor(interview.status)}>
                             {interview.status}
                           </Badge>
                           <Badge variant="outline">
-                            Round {interview.round}
+                            Round {interview.round || 'N/A'}
                           </Badge>
                         </div>
                         
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div className="flex items-center space-x-2 text-muted-foreground">
                             <User size={16} />
-                            <span>{interview.consultantName}</span>
+                            <span>{interview.consultantName || 'N/A'}</span>
                           </div>
                           <div className="flex items-center space-x-2 text-muted-foreground">
                             <Building size={16} />
-                            <span>{interview.vendorCompany}</span>
+                            <span>{interview.vendorCompany || 'N/A'}</span>
                           </div>
                           <div className="flex items-center space-x-2 text-muted-foreground">
                             <Calendar size={16} />
-                            <span>{interview.interviewDate}</span>
+                            <span>{interview.interviewDate ? new Date(interview.interviewDate).toLocaleDateString() : 'N/A'}</span>
                           </div>
                           <div className="flex items-center space-x-2 text-muted-foreground">
                             <Clock size={16} />
-                            <span>{interview.interviewTime} ({interview.mode})</span>
+                            <span>{interview.interviewTime || 'N/A'} ({interview.mode || 'N/A'})</span>
                           </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center space-x-2">
-                        <Button variant="outline" size="sm">
-                          View Details
+                      <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleViewInterview(interview)}
+                          title="View details"
+                        >
+                          <Eye size={16} />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleEditInterview(interview)}>
-                          Edit
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => handleEditInterview(interview)}
+                          title="Edit interview"
+                        >
+                          <EditIcon size={16} />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleDeleteInterview(interview.id)}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          disabled={deleteMutation.isPending}
+                          title="Delete interview"
+                        >
+                          {deleteMutation.isPending && deleteConfirm === interview.id ? (
+                            <Loader2 size={16} className="animate-spin" />
+                          ) : (
+                            <Trash2 size={16} />
+                          )}
                         </Button>
                       </div>
                     </div>
@@ -144,7 +276,7 @@ export default function InterviewsSection() {
                 </Card>
               ))}
 
-            {mockInterviews.filter(interview => tab === 'All' || interview.status === tab).length === 0 && (
+            {filteredInterviews.filter((interview: any) => tab === 'All' || interview.status === tab).length === 0 && (
               <Card>
                 <CardContent className="p-12 text-center">
                   <Calendar className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
@@ -170,19 +302,19 @@ export default function InterviewsSection() {
         </CardHeader>
         <CardContent>
           <div className="text-center py-6 text-muted-foreground">
-            <p className="mb-4">This section will include:</p>
+            <p className="mb-4">This section includes:</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto text-left">
               <ul className="space-y-2">
                 <li>✅ Interview scheduling</li>
-                <li>📊 Status tracking</li>
-                <li>🔄 Rescheduling support</li>
-                <li>📝 Feedback collection</li>
+                <li>✅ Status tracking</li>
+                <li>✅ Rescheduling support</li>
+                <li>✅ Real-time updates</li>
               </ul>
               <ul className="space-y-2">
-                <li>🎯 Auto-generated subject lines</li>
-                <li>🔗 Meeting links integration</li>
-                <li>⏰ Timezone support</li>
-                <li>📈 Result tracking</li>
+                <li>✅ Auto-generated subject lines</li>
+                <li>✅ Meeting links integration</li>
+                <li>✅ Timezone support</li>
+                <li>✅ Result tracking</li>
               </ul>
             </div>
           </div>
@@ -197,7 +329,133 @@ export default function InterviewsSection() {
           onSubmit={handleFormSubmit}
           initialData={showEditForm ? selectedInterview : undefined}
           editMode={showEditForm}
+          isSubmitting={createMutation.isPending || updateMutation.isPending}
         />
+      )}
+
+      {/* View Interview Dialog */}
+      {viewInterview && (
+        <Dialog open={!!viewInterview} onOpenChange={() => setViewInterview(null)}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center space-x-2">
+                <Calendar size={20} />
+                <span>{viewInterview.jobTitle || 'Interview Details'}</span>
+              </DialogTitle>
+              <DialogDescription>
+                View interview details
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Status</label>
+                  <p className="text-slate-600"><Badge className={getStatusColor(viewInterview.status)}>{viewInterview.status}</Badge></p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Round</label>
+                  <p className="text-slate-600">{viewInterview.round || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Consultant Name</label>
+                  <p className="text-slate-600">{viewInterview.consultantName || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Vendor Company</label>
+                  <p className="text-slate-600">{viewInterview.vendorCompany || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Interview Date</label>
+                  <p className="text-slate-600">{viewInterview.interviewDate ? new Date(viewInterview.interviewDate).toLocaleDateString() : 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Interview Time</label>
+                  <p className="text-slate-600">{viewInterview.interviewTime || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Mode</label>
+                  <p className="text-slate-600">{viewInterview.mode || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Timezone</label>
+                  <p className="text-slate-600">{viewInterview.timezone || 'N/A'}</p>
+                </div>
+              </div>
+
+              {viewInterview.interviewerName && (
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Interviewer</label>
+                  <p className="text-slate-600">{viewInterview.interviewerName}</p>
+                </div>
+              )}
+
+              {viewInterview.meetingLink && (
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Meeting Link</label>
+                  <p className="text-slate-600">
+                    <a href={viewInterview.meetingLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                      {viewInterview.meetingLink}
+                    </a>
+                  </p>
+                </div>
+              )}
+
+              {viewInterview.notes && (
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">Notes</label>
+                  <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200 whitespace-pre-wrap text-sm text-slate-600">
+                    {viewInterview.notes}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setViewInterview(null)}>Close</Button>
+              <Button onClick={() => {
+                setViewInterview(null);
+                handleEditInterview(viewInterview);
+              }}>
+                <EditIcon size={16} className="mr-2" />
+                Edit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirm && (
+        <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Interview</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete this interview? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleteMutation.isPending}>
+                Cancel
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={confirmDelete} 
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? (
+                  <>
+                    <Loader2 size={16} className="mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

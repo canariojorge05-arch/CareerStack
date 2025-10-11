@@ -1,17 +1,15 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { 
   Users, 
   Plus, 
   Search, 
-  Filter, 
   Edit, 
   Eye, 
   Trash2, 
@@ -20,10 +18,20 @@ import {
   MapPin,
   Calendar,
   GraduationCap,
-  Building
+  Building,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { toast } from 'sonner';
 import AdvancedConsultantForm from './advanced-consultant-form';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface ConsultantProject {
   id: string;
@@ -62,14 +70,17 @@ interface Consultant {
 }
 
 export default function ConsultantsSection() {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [selectedConsultant, setSelectedConsultant] = useState<Consultant | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
+  const [viewConsultant, setViewConsultant] = useState<Consultant | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   // Fetch consultants
-  const { data: consultants = [], isLoading, refetch } = useQuery({
+  const { data: consultants = [], isLoading, isError, error } = useQuery({
     queryKey: ['/api/marketing/consultants', statusFilter, searchQuery],
     queryFn: async () => {
       try {
@@ -85,15 +96,74 @@ export default function ConsultantsSection() {
         const url = qs ? `/api/marketing/consultants?${qs}` : '/api/marketing/consultants';
         const response = await apiRequest('GET', url);
         if (!response.ok) {
-          return [] as Consultant[];
+          throw new Error('Failed to fetch consultants');
         }
-        const data = await response.json();
-        return data as Consultant[];
-      } catch {
-        return [] as Consultant[];
+        return response.json() as Promise<Consultant[]>;
+      } catch (err) {
+        throw new Error('Failed to fetch consultants');
       }
     },
-    retry: false,
+    retry: 1,
+  });
+
+  // Create consultant mutation
+  const createMutation = useMutation({
+    mutationFn: async (data: { consultant: any; projects: any[] }) => {
+      const response = await apiRequest('POST', '/api/marketing/consultants', data);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to create consultant');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
+      toast.success('Consultant created successfully!');
+      handleFormClose();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create consultant');
+    },
+  });
+
+  // Update consultant mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: { consultant: any; projects: any[] } }) => {
+      const response = await apiRequest('PATCH', `/api/marketing/consultants/${id}`, data);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to update consultant');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
+      toast.success('Consultant updated successfully!');
+      handleFormClose();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update consultant');
+    },
+  });
+
+  // Delete consultant mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest('DELETE', `/api/marketing/consultants/${id}`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to delete consultant');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
+      toast.success('Consultant deleted successfully!');
+      setDeleteConfirm(null);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete consultant');
+    },
   });
 
   const statusOptions = ['All', 'Active', 'Not Active'];
@@ -131,23 +201,58 @@ export default function ConsultantsSection() {
     setShowEditForm(true);
   };
 
+  const handleViewConsultant = (consultant: Consultant) => {
+    setViewConsultant(consultant);
+  };
+
+  const handleDeleteConsultant = (id: string) => {
+    setDeleteConfirm(id);
+  };
+
+  const confirmDelete = () => {
+    if (deleteConfirm) {
+      deleteMutation.mutate(deleteConfirm);
+    }
+  };
+
   const handleFormClose = () => {
     setShowAddForm(false);
     setShowEditForm(false);
     setSelectedConsultant(null);
-    refetch();
   };
 
   const handleFormSubmit = async (consultantData: any, projects: any[]) => {
-    console.log('Submitting consultant:', consultantData, projects);
-    // The form will handle the actual submission
-    return Promise.resolve();
+    const data = { consultant: consultantData, projects };
+    
+    if (showEditForm && selectedConsultant) {
+      await updateMutation.mutateAsync({ id: selectedConsultant.id, data });
+    } else {
+      await createMutation.mutateAsync(data);
+    }
   };
 
+  // Loading state
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-[500px]">
-        <LoadingSpinner size="lg" />
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="ml-3 text-slate-600">Loading consultants...</span>
+      </div>
+    );
+  }
+
+  // Error state
+  if (isError) {
+    return (
+      <div className="text-center py-16">
+        <div className="h-20 w-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-red-100 to-red-200 flex items-center justify-center shadow-md">
+          <AlertCircle className="h-10 w-10 text-red-600" />
+        </div>
+        <h3 className="text-xl font-semibold text-slate-800 mb-2">Failed to load consultants</h3>
+        <p className="text-slate-500 mb-6">{error?.message || 'An error occurred while fetching consultants'}</p>
+        <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] })}>
+          Try Again
+        </Button>
       </div>
     );
   }
@@ -178,16 +283,10 @@ export default function ConsultantsSection() {
           </select>
         </div>
 
-        <div className="flex items-center space-x-2">
-          <Button variant="outline" size="sm">
-            <Filter size={16} className="mr-2" />
-            More Filters
-          </Button>
-          <Button onClick={handleAddConsultant}>
-            <Plus size={16} className="mr-2" />
-            Add Consultant
-          </Button>
-        </div>
+        <Button onClick={handleAddConsultant}>
+          <Plus size={16} className="mr-2" />
+          Add Consultant
+        </Button>
       </div>
 
       {/* Stats Cards */}
@@ -269,7 +368,7 @@ export default function ConsultantsSection() {
           </Card>
         ) : (
           filteredConsultants.map((consultant) => (
-            <Card key={consultant.id} className="hover:shadow-md transition-shadow">
+            <Card key={consultant.id} className="hover:shadow-md transition-shadow group">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between">
                   <div className="flex items-start space-x-4 flex-1">
@@ -352,15 +451,36 @@ export default function ConsultantsSection() {
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2 ml-4">
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedConsultant(consultant)}>
+                  <div className="flex items-center space-x-1 ml-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => handleViewConsultant(consultant)}
+                      title="View details"
+                    >
                       <Eye size={16} />
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleEditConsultant(consultant)}>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => handleEditConsultant(consultant)}
+                      title="Edit consultant"
+                    >
                       <Edit size={16} />
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
-                      <Trash2 size={16} />
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => handleDeleteConsultant(consultant.id)}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      disabled={deleteMutation.isPending}
+                      title="Delete consultant"
+                    >
+                      {deleteMutation.isPending && deleteConfirm === consultant.id ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={16} />
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -378,7 +498,166 @@ export default function ConsultantsSection() {
           onSubmit={handleFormSubmit}
           initialData={showEditForm ? selectedConsultant : undefined}
           editMode={showEditForm}
+          isSubmitting={createMutation.isPending || updateMutation.isPending}
         />
+      )}
+
+      {/* View Consultant Dialog */}
+      {viewConsultant && (
+        <Dialog open={!!viewConsultant} onOpenChange={() => setViewConsultant(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center space-x-2">
+                <Users size={20} />
+                <span>{viewConsultant.name}</span>
+              </DialogTitle>
+              <DialogDescription>
+                View consultant details
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-6">
+              {/* Basic Information */}
+              <div>
+                <h4 className="text-md font-semibold mb-3">Basic Information</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Status</label>
+                    <p className="text-slate-600"><Badge className={getStatusColor(viewConsultant.status)}>{viewConsultant.status}</Badge></p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Email</label>
+                    <p className="text-slate-600">{viewConsultant.email}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Phone</label>
+                    <p className="text-slate-600">{viewConsultant.phone || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Visa Status</label>
+                    <p className="text-slate-600">{viewConsultant.visaStatus || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Country of Origin</label>
+                    <p className="text-slate-600">{viewConsultant.countryOfOrigin || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Year Came to US</label>
+                    <p className="text-slate-600">{viewConsultant.yearCameToUS || 'N/A'}</p>
+                  </div>
+                  {viewConsultant.address && (
+                    <div className="col-span-2">
+                      <label className="text-sm font-semibold text-slate-700">Address</label>
+                      <p className="text-slate-600">{viewConsultant.address}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Education */}
+              {(viewConsultant.degreeName || viewConsultant.university) && (
+                <div>
+                  <h4 className="text-md font-semibold mb-3">Education</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    {viewConsultant.degreeName && (
+                      <div>
+                        <label className="text-sm font-semibold text-slate-700">Degree</label>
+                        <p className="text-slate-600">{viewConsultant.degreeName}</p>
+                      </div>
+                    )}
+                    {viewConsultant.university && (
+                      <div>
+                        <label className="text-sm font-semibold text-slate-700">University</label>
+                        <p className="text-slate-600">{viewConsultant.university}</p>
+                      </div>
+                    )}
+                    {viewConsultant.yearOfPassing && (
+                      <div>
+                        <label className="text-sm font-semibold text-slate-700">Year of Passing</label>
+                        <p className="text-slate-600">{viewConsultant.yearOfPassing}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Projects */}
+              {viewConsultant.projects && viewConsultant.projects.length > 0 && (
+                <div>
+                  <h4 className="text-md font-semibold mb-3">Project History ({viewConsultant.projects.length})</h4>
+                  <div className="space-y-3">
+                    {viewConsultant.projects.map((project) => (
+                      <Card key={project.id}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between mb-2">
+                            <h5 className="font-semibold">{project.projectName}</h5>
+                            {project.isCurrentlyWorking && (
+                              <Badge variant="outline" className="text-green-600 border-green-600">Current</Badge>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-sm text-slate-600">
+                            <div><span className="font-medium">Domain:</span> {project.projectDomain || 'N/A'}</div>
+                            <div><span className="font-medium">Location:</span> {project.projectCity}, {project.projectState}</div>
+                            <div>
+                              <span className="font-medium">Duration:</span> {new Date(project.projectStartDate).toLocaleDateString()} - {project.projectEndDate ? new Date(project.projectEndDate).toLocaleDateString() : 'Present'}
+                            </div>
+                          </div>
+                          {project.projectDescription && (
+                            <p className="mt-2 text-sm text-slate-600">{project.projectDescription}</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setViewConsultant(null)}>Close</Button>
+              <Button onClick={() => {
+                setViewConsultant(null);
+                handleEditConsultant(viewConsultant);
+              }}>
+                <Edit size={16} className="mr-2" />
+                Edit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirm && (
+        <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Consultant</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete this consultant? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleteMutation.isPending}>
+                Cancel
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={confirmDelete} 
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? (
+                  <>
+                    <Loader2 size={16} className="mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Feature Preview Card */}

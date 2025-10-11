@@ -117,6 +117,7 @@ interface AdvancedConsultantFormProps {
   onSubmit: (consultant: ConsultantFormData, projects: ProjectFormData[]) => Promise<void>;
   initialData?: any;
   editMode?: boolean;
+  isSubmitting?: boolean;
 }
 
 export default function AdvancedConsultantForm({
@@ -125,9 +126,9 @@ export default function AdvancedConsultantForm({
   onSubmit,
   initialData,
   editMode = false,
+  isSubmitting = false,
 }: AdvancedConsultantFormProps) {
   const [activeTab, setActiveTab] = useState('consultant');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const queryClient = useQueryClient();
 
   const {
@@ -215,8 +216,6 @@ export default function AdvancedConsultantForm({
 
   const handleFormSubmit = async (consultantData: ConsultantFormData) => {
     try {
-      setIsSubmitting(true);
-      
       // Validate projects
       const projectsData = watchedProjects as ProjectFormData[];
       
@@ -225,14 +224,11 @@ export default function AdvancedConsultantForm({
         project.projectName && project.projectStartDate && project.projectDescription
       );
 
-      await createConsultantMutation.mutateAsync({
-        consultant: consultantData,
-        projects: validProjects,
-      });
+      await onSubmit(consultantData, validProjects);
+      reset();
     } catch (error: any) {
+      // Error handling is done in the parent component
       console.error('Form submission error:', error);
-    } finally {
-      setIsSubmitting(false);
     }
   };
 

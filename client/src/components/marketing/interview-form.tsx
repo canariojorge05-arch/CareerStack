@@ -131,6 +131,7 @@ interface InterviewFormProps {
   onSubmit: (interviewData: InterviewFormData) => Promise<void>;
   initialData?: Partial<InterviewFormData>;
   editMode?: boolean;
+  isSubmitting?: boolean;
 }
 
 export default function InterviewForm({
@@ -139,9 +140,9 @@ export default function InterviewForm({
   onSubmit,
   initialData,
   editMode = false,
+  isSubmitting = false,
 }: InterviewFormProps) {
   const [activeTab, setActiveTab] = useState('basic');
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Fetch requirements for selection
   const { data: requirements = [] } = useQuery({
@@ -210,15 +211,11 @@ export default function InterviewForm({
 
   const handleFormSubmit = async (data: InterviewFormData) => {
     try {
-      setIsSubmitting(true);
       await onSubmit(data);
       reset();
-      toast.success('Interview scheduled successfully!');
-      onClose();
     } catch (error: any) {
-      toast.error(error.message || 'Failed to schedule interview');
-    } finally {
-      setIsSubmitting(false);
+      // Error handling is done in the parent component
+      console.error('Form submission error:', error);
     }
   };
 
