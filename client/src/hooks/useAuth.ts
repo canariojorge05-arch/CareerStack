@@ -46,6 +46,11 @@ export function useAuth() {
 
         const data = await response.json();
         authCircuitBreaker.recordSuccess();
+        
+        // Clear any auth loop flags on successful authentication
+        localStorage.removeItem('authLoopDetected');
+        localStorage.removeItem('lastAuthLoopReset');
+        
         return data as User;
       } catch (error: any) {
         // For network errors, throw a specific error
@@ -64,7 +69,7 @@ export function useAuth() {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
-    refetchOnMount: true, // Enable refetch on mount to catch auth state changes
+    refetchOnMount: 'always', // Enable refetch on mount to catch auth state changes
     enabled: !isDisabled && !shouldPreventAuth, // Disable if any safety check fails
   });
 
