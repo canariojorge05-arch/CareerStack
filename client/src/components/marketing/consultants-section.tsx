@@ -259,108 +259,119 @@ export default function ConsultantsSection() {
 
   return (
     <div className="space-y-6">
-      {/* Header with Search and Filters */}
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search consultants..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 w-64"
-            />
-          </div>
-          
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-border rounded-md px-3 py-2 text-sm bg-background"
-          >
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>{status}</option>
-            ))}
-          </select>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">Consultants</h2>
+          <p className="text-sm text-slate-600 mt-1">Manage consultant profiles and projects</p>
         </div>
-
-        <Button onClick={handleAddConsultant}>
+        <Button onClick={handleAddConsultant} className="bg-blue-600 hover:bg-blue-700">
           <Plus size={16} className="mr-2" />
           Add Consultant
         </Button>
       </div>
 
+      {/* Filters */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[240px] max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Search by name, email, or country..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white hover:bg-slate-50 focus:ring-2 focus:ring-blue-500"
+        >
+          {statusOptions.map((status) => (
+            <option key={status} value={status}>{status}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
+        <Card className="border-slate-200">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Consultants</p>
-                <p className="text-2xl font-bold text-foreground">{consultants.length}</p>
+                <p className="text-sm text-slate-600">Total</p>
+                <p className="text-2xl font-bold text-slate-900">{consultants.length}</p>
               </div>
-              <Users className="h-8 w-8 text-blue-600" />
+              <div className="h-10 w-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                <Users className="h-5 w-5 text-blue-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="border-slate-200">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Active Consultants</p>
-                <p className="text-2xl font-bold text-green-600">
+                <p className="text-sm text-slate-600">Active</p>
+                <p className="text-2xl font-bold text-slate-900">
                   {consultants.filter(c => c.status === 'Active').length}
                 </p>
               </div>
-              <div className="h-8 w-8 bg-green-100 rounded-lg flex items-center justify-center">
+              <div className="h-10 w-10 bg-green-100 rounded-lg flex items-center justify-center">
                 <Users className="h-5 w-5 text-green-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-slate-200">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Not Active</p>
-                <p className="text-2xl font-bold text-red-600">
+                <p className="text-sm text-slate-600">Not Active</p>
+                <p className="text-2xl font-bold text-slate-900">
                   {consultants.filter(c => c.status === 'Not Active').length}
                 </p>
               </div>
-              <div className="h-8 w-8 bg-red-100 rounded-lg flex items-center justify-center">
+              <div className="h-10 w-10 bg-red-100 rounded-lg flex items-center justify-center">
                 <Users className="h-5 w-5 text-red-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-slate-200">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Projects</p>
-                <p className="text-2xl font-bold text-purple-600">
+                <p className="text-sm text-slate-600">Total Projects</p>
+                <p className="text-2xl font-bold text-slate-900">
                   {consultants.reduce((acc, c) => acc + (c.projects?.length || 0), 0)}
                 </p>
               </div>
-              <Building className="h-8 w-8 text-purple-600" />
+              <div className="h-10 w-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                <Building className="h-5 w-5 text-purple-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Consultants List */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {filteredConsultants.length === 0 ? (
-          <Card>
+          <Card className="border-slate-200">
             <CardContent className="p-12 text-center">
-              <Users className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-medium mb-2">No consultants found</h3>
-              <p className="text-muted-foreground mb-4">
-                {searchQuery ? 'Try adjusting your search criteria.' : 'Add your first consultant to get started.'}
+              <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-purple-100 flex items-center justify-center">
+                <Users className="h-8 w-8 text-purple-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-slate-900 mb-2">No consultants found</h3>
+              <p className="text-slate-600 mb-4">
+                {searchQuery ? 'Try adjusting your search criteria' : 'Add your first consultant to get started'}
               </p>
-              <Button onClick={handleAddConsultant}>
+              <Button onClick={handleAddConsultant} className="bg-blue-600 hover:bg-blue-700">
                 <Plus size={16} className="mr-2" />
                 Add Consultant
               </Button>
@@ -368,94 +379,80 @@ export default function ConsultantsSection() {
           </Card>
         ) : (
           filteredConsultants.map((consultant) => (
-            <Card key={consultant.id} className="hover:shadow-md transition-shadow group">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start space-x-4 flex-1">
-                    <Avatar className="h-12 w-12">
-                      <AvatarFallback className="text-lg font-semibold">
+            <Card key={consultant.id} className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group">
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4 flex-1 min-w-0">
+                    <Avatar className="h-12 w-12 shrink-0">
+                      <AvatarFallback className="text-base font-semibold bg-blue-100 text-blue-700">
                         {consultant.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'CN'}
                       </AvatarFallback>
                     </Avatar>
                     
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-3 mb-2">
-                        <h3 className="font-semibold text-lg">{consultant.name}</h3>
-                        <Badge className={getStatusColor(consultant.status)}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <h3 className="font-semibold text-base text-slate-900">{consultant.name}</h3>
+                        <Badge className={`${getStatusColor(consultant.status)} shrink-0`}>
                           {consultant.status}
                         </Badge>
                         {consultant.visaStatus && (
-                          <Badge variant="outline">
+                          <Badge variant="outline" className="shrink-0">
                             {consultant.visaStatus}
                           </Badge>
                         )}
                       </div>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm text-muted-foreground">
-                        <div className="flex items-center space-x-2">
-                          <Mail size={16} />
-                          <span className="truncate">{consultant.email}</span>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Mail size={14} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-600 truncate">{consultant.email}</span>
                         </div>
                         
                         {consultant.phone && (
-                          <div className="flex items-center space-x-2">
-                            <Phone size={16} />
-                            <span>{consultant.phone}</span>
+                          <div className="flex items-center gap-2">
+                            <Phone size={14} className="text-slate-400 shrink-0" />
+                            <span className="text-slate-600">{consultant.phone}</span>
                           </div>
                         )}
                         
                         {consultant.countryOfOrigin && (
-                          <div className="flex items-center space-x-2">
-                            <MapPin size={16} />
-                            <span>{consultant.countryOfOrigin}</span>
+                          <div className="flex items-center gap-2">
+                            <MapPin size={14} className="text-slate-400 shrink-0" />
+                            <span className="text-slate-600">{consultant.countryOfOrigin}</span>
                           </div>
                         )}
                         
-                        {consultant.university && (
-                          <div className="flex items-center space-x-2">
-                            <GraduationCap size={16} />
-                            <span className="truncate">{consultant.university}</span>
+                        {consultant.projects && consultant.projects.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <Building size={14} className="text-slate-400 shrink-0" />
+                            <span className="text-slate-600">{consultant.projects.length} Projects</span>
                           </div>
                         )}
-                        
-                        {consultant.yearCameToUS && (
-                          <div className="flex items-center space-x-2">
-                            <Calendar size={16} />
-                            <span>US Since {consultant.yearCameToUS}</span>
-                          </div>
-                        )}
-                        
-                        <div className="flex items-center space-x-2">
-                          <Building size={16} />
-                          <span>{consultant.projects?.length || 0} Projects</span>
-                        </div>
                       </div>
                       
                       {consultant.projects && consultant.projects.length > 0 && (
-                        <div className="mt-3">
-                          <p className="text-sm font-medium mb-1">Recent Projects:</p>
-                          <div className="flex flex-wrap gap-2">
-                            {consultant.projects.slice(0, 3).map((project) => (
-                              <Badge key={project.id} variant="secondary" className="text-xs">
-                                {project.projectName}
-                              </Badge>
-                            ))}
-                            {consultant.projects.length > 3 && (
-                              <Badge variant="outline" className="text-xs">
-                                +{consultant.projects.length - 3} more
-                              </Badge>
-                            )}
-                          </div>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {consultant.projects.slice(0, 3).map((project) => (
+                            <Badge key={project.id} variant="secondary" className="text-xs">
+                              {project.projectName}
+                            </Badge>
+                          ))}
+                          {consultant.projects.length > 3 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{consultant.projects.length - 3}
+                            </Badge>
+                          )}
                         </div>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-1 ml-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                     <Button 
                       variant="ghost" 
                       size="sm" 
                       onClick={() => handleViewConsultant(consultant)}
+                      className="h-8 w-8 p-0"
                       title="View details"
                     >
                       <Eye size={16} />
@@ -464,7 +461,8 @@ export default function ConsultantsSection() {
                       variant="ghost" 
                       size="sm" 
                       onClick={() => handleEditConsultant(consultant)}
-                      title="Edit consultant"
+                      className="h-8 w-8 p-0"
+                      title="Edit"
                     >
                       <Edit size={16} />
                     </Button>
@@ -472,9 +470,9 @@ export default function ConsultantsSection() {
                       variant="ghost" 
                       size="sm" 
                       onClick={() => handleDeleteConsultant(consultant.id)}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                       disabled={deleteMutation.isPending}
-                      title="Delete consultant"
+                      title="Delete"
                     >
                       {deleteMutation.isPending && deleteConfirm === consultant.id ? (
                         <Loader2 size={16} className="animate-spin" />
@@ -660,31 +658,6 @@ export default function ConsultantsSection() {
         </Dialog>
       )}
 
-      {/* Feature Preview Card */}
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle>👥 Consultant Management Features</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-6 text-muted-foreground">
-            <p className="mb-4">This section includes:</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto text-left">
-              <ul className="space-y-2">
-                <li>✅ Consultant profiles with detailed info</li>
-                <li>✅ Project history tracking</li>
-                <li>✅ Status management (Active/Inactive)</li>
-                <li>✅ Advanced search and filtering</li>
-              </ul>
-              <ul className="space-y-2">
-                <li>✅ Visa status tracking</li>
-                <li>✅ Educational background</li>
-                <li>✅ Assignment to requirements</li>
-                <li>✅ Interview scheduling</li>
-              </ul>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

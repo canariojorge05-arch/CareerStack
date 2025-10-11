@@ -183,9 +183,13 @@ export default function InterviewsSection() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Interview Management</h2>
-        <Button onClick={handleScheduleInterview} className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-md hover:shadow-lg transition-all">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">Interviews</h2>
+          <p className="text-sm text-slate-600 mt-1">Schedule and manage consultant interviews</p>
+        </div>
+        <Button onClick={handleScheduleInterview} className="bg-blue-600 hover:bg-blue-700">
           <Plus size={16} className="mr-2" />
           Schedule Interview
         </Button>
@@ -201,49 +205,50 @@ export default function InterviewsSection() {
         </TabsList>
 
         {interviewTabs.map((tab) => (
-          <TabsContent key={tab} value={tab} className="space-y-4">
+          <TabsContent key={tab} value={tab} className="space-y-3 mt-4">
             {filteredInterviews
               .filter((interview: any) => tab === 'All' || interview.status === tab)
               .map((interview: any) => (
-                <Card key={interview.id} className="hover:shadow-md transition-shadow group">
-                  <CardContent className="p-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-3">
-                          <h3 className="font-semibold text-lg">{interview.jobTitle || 'Untitled Interview'}</h3>
-                          <Badge className={getStatusColor(interview.status)}>
+                <Card key={interview.id} className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group">
+                  <CardContent className="p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-3 mb-3">
+                          <h3 className="font-semibold text-base text-slate-900 truncate">{interview.jobTitle || 'Untitled Interview'}</h3>
+                          <Badge className={`${getStatusColor(interview.status)} shrink-0`}>
                             {interview.status}
                           </Badge>
-                          <Badge variant="outline">
+                          <Badge variant="outline" className="shrink-0">
                             Round {interview.round || 'N/A'}
                           </Badge>
                         </div>
                         
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div className="flex items-center space-x-2 text-muted-foreground">
-                            <User size={16} />
-                            <span>{interview.consultantName || 'N/A'}</span>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                          <div>
+                            <span className="text-slate-500">Consultant</span>
+                            <p className="text-slate-900 font-medium truncate">{interview.consultantName || 'N/A'}</p>
                           </div>
-                          <div className="flex items-center space-x-2 text-muted-foreground">
-                            <Building size={16} />
-                            <span>{interview.vendorCompany || 'N/A'}</span>
+                          <div>
+                            <span className="text-slate-500">Company</span>
+                            <p className="text-slate-900 font-medium truncate">{interview.vendorCompany || 'N/A'}</p>
                           </div>
-                          <div className="flex items-center space-x-2 text-muted-foreground">
-                            <Calendar size={16} />
-                            <span>{interview.interviewDate ? new Date(interview.interviewDate).toLocaleDateString() : 'N/A'}</span>
+                          <div>
+                            <span className="text-slate-500">Date</span>
+                            <p className="text-slate-900 font-medium">{interview.interviewDate ? new Date(interview.interviewDate).toLocaleDateString() : 'N/A'}</p>
                           </div>
-                          <div className="flex items-center space-x-2 text-muted-foreground">
-                            <Clock size={16} />
-                            <span>{interview.interviewTime || 'N/A'} ({interview.mode || 'N/A'})</span>
+                          <div>
+                            <span className="text-slate-500">Time & Mode</span>
+                            <p className="text-slate-900 font-medium truncate">{interview.interviewTime || 'N/A'} • {interview.mode || 'N/A'}</p>
                           </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                         <Button 
                           variant="ghost" 
                           size="sm"
                           onClick={() => handleViewInterview(interview)}
+                          className="h-8 w-8 p-0"
                           title="View details"
                         >
                           <Eye size={16} />
@@ -252,7 +257,8 @@ export default function InterviewsSection() {
                           variant="ghost" 
                           size="sm" 
                           onClick={() => handleEditInterview(interview)}
-                          title="Edit interview"
+                          className="h-8 w-8 p-0"
+                          title="Edit"
                         >
                           <EditIcon size={16} />
                         </Button>
@@ -260,9 +266,9 @@ export default function InterviewsSection() {
                           variant="ghost" 
                           size="sm"
                           onClick={() => handleDeleteInterview(interview.id)}
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                           disabled={deleteMutation.isPending}
-                          title="Delete interview"
+                          title="Delete"
                         >
                           {deleteMutation.isPending && deleteConfirm === interview.id ? (
                             <Loader2 size={16} className="animate-spin" />
@@ -277,14 +283,16 @@ export default function InterviewsSection() {
               ))}
 
             {filteredInterviews.filter((interview: any) => tab === 'All' || interview.status === tab).length === 0 && (
-              <Card>
+              <Card className="border-slate-200">
                 <CardContent className="p-12 text-center">
-                  <Calendar className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No {tab.toLowerCase()} interviews</h3>
-                  <p className="text-muted-foreground mb-4">
-                    {tab === 'All' ? 'Schedule your first interview to get started.' : `No ${tab.toLowerCase()} interviews found.`}
+                  <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-indigo-100 flex items-center justify-center">
+                    <Calendar className="h-8 w-8 text-indigo-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">No {tab.toLowerCase()} interviews</h3>
+                  <p className="text-slate-600 mb-4">
+                    {tab === 'All' ? 'Schedule your first interview to get started' : `No ${tab.toLowerCase()} interviews found`}
                   </p>
-                  <Button onClick={handleScheduleInterview} className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-md hover:shadow-lg transition-all">
+                  <Button onClick={handleScheduleInterview} className="bg-blue-600 hover:bg-blue-700">
                     <Plus size={16} className="mr-2" />
                     Schedule Interview
                   </Button>
@@ -294,32 +302,6 @@ export default function InterviewsSection() {
           </TabsContent>
         ))}
       </Tabs>
-
-      {/* Feature Preview */}
-      <Card>
-        <CardHeader>
-          <CardTitle>📅 Interview Management Features</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-6 text-muted-foreground">
-            <p className="mb-4">This section includes:</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto text-left">
-              <ul className="space-y-2">
-                <li>✅ Interview scheduling</li>
-                <li>✅ Status tracking</li>
-                <li>✅ Rescheduling support</li>
-                <li>✅ Real-time updates</li>
-              </ul>
-              <ul className="space-y-2">
-                <li>✅ Auto-generated subject lines</li>
-                <li>✅ Meeting links integration</li>
-                <li>✅ Timezone support</li>
-                <li>✅ Result tracking</li>
-              </ul>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Interview Form */}
       {(showInterviewForm || showEditForm) && (
