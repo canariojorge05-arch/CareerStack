@@ -429,12 +429,49 @@ export async function setupAuth(app: Express) {
 
   // Add security headers
   app.use((req: Request, res: Response, next: NextFunction) => {
+    // Prevent MIME type sniffing
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    
+    // Prevent clickjacking
     res.setHeader('X-Frame-Options', 'DENY');
+    
+    // Enable XSS filter
     res.setHeader('X-XSS-Protection', '1; mode=block');
+    
+    // Content Security Policy - Comprehensive protection against XSS
+    const cspDirectives = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // unsafe-inline/eval needed for React dev
+      "style-src 'self' 'unsafe-inline'", // unsafe-inline needed for styled components
+      "img-src 'self' data: https: blob:",
+      "font-src 'self' data:",
+      "connect-src 'self'",
+      "media-src 'self'",
+      "object-src 'none'",
+      "frame-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "frame-ancestors 'none'",
+      "upgrade-insecure-requests"
+    ];
+    
+    // In production, use stricter CSP
     if (process.env.NODE_ENV === "production") {
-      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+      res.setHeader('Content-Security-Policy', cspDirectives.join('; '));
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    } else {
+      // In development, use report-only mode
+      res.setHeader('Content-Security-Policy-Report-Only', cspDirectives.join('; '));
     }
+    
+    // Referrer Policy
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    
+    // Permissions Policy (formerly Feature Policy)
+    res.setHeader('Permissions-Policy', 
+      'camera=(), microphone=(), geolocation=(), interest-cohort=()'
+    );
+    
     next();
   });
   
