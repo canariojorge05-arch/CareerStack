@@ -1,6 +1,12 @@
 import { Router } from 'express';
-import { db } from '../db';
+import { db, queryWithTimeout, executeTransaction } from '../db';
 import { isAuthenticated } from '../localAuth';
+import { 
+  marketingRateLimiter, 
+  writeOperationsRateLimiter,
+  bulkOperationsRateLimiter,
+  emailRateLimiter 
+} from '../middleware/rateLimiter';
 import { EmailService } from '../services/emailService';
 import { ImapService } from '../services/imapService';
 import { EnhancedGmailOAuthService } from '../services/enhancedGmailOAuthService';
@@ -153,12 +159,19 @@ const requireMarketingRole = async (req: any, res: any, next: any) => {
 router.use(isAuthenticated);
 router.use(requireMarketingRole);
 
+// Apply global rate limiting to all marketing routes
+router.use(marketingRateLimiter);
+
 // CONSULTANTS ROUTES
 
-// Get all consultants with filters
+// Get all consultants with filters (with pagination)
 router.get('/consultants', async (req, res) => {
   try {
     const { status, search, page = '1', limit = '50' } = req.query;
+    
+    // Enforce maximum limit of 100 records per request
+    const limitNum = Math.min(parseInt(limit as string), 100);
+    const pageNum = parseInt(page as string);
     
     let whereConditions: any[] = [];
     
@@ -178,22 +191,39 @@ router.get('/consultants', async (req, res) => {
 
     const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;
     
-    const allConsultants = await db.query.consultants.findMany({
-      where: whereClause,
-      with: {
-        projects: {
-          orderBy: [desc(consultantProjects.createdAt)],
+    // Get total count for pagination
+    const [{ count: totalCount }] = await queryWithTimeout(
+      () => db.select({ count: sql<number>`count(*)` }).from(consultants).where(whereClause),
+      5000 // 5 second timeout for count query
+    );
+    
+    const allConsultants = await queryWithTimeout(
+      () => db.query.consultants.findMany({
+        where: whereClause,
+        with: {
+          projects: {
+            orderBy: [desc(consultantProjects.createdAt)],
+          },
+          createdByUser: {
+            columns: { firstName: true, lastName: true, email: true }
+          }
         },
-        createdByUser: {
-          columns: { firstName: true, lastName: true, email: true }
-        }
-      },
-      orderBy: [desc(consultants.createdAt)],
-      limit: parseInt(limit as string),
-      offset: (parseInt(page as string) - 1) * parseInt(limit as string),
-    });
+        orderBy: [desc(consultants.createdAt)],
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
+      }),
+      10000 // 10 second timeout for main query
+    );
 
-    res.json(allConsultants);
+    res.json({
+      data: allConsultants,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: Number(totalCount),
+        totalPages: Math.ceil(Number(totalCount) / limitNum),
+      }
+    });
   } catch (error) {
     console.error('Error fetching consultants:', error);
     res.status(500).json({ message: 'Failed to fetch consultants' });
@@ -235,8 +265,8 @@ router.get('/consultants/:id', async (req, res) => {
   }
 });
 
-// Create consultant with projects
-router.post('/consultants', async (req, res) => {
+// Create consultant with projects (OPTIMIZED with transaction and batch insert)
+router.post('/consultants', writeOperationsRateLimiter, async (req, res) => {
   try {
     const { consultant: consultantData, projects = [] } = req.body;
     
@@ -246,23 +276,29 @@ router.post('/consultants', async (req, res) => {
       createdBy: req.user!.id
     });
     
-    // Create consultant
-    const [newConsultant] = await db.insert(consultants).values(validatedConsultant).returning();
-    
-    // Create projects if any
-    const createdProjects = [];
-    if (projects.length > 0) {
-      for (const project of projects) {
-        const validatedProject = insertConsultantProjectSchema.parse({
-          ...project,
-          consultantId: newConsultant.id
-        });
-        const [createdProject] = await db.insert(consultantProjects).values(validatedProject).returning();
-        createdProjects.push(createdProject);
+    // Use transaction for atomic operation
+    const result = await executeTransaction(async (tx) => {
+      // Create consultant
+      const [newConsultant] = await tx.insert(consultants).values(validatedConsultant).returning();
+      
+      // ✅ FIXED N+1: Batch insert all projects in a single query
+      let createdProjects: any[] = [];
+      if (projects.length > 0) {
+        const validatedProjects = projects.map((project: any) => 
+          insertConsultantProjectSchema.parse({
+            ...project,
+            consultantId: newConsultant.id
+          })
+        );
+        
+        // Single batch insert for all projects
+        createdProjects = await tx.insert(consultantProjects).values(validatedProjects).returning();
       }
-    }
+      
+      return { newConsultant, createdProjects };
+    });
     
-    res.status(201).json({ ...newConsultant, projects: createdProjects });
+    res.status(201).json({ ...result.newConsultant, projects: result.createdProjects });
   } catch (error) {
     console.error('Error creating consultant:', error);
     if (error instanceof z.ZodError) {
@@ -272,51 +308,61 @@ router.post('/consultants', async (req, res) => {
   }
 });
 
-// Update consultant
-router.patch('/consultants/:id', async (req, res) => {
+// Update consultant (OPTIMIZED with transaction and batch insert)
+router.patch('/consultants/:id', writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const { consultant: consultantData, projects = [] } = req.body;
     
-    // Update consultant
-    const updateData = insertConsultantSchema.partial().parse(consultantData);
-    const [updatedConsultant] = await db
-      .update(consultants)
-      .set({ ...updateData, updatedAt: new Date() })
-      .where(eq(consultants.id, id))
-      .returning();
+    // Use transaction for atomic operation
+    const result = await executeTransaction(async (tx) => {
+      // Update consultant
+      const updateData = insertConsultantSchema.partial().parse(consultantData);
+      const [updatedConsultant] = await tx
+        .update(consultants)
+        .set({ ...updateData, updatedAt: new Date() })
+        .where(eq(consultants.id, id))
+        .returning();
 
-    if (!updatedConsultant) {
-      return res.status(404).json({ message: 'Consultant not found' });
-    }
-
-    // Update projects - delete existing and create new ones
-    await db.delete(consultantProjects).where(eq(consultantProjects.consultantId, id));
-    
-    const createdProjects = [];
-    if (projects.length > 0) {
-      for (const project of projects) {
-        const validatedProject = insertConsultantProjectSchema.parse({
-          ...project,
-          consultantId: id
-        });
-        const [createdProject] = await db.insert(consultantProjects).values(validatedProject).returning();
-        createdProjects.push(createdProject);
+      if (!updatedConsultant) {
+        throw new Error('Consultant not found');
       }
-    }
 
-    res.json({ ...updatedConsultant, projects: createdProjects });
+      // Delete existing projects
+      await tx.delete(consultantProjects).where(eq(consultantProjects.consultantId, id));
+      
+      // ✅ FIXED N+1: Batch insert all projects in a single query
+      let createdProjects: any[] = [];
+      if (projects.length > 0) {
+        const validatedProjects = projects.map((project: any) => 
+          insertConsultantProjectSchema.parse({
+            ...project,
+            consultantId: id
+          })
+        );
+        
+        // Single batch insert for all projects
+        createdProjects = await tx.insert(consultantProjects).values(validatedProjects).returning();
+      }
+
+      return { updatedConsultant, createdProjects };
+    });
+
+    res.json({ ...result.updatedConsultant, projects: result.createdProjects });
   } catch (error) {
     console.error('Error updating consultant:', error);
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Invalid data', errors: error.errors });
+    }
+    if (error instanceof Error && error.message === 'Consultant not found') {
+      return res.status(404).json({ message: 'Consultant not found' });
     }
     res.status(500).json({ message: 'Failed to update consultant' });
   }
 });
 
 // Delete consultant
-router.delete('/consultants/:id', async (req, res) => {
+router.delete('/consultants/:id', writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -353,10 +399,14 @@ router.delete('/consultants/:id', async (req, res) => {
 
 // REQUIREMENTS ROUTES
 
-// Get all requirements with filters
+// Get all requirements with filters (with pagination)
 router.get('/requirements', async (req, res) => {
   try {
     const { status, consultantId, clientCompany, dateFrom, dateTo, page = '1', limit = '50' } = req.query;
+    
+    // Enforce maximum limit
+    const limitNum = Math.min(parseInt(limit as string), 100);
+    const pageNum = parseInt(page as string);
     
     let whereConditions: any[] = [];
     
@@ -376,20 +426,37 @@ router.get('/requirements', async (req, res) => {
 
     const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;
     
-    const allRequirements = await db.query.requirements.findMany({
-      where: whereClause,
-      with: {
-        interviews: true,
-        createdByUser: {
-          columns: { firstName: true, lastName: true, email: true }
-        }
-      },
-      orderBy: [desc(requirements.createdAt)],
-      limit: parseInt(limit as string),
-      offset: (parseInt(page as string) - 1) * parseInt(limit as string),
-    });
+    // Get total count
+    const [{ count: totalCount }] = await queryWithTimeout(
+      () => db.select({ count: sql<number>`count(*)` }).from(requirements).where(whereClause),
+      5000
+    );
+    
+    const allRequirements = await queryWithTimeout(
+      () => db.query.requirements.findMany({
+        where: whereClause,
+        with: {
+          interviews: true,
+          createdByUser: {
+            columns: { firstName: true, lastName: true, email: true }
+          }
+        },
+        orderBy: [desc(requirements.createdAt)],
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
+      }),
+      10000
+    );
 
-    res.json(allRequirements);
+    res.json({
+      data: allRequirements,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: Number(totalCount),
+        totalPages: Math.ceil(Number(totalCount) / limitNum),
+      }
+    });
   } catch (error) {
     console.error('Error fetching requirements:', error);
     res.status(500).json({ message: 'Failed to fetch requirements' });
@@ -422,7 +489,7 @@ router.get('/requirements/:id', async (req, res) => {
 });
 
 // Create requirement (single or bulk)
-router.post('/requirements', async (req, res) => {
+router.post('/requirements', writeOperationsRateLimiter, async (req, res) => {
   try {
     const { requirements: reqArray, single } = req.body;
     
@@ -461,7 +528,7 @@ router.post('/requirements', async (req, res) => {
 });
 
 // Update requirement
-router.patch('/requirements/:id', async (req, res) => {
+router.patch('/requirements/:id', writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = insertRequirementSchema.partial().parse(req.body);
@@ -533,7 +600,7 @@ router.post('/requirements/:id/comments', async (req, res) => {
 });
 
 // Delete requirement
-router.delete('/requirements/:id', async (req, res) => {
+router.delete('/requirements/:id', writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const [deletedRequirement] = await db
@@ -554,10 +621,13 @@ router.delete('/requirements/:id', async (req, res) => {
 
 // INTERVIEWS ROUTES
 
-// Get all interviews with filters
+// Get all interviews with filters (with pagination)
 router.get('/interviews', async (req, res) => {
   try {
     const { status, consultantId, requirementId, dateFrom, dateTo, page = '1', limit = '50' } = req.query;
+    
+    const limitNum = Math.min(parseInt(limit as string), 100);
+    const pageNum = parseInt(page as string);
     
     let whereConditions: any[] = [];
     
@@ -577,23 +647,40 @@ router.get('/interviews', async (req, res) => {
 
     const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;
     
-    const allInterviews = await db.query.interviews.findMany({
-      where: whereClause,
-      with: {
-        requirement: true,
-        marketingPerson: {
-          columns: { firstName: true, lastName: true, email: true }
+    // Get total count
+    const [{ count: totalCount }] = await queryWithTimeout(
+      () => db.select({ count: sql<number>`count(*)` }).from(interviews).where(whereClause),
+      5000
+    );
+    
+    const allInterviews = await queryWithTimeout(
+      () => db.query.interviews.findMany({
+        where: whereClause,
+        with: {
+          requirement: true,
+          marketingPerson: {
+            columns: { firstName: true, lastName: true, email: true }
+          },
+          createdByUser: {
+            columns: { firstName: true, lastName: true, email: true }
+          }
         },
-        createdByUser: {
-          columns: { firstName: true, lastName: true, email: true }
-        }
-      },
-      orderBy: [desc(interviews.interviewDate)],
-      limit: parseInt(limit as string),
-      offset: (parseInt(page as string) - 1) * parseInt(limit as string),
-    });
+        orderBy: [desc(interviews.interviewDate)],
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
+      }),
+      10000
+    );
 
-    res.json(allInterviews);
+    res.json({
+      data: allInterviews,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: Number(totalCount),
+        totalPages: Math.ceil(Number(totalCount) / limitNum),
+      }
+    });
   } catch (error) {
     console.error('Error fetching interviews:', error);
     res.status(500).json({ message: 'Failed to fetch interviews' });
@@ -629,7 +716,7 @@ router.get('/interviews/:id', async (req, res) => {
 });
 
 // Create interview
-router.post('/interviews', async (req, res) => {
+router.post('/interviews', writeOperationsRateLimiter, async (req, res) => {
   try {
     const interviewData = insertInterviewSchema.parse({
       ...req.body,
@@ -648,7 +735,7 @@ router.post('/interviews', async (req, res) => {
 });
 
 // Update interview
-router.patch('/interviews/:id', async (req, res) => {
+router.patch('/interviews/:id', writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = insertInterviewSchema.partial().parse(req.body);
@@ -674,7 +761,7 @@ router.patch('/interviews/:id', async (req, res) => {
 });
 
 // Delete interview
-router.delete('/interviews/:id', async (req, res) => {
+router.delete('/interviews/:id', writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const [deletedInterview] = await db
@@ -1551,7 +1638,7 @@ router.get('/emails/rate-limits', async (req, res) => {
 });
 
 // Send email
-router.post('/emails/send', upload.array('attachments'), async (req, res) => {
+router.post('/emails/send', emailRateLimiter, upload.array('attachments'), async (req, res) => {
   try {
     const {
       to,

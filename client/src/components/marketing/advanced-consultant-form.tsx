@@ -120,6 +120,33 @@ interface AdvancedConsultantFormProps {
   isSubmitting?: boolean;
 }
 
+// FieldWrapper component moved outside to prevent re-creation on every render
+const FieldWrapper = ({
+  children,
+  error,
+  status = 'default',
+}: {
+  children: React.ReactNode;
+  error?: string;
+  status?: 'default' | 'success' | 'error';
+}) => (
+  <div className="relative">
+    {children}
+    {status === 'success' && (
+      <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
+    )}
+    {status === 'error' && (
+      <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
+    )}
+    {error && (
+      <p className="text-sm text-red-500 mt-1 flex items-center">
+        <AlertCircle className="h-3 w-3 mr-1" />
+        {error}
+      </p>
+    )}
+  </div>
+);
+
 export default function AdvancedConsultantForm({
   open,
   onClose,
@@ -177,10 +204,7 @@ export default function AdvancedConsultantForm({
     name: 'projects',
   });
 
-  // Watch specific form values for real-time validation feedback
-  const name = watch('name');
-  const email = watch('email');
-  const status = watch('status');
+  // Note: Removed watch() calls to prevent re-renders on every keystroke that cause focus loss
   const watchedProjects = watchProjects('projects');
 
   const createConsultantMutation = useMutation({
@@ -212,12 +236,6 @@ export default function AdvancedConsultantForm({
 
   const getFieldStatus = (fieldName: keyof ConsultantFormData) => {
     if (errors[fieldName]) return 'error';
-    // Check specific watched fields
-    const fieldValue = fieldName === 'name' ? name :
-                      fieldName === 'email' ? email :
-                      fieldName === 'status' ? status : null;
-    
-    if (fieldValue && !errors[fieldName]) return 'success';
     return 'default';
   };
 
@@ -258,32 +276,6 @@ export default function AdvancedConsultantForm({
     }
   };
 
-  const FieldWrapper = ({
-    children,
-    error,
-    status = 'default',
-  }: {
-    children: React.ReactNode;
-    error?: string;
-    status?: 'default' | 'success' | 'error';
-  }) => (
-    <div className="relative">
-      {children}
-      {status === 'success' && (
-        <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
-      )}
-      {status === 'error' && (
-        <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
-      )}
-      {error && (
-        <p className="text-sm text-red-500 mt-1 flex items-center">
-          <AlertCircle className="h-3 w-3 mr-1" />
-          {error}
-        </p>
-      )}
-    </div>
-  );
-
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -306,7 +298,7 @@ export default function AdvancedConsultantForm({
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto">
+        <form id="consultant-form" onSubmit={handleSubmit(handleFormSubmit)} className="flex-1 overflow-y-auto">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="consultant" className="flex items-center space-x-2">
@@ -314,11 +306,7 @@ export default function AdvancedConsultantForm({
                 <span>Consultant Info</span>
                 {errors.name || errors.email || errors.status ? (
                   <AlertCircle size={12} className="text-red-500" />
-                ) : (
-                  name && email && (
-                    <CheckCircle size={12} className="text-green-500" />
-                  )
-                )}
+                ) : null}
               </TabsTrigger>
               <TabsTrigger value="projects" className="flex items-center space-x-2">
                 <FileText size={16} />
@@ -330,7 +318,6 @@ export default function AdvancedConsultantForm({
             </TabsList>
 
             <TabsContent value="consultant" className="space-y-6">
-              <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
                 {/* Basic Info */}
                 <Card>
                   <CardHeader>
@@ -641,7 +628,6 @@ export default function AdvancedConsultantForm({
                     </div>
                   </CardContent>
                 </Card>
-              </form>
             </TabsContent>
 
             <TabsContent value="projects" className="space-y-6">
@@ -804,7 +790,7 @@ export default function AdvancedConsultantForm({
               </Card>
             </TabsContent>
           </Tabs>
-        </div>
+        </form>
 
         <DialogFooter className="flex-shrink-0 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -822,11 +808,12 @@ export default function AdvancedConsultantForm({
           </div>
 
           <div className="flex items-center space-x-2">
-            <Button variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button
-              onClick={handleSubmit(handleFormSubmit)}
+              type="submit"
+              form="consultant-form"
               disabled={isSubmitting || !isValid}
             >
               {isSubmitting

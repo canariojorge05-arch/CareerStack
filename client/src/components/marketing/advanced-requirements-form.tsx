@@ -117,6 +117,36 @@ interface AdvancedRequirementsFormProps {
   isSubmitting?: boolean;
 }
 
+// FieldWrapper component moved outside to prevent re-creation on every render
+const FieldWrapper = ({
+  children,
+  error,
+  status = 'default',
+}: {
+  children: React.ReactNode;
+  error?: string;
+  status?: 'default' | 'success' | 'error';
+}) => (
+  <div className="relative">
+    {children}
+    {status === 'success' && (
+      <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
+    )}
+    {status === 'error' && (
+      <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
+    )}
+    {error && (
+      <p className="text-sm text-red-500 mt-1 flex items-center">
+        <AlertCircle className="h-3 w-3 mr-1" />
+        {error}
+      </p>
+    )}
+  </div>
+);
+
+// Constants moved outside to prevent re-creation on every render
+const appliedForOptions = ['Rahul', 'Sarah Johnson', 'Mike Chen', 'Lisa Rodriguez'];
+
 export default function AdvancedRequirementsForm({
   open,
   onClose,
@@ -149,17 +179,7 @@ export default function AdvancedRequirementsForm({
   // Removed useFieldArray as multipleRequirements is not part of the schema
 
 
-  // Watch specific form values for real-time validation feedback
-  const jobTitle = watch('jobTitle');
-  const clientCompany = watch('clientCompany');
-  const primaryTechStack = watch('primaryTechStack');
-  const completeJobDescription = watch('completeJobDescription');
-  const rate = watch('rate');
-  const duration = watch('duration');
-  const remote = watch('remote');
-
-  // Auto-generate applied for options
-  const appliedForOptions = ['Rahul', 'Sarah Johnson', 'Mike Chen', 'Lisa Rodriguez'];
+  // Note: Removed watch() calls to prevent re-renders on every keystroke that cause focus loss
 
   const getFieldError = (fieldName: keyof RequirementFormData) => {
     return errors[fieldName]?.message;
@@ -167,16 +187,6 @@ export default function AdvancedRequirementsForm({
 
   const getFieldStatus = (fieldName: keyof RequirementFormData) => {
     if (errors[fieldName]) return 'error';
-    // Check specific watched fields
-    const fieldValue = fieldName === 'jobTitle' ? jobTitle :
-                      fieldName === 'clientCompany' ? clientCompany :
-                      fieldName === 'primaryTechStack' ? primaryTechStack :
-                      fieldName === 'completeJobDescription' ? completeJobDescription :
-                      fieldName === 'rate' ? rate :
-                      fieldName === 'duration' ? duration :
-                      fieldName === 'remote' ? remote : null;
-    
-    if (fieldValue && !errors[fieldName]) return 'success';
     return 'default';
   };
 
@@ -206,12 +216,13 @@ export default function AdvancedRequirementsForm({
   };
 
   const copyTemplate = () => {
+    const formValues = watch();
     setValue(
       'completeJobDescription',
       `
-Job Title: ${jobTitle || '[Job Title]'}
-Company: ${clientCompany || '[Company Name]'}
-Tech Stack: ${primaryTechStack || '[Tech Stack]'}
+Job Title: ${formValues.jobTitle || '[Job Title]'}
+Company: ${formValues.clientCompany || '[Company Name]'}
+Tech Stack: ${formValues.primaryTechStack || '[Tech Stack]'}
 
 Job Requirements:
 • [Requirement 1]
@@ -229,39 +240,13 @@ Qualifications:
 • [Qualification 3]
 
 Additional Information:
-• Rate: ${rate || '[Rate]'}
-• Duration: ${duration || '[Duration]'}
-• Remote: ${remote || '[Remote Policy]'}
+• Rate: ${formValues.rate || '[Rate]'}
+• Duration: ${formValues.duration || '[Duration]'}
+• Remote: ${formValues.remote || '[Remote Policy]'}
     `.trim()
     );
     toast.success('Template copied to job description');
   };
-
-  const FieldWrapper = ({
-    children,
-    error,
-    status = 'default',
-  }: {
-    children: React.ReactNode;
-    error?: string;
-    status?: 'default' | 'success' | 'error';
-  }) => (
-    <div className="relative">
-      {children}
-      {status === 'success' && (
-        <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
-      )}
-      {status === 'error' && (
-        <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
-      )}
-      {error && (
-        <p className="text-sm text-red-500 mt-1 flex items-center">
-          <AlertCircle className="h-3 w-3 mr-1" />
-          {error}
-        </p>
-      )}
-    </div>
-  );
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -293,23 +278,14 @@ Additional Information:
                 <span>Requirement</span>
                 {errors.jobTitle || errors.status || errors.primaryTechStack ? (
                   <AlertCircle size={12} className="text-red-500" />
-                ) : (
-                  jobTitle &&
-                  primaryTechStack && (
-                    <CheckCircle size={12} className="text-green-500" />
-                  )
-                )}
+                ) : null}
               </TabsTrigger>
               <TabsTrigger value="client" className="flex items-center space-x-2">
                 <Building size={16} />
                 <span>Client & IMP</span>
                 {errors.clientCompany ? (
                   <AlertCircle size={12} className="text-red-500" />
-                ) : (
-                  clientCompany && (
-                    <CheckCircle size={12} className="text-green-500" />
-                  )
-                )}
+                ) : null}
               </TabsTrigger>
               <TabsTrigger value="vendor" className="flex items-center space-x-2">
                 <Building size={16} />
@@ -323,11 +299,7 @@ Additional Information:
                 <span>Job Details</span>
                 {errors.completeJobDescription ? (
                   <AlertCircle size={12} className="text-red-500" />
-                ) : (
-                  completeJobDescription && (
-                    <CheckCircle size={12} className="text-green-500" />
-                  )
-                )}
+                ) : null}
               </TabsTrigger>
             </TabsList>
 
@@ -746,8 +718,7 @@ Additional Information:
                       />
                     </FieldWrapper>
                     <p className="text-sm text-gray-500 mt-1">
-                      Minimum 50 characters required. Current:{' '}
-                      {completeJobDescription?.length || 0}
+                      Minimum 50 characters required
                     </p>
                   </div>
                 </CardContent>

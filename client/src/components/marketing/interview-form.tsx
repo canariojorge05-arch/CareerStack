@@ -134,6 +134,33 @@ interface InterviewFormProps {
   isSubmitting?: boolean;
 }
 
+// FieldWrapper component moved outside to prevent re-creation on every render
+const FieldWrapper = ({
+  children,
+  error,
+  status = 'default',
+}: {
+  children: React.ReactNode;
+  error?: string;
+  status?: 'default' | 'success' | 'error';
+}) => (
+  <div className="relative">
+    {children}
+    {status === 'success' && (
+      <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
+    )}
+    {status === 'error' && (
+      <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
+    )}
+    {error && (
+      <p className="text-sm text-red-500 mt-1 flex items-center">
+        <AlertCircle className="h-3 w-3 mr-1" />
+        {error}
+      </p>
+    )}
+  </div>
+);
+
 export default function InterviewForm({
   open,
   onClose,
@@ -196,13 +223,7 @@ export default function InterviewForm({
     mode: 'onBlur',
   });
 
-  // Watch specific form values for real-time updates
-  const requirementId = watch('requirementId');
-  const interviewDate = watch('interviewDate');
-  const interviewTime = watch('interviewTime');
-  const interviewer = watch('interviewer');
-  const vendorCompany = watch('vendorCompany');
-  const round = watch('round');
+  // Note: Removed watch() calls to prevent re-renders on every keystroke that cause focus loss
 
   const getFieldError = (fieldName: keyof InterviewFormData) => {
     return errors[fieldName]?.message;
@@ -210,15 +231,6 @@ export default function InterviewForm({
 
   const getFieldStatus = (fieldName: keyof InterviewFormData) => {
     if (errors[fieldName]) return 'error';
-    // Check specific watched fields
-    const fieldValue = fieldName === 'requirementId' ? requirementId :
-                      fieldName === 'interviewDate' ? interviewDate :
-                      fieldName === 'interviewTime' ? interviewTime :
-                      fieldName === 'interviewer' ? interviewer :
-                      fieldName === 'vendorCompany' ? vendorCompany :
-                      fieldName === 'round' ? round : null;
-    
-    if (fieldValue && !errors[fieldName]) return 'success';
     return 'default';
   };
 
@@ -234,39 +246,14 @@ export default function InterviewForm({
 
   // Auto-generate subject line based on form data
   const generateSubjectLine = () => {
-    const requirement = requirements.find((r: any) => r.id === requirementId);
+    const formValues = watch();
+    const requirement = requirements.find((r: any) => r.id === formValues.requirementId);
     if (requirement) {
-      const subjectLine = `Interview - ${requirement.jobTitle} - Round ${round} - ${interviewDate ? new Date(interviewDate).toLocaleDateString() : '[Date]'}`;
+      const subjectLine = `Interview - ${requirement.jobTitle} - Round ${formValues.round} - ${formValues.interviewDate ? new Date(formValues.interviewDate).toLocaleDateString() : '[Date]'}`;
       setValue('subjectLine', subjectLine);
       toast.success('Subject line generated');
     }
   };
-
-  const FieldWrapper = ({
-    children,
-    error,
-    status = 'default',
-  }: {
-    children: React.ReactNode;
-    error?: string;
-    status?: 'default' | 'success' | 'error';
-  }) => (
-    <div className="relative">
-      {children}
-      {status === 'success' && (
-        <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
-      )}
-      {status === 'error' && (
-        <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
-      )}
-      {error && (
-        <p className="text-sm text-red-500 mt-1 flex items-center">
-          <AlertCircle className="h-3 w-3 mr-1" />
-          {error}
-        </p>
-      )}
-    </div>
-  );
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -290,7 +277,7 @@ export default function InterviewForm({
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto">
+        <form id="interview-form" onSubmit={handleSubmit(handleFormSubmit)} className="flex-1 overflow-y-auto">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="basic" className="flex items-center space-x-2">
@@ -298,25 +285,14 @@ export default function InterviewForm({
                 <span>Basic Info</span>
                 {(errors.requirementId || errors.interviewDate || errors.interviewTime) ? (
                   <AlertCircle size={12} className="text-red-500" />
-                ) : (
-                  requirementId &&
-                  interviewDate &&
-                  interviewTime && (
-                    <CheckCircle size={12} className="text-green-500" />
-                  )
-                )}
+                ) : null}
               </TabsTrigger>
               <TabsTrigger value="details" className="flex items-center space-x-2">
                 <User size={16} />
                 <span>Interview Details</span>
                 {(errors.interviewer || errors.vendorCompany) ? (
                   <AlertCircle size={12} className="text-red-500" />
-                ) : (
-                  interviewer &&
-                  vendorCompany && (
-                    <CheckCircle size={12} className="text-green-500" />
-                  )
-                )}
+                ) : null}
               </TabsTrigger>
               <TabsTrigger value="additional" className="flex items-center space-x-2">
                 <Building size={16} />
@@ -656,7 +632,6 @@ export default function InterviewForm({
                           variant="outline"
                           size="sm"
                           onClick={generateSubjectLine}
-                          disabled={!requirementId}
                         >
                           Auto-Generate
                         </Button>
@@ -804,7 +779,7 @@ export default function InterviewForm({
               </Card>
             </TabsContent>
           </Tabs>
-        </div>
+        </form>
 
         <DialogFooter className="flex-shrink-0 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -814,10 +789,10 @@ export default function InterviewForm({
           </div>
 
           <div className="flex items-center space-x-2">
-            <Button variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit(handleFormSubmit)} disabled={isSubmitting || !isValid}>
+            <Button type="submit" form="interview-form" disabled={isSubmitting || !isValid}>
               <Save className="h-4 w-4 mr-2" />
               {isSubmitting
                 ? 'Scheduling...'

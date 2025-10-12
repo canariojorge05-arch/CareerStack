@@ -79,8 +79,8 @@ function ConsultantsSection() {
   const [viewConsultant, setViewConsultant] = useState<Consultant | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  // Fetch consultants
-  const { data: consultants = [], isLoading, isError, error } = useQuery({
+  // Fetch consultants with pagination support
+  const { data: consultantsResponse, isLoading, isError, error } = useQuery({
     queryKey: ['/api/marketing/consultants'],
     queryFn: async () => {
       try {
@@ -88,15 +88,23 @@ function ConsultantsSection() {
         if (!response.ok) {
           throw new Error('Failed to fetch consultants');
         }
-        return response.json() as Promise<Consultant[]>;
+        const json = await response.json();
+        // Handle both old (array) and new (paginated) response formats
+        if (Array.isArray(json)) {
+          return { data: json, pagination: null };
+        }
+        return json;
       } catch (err) {
         throw new Error('Failed to fetch consultants');
       }
     },
     retry: 1,
+    staleTime: 60000, // 1 minute - data stays fresh longer
   });
 
-  // Create consultant mutation
+  const consultants = consultantsResponse?.data || [];
+
+  // Create consultant mutation with optimistic updates
   const createMutation = useMutation({
     mutationFn: async (data: { consultant: any; projects: any[] }) => {
       const response = await apiRequest('POST', '/api/marketing/consultants', data);
@@ -106,17 +114,49 @@ function ConsultantsSection() {
       }
       return response.json();
     },
+    onMutate: async (newConsultant) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['/api/marketing/consultants'] });
+      
+      // Snapshot previous value
+      const previousData = queryClient.getQueryData(['/api/marketing/consultants']);
+      
+      // Optimistically update with placeholder
+      queryClient.setQueryData(['/api/marketing/consultants'], (old: any) => {
+        if (!old) return old;
+        const newData = {
+          id: 'temp-' + Date.now(),
+          ...newConsultant.consultant,
+          projects: newConsultant.projects || [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        return {
+          data: [newData, ...(old.data || old)],
+          pagination: old.pagination
+        };
+      });
+      
+      return { previousData };
+    },
+    onError: (error: Error, newConsultant, context) => {
+      // Rollback on error
+      if (context?.previousData) {
+        queryClient.setQueryData(['/api/marketing/consultants'], context.previousData);
+      }
+      toast.error(error.message || 'Failed to create consultant');
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
       toast.success('Consultant created successfully!');
       handleFormClose();
     },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to create consultant');
+    onSettled: () => {
+      // Refetch to get actual data from server
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
     },
   });
 
-  // Update consultant mutation
+  // Update consultant mutation with optimistic updates
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: { consultant: any; projects: any[] } }) => {
       const response = await apiRequest('PATCH', `/api/marketing/consultants/${id}`, data);
@@ -126,17 +166,43 @@ function ConsultantsSection() {
       }
       return response.json();
     },
+    onMutate: async ({ id, data }) => {
+      await queryClient.cancelQueries({ queryKey: ['/api/marketing/consultants'] });
+      const previousData = queryClient.getQueryData(['/api/marketing/consultants']);
+      
+      // Optimistically update
+      queryClient.setQueryData(['/api/marketing/consultants'], (old: any) => {
+        if (!old) return old;
+        const dataArray = old.data || old;
+        const updatedData = dataArray.map((consultant: Consultant) => 
+          consultant.id === id 
+            ? { ...consultant, ...data.consultant, projects: data.projects || consultant.projects }
+            : consultant
+        );
+        return {
+          data: updatedData,
+          pagination: old.pagination
+        };
+      });
+      
+      return { previousData };
+    },
+    onError: (error: Error, variables, context) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(['/api/marketing/consultants'], context.previousData);
+      }
+      toast.error(error.message || 'Failed to update consultant');
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
       toast.success('Consultant updated successfully!');
       handleFormClose();
     },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to update consultant');
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
     },
   });
 
-  // Delete consultant mutation
+  // Delete consultant mutation with optimistic updates
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const response = await apiRequest('DELETE', `/api/marketing/consultants/${id}`);
@@ -146,13 +212,35 @@ function ConsultantsSection() {
       }
       return response.json();
     },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['/api/marketing/consultants'] });
+      const previousData = queryClient.getQueryData(['/api/marketing/consultants']);
+      
+      // Optimistically remove from list
+      queryClient.setQueryData(['/api/marketing/consultants'], (old: any) => {
+        if (!old) return old;
+        const dataArray = old.data || old;
+        const filteredData = dataArray.filter((consultant: Consultant) => consultant.id !== id);
+        return {
+          data: filteredData,
+          pagination: old.pagination
+        };
+      });
+      
+      return { previousData };
+    },
+    onError: (error: Error, id, context) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(['/api/marketing/consultants'], context.previousData);
+      }
+      toast.error(error.message || 'Failed to delete consultant');
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
       toast.success('Consultant deleted successfully!');
       setDeleteConfirm(null);
     },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to delete consultant');
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
     },
   });
 
@@ -325,7 +413,7 @@ function ConsultantsSection() {
               <div>
                 <p className="text-sm text-slate-600">Active</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {consultants.filter(c => c.status === 'Active').length}
+                  {consultants.filter((c: Consultant) => c.status === 'Active').length}
                 </p>
               </div>
               <div className="h-10 w-10 bg-green-100 rounded-lg flex items-center justify-center">
@@ -341,7 +429,7 @@ function ConsultantsSection() {
               <div>
                 <p className="text-sm text-slate-600">Not Active</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {consultants.filter(c => c.status === 'Not Active').length}
+                  {consultants.filter((c: Consultant) => c.status === 'Not Active').length}
                 </p>
               </div>
               <div className="h-10 w-10 bg-red-100 rounded-lg flex items-center justify-center">
@@ -357,7 +445,7 @@ function ConsultantsSection() {
               <div>
                 <p className="text-sm text-slate-600">Total Projects</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {consultants.reduce((acc, c) => acc + (c.projects?.length || 0), 0)}
+                  {consultants.reduce((acc: number, c: Consultant) => acc + (c.projects?.length || 0), 0)}
                 </p>
               </div>
               <div className="h-10 w-10 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -387,14 +475,14 @@ function ConsultantsSection() {
             </CardContent>
           </Card>
         ) : (
-          filteredConsultants.map((consultant) => (
+          filteredConsultants.map((consultant: Consultant) => (
             <Card key={consultant.id} className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group">
               <CardContent className="p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-4 flex-1 min-w-0">
                     <Avatar className="h-12 w-12 shrink-0">
                       <AvatarFallback className="text-base font-semibold bg-blue-100 text-blue-700">
-                        {consultant.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'CN'}
+                        {consultant.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || 'CN'}
                       </AvatarFallback>
                     </Avatar>
                     
@@ -441,7 +529,7 @@ function ConsultantsSection() {
                       
                       {consultant.projects && consultant.projects.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
-                          {consultant.projects.slice(0, 3).map((project) => (
+                          {consultant.projects.slice(0, 3).map((project: ConsultantProject) => (
                             <Badge key={project.id} variant="secondary" className="text-xs">
                               {project.projectName}
                             </Badge>
