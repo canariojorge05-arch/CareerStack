@@ -88,7 +88,10 @@ const requirementSchema = yup.object({
 
   vendorPhone: yup
     .string()
-    .matches(/^[\+]?[1-9][\d]{0,15}(\s*(ext|x|extension)\.?\s*\d{1,6})?$/i, 'Phone number must be valid (e.g., +1234567890 ext. 123)')
+    .matches(
+      /^[\+]?[1-9][\d]{0,15}(\s*(ext|x|extension)\.?\s*\d{1,6})?$/i,
+      'Phone number must be valid (e.g., +1234567890 ext. 123)'
+    )
     .nullable(),
 
   vendorEmail: yup.string().email('Vendor email must be valid').nullable(),
@@ -111,7 +114,7 @@ interface AdvancedRequirementsFormProps {
   open: boolean;
   onClose: () => void;
   onSubmit: (requirements: RequirementFormData[]) => Promise<void>;
-  consultants?: Array<{id: string; name: string; email: string; status: string}>;
+  consultants?: Array<{ id: string; name: string; email: string; status: string }>;
   initialData?: Partial<RequirementFormData>;
   editMode?: boolean;
   isSubmitting?: boolean;
@@ -132,9 +135,7 @@ const FieldWrapper = ({
     {status === 'success' && (
       <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
     )}
-    {status === 'error' && (
-      <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
-    )}
+    {status === 'error' && <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />}
     {error && (
       <p className="text-sm text-red-500 mt-1 flex items-center">
         <AlertCircle className="h-3 w-3 mr-1" />
@@ -172,12 +173,28 @@ export default function AdvancedRequirementsForm({
     defaultValues: {
       status: RequirementStatus.NEW,
       appliedFor: 'Rahul',
+      jobTitle: '',
+      consultantId: null,
+      rate: '',
+      primaryTechStack: '',
+      clientCompany: '',
+      impName: '',
+      clientWebsite: '',
+      impWebsite: '',
+      vendorCompany: '',
+      vendorWebsite: '',
+      vendorPersonName: '',
+      vendorPhone: '',
+      vendorEmail: '',
+      completeJobDescription: '',
+      nextStep: '',
+      remote: '',
+      duration: '',
       ...initialData,
     },
     mode: 'onBlur',
   });
   // Removed useFieldArray as multipleRequirements is not part of the schema
-
 
   // Note: Removed watch() calls to prevent re-renders on every keystroke that cause focus loss
 
@@ -283,9 +300,7 @@ Additional Information:
               <TabsTrigger value="client" className="flex items-center space-x-2">
                 <Building size={16} />
                 <span>Client & IMP</span>
-                {errors.clientCompany ? (
-                  <AlertCircle size={12} className="text-red-500" />
-                ) : null}
+                {errors.clientCompany ? <AlertCircle size={12} className="text-red-500" /> : null}
               </TabsTrigger>
               <TabsTrigger value="vendor" className="flex items-center space-x-2">
                 <Building size={16} />
@@ -356,13 +371,17 @@ Additional Information:
 
                     <div>
                       <Label htmlFor="consultantId">Assigned Consultant</Label>
-                      <FieldWrapper error={getFieldError('consultantId' as keyof RequirementFormData)}>
+                      <FieldWrapper
+                        error={getFieldError('consultantId' as keyof RequirementFormData)}
+                      >
                         <Controller
-                          name={"consultantId" as const}
+                          name={'consultantId' as const}
                           control={control}
                           render={({ field }) => (
-                            <Select 
-                              onValueChange={(value) => field.onChange(value === 'unassigned' ? null : value)} 
+                            <Select
+                              onValueChange={(value) =>
+                                field.onChange(value === 'unassigned' ? null : value)
+                              }
                               value={field.value ?? 'unassigned'}
                             >
                               <SelectTrigger>
@@ -370,11 +389,13 @@ Additional Information:
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="unassigned">No consultant assigned</SelectItem>
-                                {consultants.filter(c => c.status === 'Active').map((consultant) => (
-                                  <SelectItem key={consultant.id} value={consultant.id}>
-                                    {consultant.name} ({consultant.email})
-                                  </SelectItem>
-                                ))}
+                                {consultants
+                                  .filter((c) => c.status === 'Active')
+                                  .map((consultant) => (
+                                    <SelectItem key={consultant.id} value={consultant.id}>
+                                      {consultant.name} ({consultant.email})
+                                    </SelectItem>
+                                  ))}
                               </SelectContent>
                             </Select>
                           )}
@@ -717,9 +738,7 @@ Additional Information:
                         )}
                       />
                     </FieldWrapper>
-                    <p className="text-sm text-gray-500 mt-1">
-                      Minimum 50 characters required
-                    </p>
+                    <p className="text-sm text-gray-500 mt-1">Minimum 50 characters required</p>
                   </div>
                 </CardContent>
               </Card>

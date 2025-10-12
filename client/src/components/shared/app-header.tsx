@@ -47,7 +47,7 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
     try {
       const csrfToken = document.cookie
         .split('; ')
-        .find(row => row.startsWith('csrf_token='))
+        .find((row) => row.startsWith('csrf_token='))
         ?.split('=')[1];
 
       const response = await fetch('/api/auth/logout', {
@@ -86,16 +86,24 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          <div className="flex items-center space-x-3">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="flex items-center space-x-3 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-lg p-1"
+            aria-label="Go to Dashboard"
+          >
             <div className="h-10 w-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center shadow-lg">
               <FileText className="text-white" size={20} />
             </div>
             <h1 className="text-xl font-bold text-foreground tracking-tight">
               ResumeCustomizer Pro
             </h1>
-          </div>
+          </button>
 
-          <nav className="flex items-center space-x-4" role="navigation" aria-label="Main navigation">
+          <nav
+            className="flex items-center space-x-4"
+            role="navigation"
+            aria-label="Main navigation"
+          >
             {/* Email Button */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -182,9 +190,7 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
             <div className="flex items-center space-x-3">
               <div className="h-8 w-8 bg-primary rounded-full flex items-center justify-center">
                 <span className="text-sm font-medium text-primary-foreground">
-                  {(user as ClientUser)?.firstName?.[0] ||
-                    (user as ClientUser)?.email?.[0] ||
-                    'U'}
+                  {(user as ClientUser)?.firstName?.[0] || (user as ClientUser)?.email?.[0] || 'U'}
                 </span>
               </div>
               <span

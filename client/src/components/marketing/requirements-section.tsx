@@ -5,7 +5,17 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { FileText, Plus, Search, Filter, CreditCard as Edit, Eye, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import {
+  FileText,
+  Plus,
+  Search,
+  Filter,
+  CreditCard as Edit,
+  Eye,
+  Trash2,
+  Loader2,
+  AlertCircle,
+} from 'lucide-react';
 import AdvancedRequirementsForm from './advanced-requirements-form';
 import { toast } from 'sonner';
 import {
@@ -34,7 +44,8 @@ export default function RequirementsSection() {
       try {
         const response = await apiRequest('GET', '/api/marketing/consultants?status=Active');
         if (!response.ok) return [];
-        return response.json();
+        const data = await response.json();
+        return Array.isArray(data) ? data : [];
       } catch {
         return [] as any[];
       }
@@ -43,7 +54,12 @@ export default function RequirementsSection() {
   });
 
   // Fetch requirements with proper error handling
-  const { data: requirements = [], isLoading, isError, error } = useQuery({
+  const {
+    data: requirements = [],
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ['/api/marketing/requirements'],
     queryFn: async () => {
       const response = await apiRequest('GET', '/api/marketing/requirements');
@@ -120,7 +136,8 @@ export default function RequirementsSection() {
 
   // Filter requirements based on search and status
   const filteredRequirements = useMemo(() => {
-    let filtered = requirements;
+    // Ensure requirements is an array
+    let filtered = Array.isArray(requirements) ? requirements : [];
 
     // Apply status filter
     if (statusFilter && statusFilter !== 'All') {
@@ -130,11 +147,12 @@ export default function RequirementsSection() {
     // Apply search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((req: any) => 
-        req.jobTitle?.toLowerCase().includes(query) ||
-        req.clientCompany?.toLowerCase().includes(query) ||
-        req.primaryTechStack?.toLowerCase().includes(query) ||
-        req.appliedFor?.toLowerCase().includes(query)
+      filtered = filtered.filter(
+        (req: any) =>
+          req.jobTitle?.toLowerCase().includes(query) ||
+          req.clientCompany?.toLowerCase().includes(query) ||
+          req.primaryTechStack?.toLowerCase().includes(query) ||
+          req.appliedFor?.toLowerCase().includes(query)
       );
     }
 
@@ -148,30 +166,42 @@ export default function RequirementsSection() {
     return showEditForm ? selectedRequirement : null;
   }, [showEditForm, selectedRequirement?.id]); // Only depend on ID to avoid object reference changes
 
-  const handleFormSubmit = useCallback(async (requirementData: any[]) => {
-    if (showEditForm && selectedRequirement) {
-      // Update existing requirement
-      await updateMutation.mutateAsync({ 
-        id: selectedRequirement.id, 
-        data: requirementData[0] 
-      });
-    } else {
-      // Create new requirement
-      await createMutation.mutateAsync(requirementData[0]);
-    }
-  }, [showEditForm, selectedRequirement?.id, updateMutation, createMutation]);
+  const handleFormSubmit = useCallback(
+    async (requirementData: any[]) => {
+      if (showEditForm && selectedRequirement) {
+        // Update existing requirement
+        await updateMutation.mutateAsync({
+          id: selectedRequirement.id,
+          data: requirementData[0],
+        });
+      } else {
+        // Create new requirement
+        await createMutation.mutateAsync(requirementData[0]);
+      }
+    },
+    [showEditForm, selectedRequirement?.id, updateMutation, createMutation]
+  );
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'New': return 'bg-blue-100 text-blue-800';
-      case 'In Progress': return 'bg-yellow-100 text-yellow-800';
-      case 'Submitted': return 'bg-purple-100 text-purple-800';
-      case 'Closed': return 'bg-green-100 text-green-800';
-      case 'Applied': return 'bg-purple-100 text-purple-800';
-      case 'Submitted': return 'bg-orange-100 text-orange-800';
-      case 'Interviewed': return 'bg-green-100 text-green-800';
-      case 'Cancelled': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'New':
+        return 'bg-blue-100 text-blue-800';
+      case 'In Progress':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'Submitted':
+        return 'bg-purple-100 text-purple-800';
+      case 'Closed':
+        return 'bg-green-100 text-green-800';
+      case 'Applied':
+        return 'bg-purple-100 text-purple-800';
+      case 'Submitted':
+        return 'bg-orange-100 text-orange-800';
+      case 'Interviewed':
+        return 'bg-green-100 text-green-800';
+      case 'Cancelled':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -190,7 +220,6 @@ export default function RequirementsSection() {
     setShowEditForm(false);
     setSelectedRequirement(null);
   };
-
 
   const handleViewRequirement = (requirement: any) => {
     setViewRequirement(requirement);
@@ -229,8 +258,14 @@ export default function RequirementsSection() {
           <AlertCircle className="h-10 w-10 text-red-600" />
         </div>
         <h3 className="text-xl font-semibold text-slate-800 mb-2">Failed to load requirements</h3>
-        <p className="text-slate-500 mb-6">{error?.message || 'An error occurred while fetching requirements'}</p>
-        <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/marketing/requirements'] })}>
+        <p className="text-slate-500 mb-6">
+          {error?.message || 'An error occurred while fetching requirements'}
+        </p>
+        <Button
+          onClick={() =>
+            queryClient.invalidateQueries({ queryKey: ['/api/marketing/requirements'] })
+          }
+        >
           Try Again
         </Button>
       </div>
@@ -269,7 +304,9 @@ export default function RequirementsSection() {
           className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white hover:bg-slate-50 focus:ring-2 focus:ring-blue-500"
         >
           {statusOptions.map((status) => (
-            <option key={status} value={status}>{status}</option>
+            <option key={status} value={status}>
+              {status}
+            </option>
           ))}
         </select>
       </div>
@@ -277,58 +314,73 @@ export default function RequirementsSection() {
       {/* Requirements List */}
       <div className="space-y-3">
         {filteredRequirements.map((requirement: any) => (
-          <Card key={requirement.id} className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group">
+          <Card
+            key={requirement.id}
+            className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group"
+          >
             <CardContent className="p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-3">
-                    <h3 className="font-semibold text-base text-slate-900 truncate">{requirement.jobTitle}</h3>
-                    <Badge className={`${getStatusColor(requirement.status)} shrink-0`}>{requirement.status}</Badge>
+                    <h3 className="font-semibold text-base text-slate-900 truncate">
+                      {requirement.jobTitle}
+                    </h3>
+                    <Badge className={`${getStatusColor(requirement.status)} shrink-0`}>
+                      {requirement.status}
+                    </Badge>
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                     <div>
                       <span className="text-slate-500">Client</span>
-                      <p className="text-slate-900 font-medium truncate">{requirement.clientCompany}</p>
+                      <p className="text-slate-900 font-medium truncate">
+                        {requirement.clientCompany}
+                      </p>
                     </div>
                     <div>
                       <span className="text-slate-500">Applied For</span>
-                      <p className="text-slate-900 font-medium truncate">{requirement.appliedFor || 'N/A'}</p>
+                      <p className="text-slate-900 font-medium truncate">
+                        {requirement.appliedFor || 'N/A'}
+                      </p>
                     </div>
                     <div>
                       <span className="text-slate-500">Tech Stack</span>
-                      <p className="text-slate-900 font-medium truncate">{requirement.primaryTechStack}</p>
+                      <p className="text-slate-900 font-medium truncate">
+                        {requirement.primaryTechStack}
+                      </p>
                     </div>
                     <div>
                       <span className="text-slate-500">Created</span>
-                      <p className="text-slate-900 font-medium">{new Date(requirement.createdAt).toLocaleDateString()}</p>
+                      <p className="text-slate-900 font-medium">
+                        {new Date(requirement.createdAt).toLocaleDateString()}
+                      </p>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => handleViewRequirement(requirement)} 
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleViewRequirement(requirement)}
                     className="h-8 w-8 p-0"
                     title="View details"
                   >
                     <Eye size={16} />
                   </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => handleEditRequirement(requirement)} 
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleEditRequirement(requirement)}
                     className="h-8 w-8 p-0"
                     title="Edit"
                   >
                     <Edit size={16} />
                   </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => handleDeleteRequirement(requirement.id)} 
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDeleteRequirement(requirement.id)}
                     className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                     disabled={deleteMutation.isPending}
                     title="Delete"
@@ -355,7 +407,14 @@ export default function RequirementsSection() {
             </div>
             <h3 className="text-lg font-semibold text-slate-900 mb-2">No matching requirements</h3>
             <p className="text-slate-600 mb-4">Try adjusting your search or filters</p>
-            <Button onClick={() => { setSearchQuery(''); setStatusFilter('All'); }} variant="outline" size="sm">
+            <Button
+              onClick={() => {
+                setSearchQuery('');
+                setStatusFilter('All');
+              }}
+              variant="outline"
+              size="sm"
+            >
               Clear Filters
             </Button>
           </CardContent>
@@ -398,16 +457,18 @@ export default function RequirementsSection() {
                 <FileText size={20} />
                 <span>{viewRequirement.jobTitle}</span>
               </DialogTitle>
-              <DialogDescription>
-                View requirement details
-              </DialogDescription>
+              <DialogDescription>View requirement details</DialogDescription>
             </DialogHeader>
-            
+
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Status</label>
-                  <p className="text-slate-600"><Badge className={getStatusColor(viewRequirement.status)}>{viewRequirement.status}</Badge></p>
+                  <p className="text-slate-600">
+                    <Badge className={getStatusColor(viewRequirement.status)}>
+                      {viewRequirement.status}
+                    </Badge>
+                  </p>
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Client Company</label>
@@ -435,7 +496,9 @@ export default function RequirementsSection() {
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Created</label>
-                  <p className="text-slate-600">{new Date(viewRequirement.createdAt).toLocaleDateString()}</p>
+                  <p className="text-slate-600">
+                    {new Date(viewRequirement.createdAt).toLocaleDateString()}
+                  </p>
                 </div>
               </div>
 
@@ -469,11 +532,15 @@ export default function RequirementsSection() {
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setViewRequirement(null)}>Close</Button>
-              <Button onClick={() => {
-                setViewRequirement(null);
-                handleEditRequirement(viewRequirement);
-              }}>
+              <Button variant="outline" onClick={() => setViewRequirement(null)}>
+                Close
+              </Button>
+              <Button
+                onClick={() => {
+                  setViewRequirement(null);
+                  handleEditRequirement(viewRequirement);
+                }}
+              >
                 <Edit size={16} className="mr-2" />
                 Edit
               </Button>
@@ -493,12 +560,16 @@ export default function RequirementsSection() {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleteMutation.isPending}>
+              <Button
+                variant="outline"
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleteMutation.isPending}
+              >
                 Cancel
               </Button>
-              <Button 
-                variant="destructive" 
-                onClick={confirmDelete} 
+              <Button
+                variant="destructive"
+                onClick={confirmDelete}
                 disabled={deleteMutation.isPending}
               >
                 {deleteMutation.isPending ? (

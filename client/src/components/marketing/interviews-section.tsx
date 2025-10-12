@@ -5,7 +5,18 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Plus, Clock, User, Building, Loader2, AlertCircle, Eye, Edit as EditIcon, Trash2 } from 'lucide-react';
+import {
+  Calendar,
+  Plus,
+  Clock,
+  User,
+  Building,
+  Loader2,
+  AlertCircle,
+  Eye,
+  Edit as EditIcon,
+  Trash2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import InterviewForm from './interview-form';
 import {
@@ -29,14 +40,20 @@ export default function InterviewsSection() {
   const interviewTabs = ['All', 'Cancelled', 'Re-Scheduled', 'Confirmed', 'Completed'];
 
   // Fetch interviews with proper error handling
-  const { data: interviews = [], isLoading, isError, error } = useQuery({
+  const {
+    data: interviews = [],
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ['/api/marketing/interviews'],
     queryFn: async () => {
       const response = await apiRequest('GET', '/api/marketing/interviews');
       if (!response.ok) {
         throw new Error('Failed to fetch interviews');
       }
-      return response.json();
+      const data = await response.json();
+      return Array.isArray(data) ? data : [];
     },
     retry: 1,
   });
@@ -103,17 +120,25 @@ export default function InterviewsSection() {
 
   // Filter interviews by tab
   const filteredInterviews = useMemo(() => {
-    if (activeTab === 'All') return interviews;
-    return interviews.filter((interview: any) => interview.status === activeTab);
+    // Ensure interviews is an array
+    const interviewsArray = Array.isArray(interviews) ? interviews : [];
+
+    if (activeTab === 'All') return interviewsArray;
+    return interviewsArray.filter((interview: any) => interview.status === activeTab);
   }, [interviews, activeTab]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Confirmed': return 'bg-blue-100 text-blue-800';
-      case 'Completed': return 'bg-green-100 text-green-800';
-      case 'Cancelled': return 'bg-red-100 text-red-800';
-      case 'Re-Scheduled': return 'bg-yellow-100 text-yellow-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'Confirmed':
+        return 'bg-blue-100 text-blue-800';
+      case 'Completed':
+        return 'bg-green-100 text-green-800';
+      case 'Cancelled':
+        return 'bg-red-100 text-red-800';
+      case 'Re-Scheduled':
+        return 'bg-yellow-100 text-yellow-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -173,8 +198,12 @@ export default function InterviewsSection() {
           <AlertCircle className="h-10 w-10 text-red-600" />
         </div>
         <h3 className="text-xl font-semibold text-slate-800 mb-2">Failed to load interviews</h3>
-        <p className="text-slate-500 mb-6">{error?.message || 'An error occurred while fetching interviews'}</p>
-        <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/marketing/interviews'] })}>
+        <p className="text-slate-500 mb-6">
+          {error?.message || 'An error occurred while fetching interviews'}
+        </p>
+        <Button
+          onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/marketing/interviews'] })}
+        >
           Try Again
         </Button>
       </div>
@@ -209,12 +238,17 @@ export default function InterviewsSection() {
             {filteredInterviews
               .filter((interview: any) => tab === 'All' || interview.status === tab)
               .map((interview: any) => (
-                <Card key={interview.id} className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group">
+                <Card
+                  key={interview.id}
+                  className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group"
+                >
                   <CardContent className="p-5">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-3 mb-3">
-                          <h3 className="font-semibold text-base text-slate-900 truncate">{interview.jobTitle || 'Untitled Interview'}</h3>
+                          <h3 className="font-semibold text-base text-slate-900 truncate">
+                            {interview.jobTitle || 'Untitled Interview'}
+                          </h3>
                           <Badge className={`${getStatusColor(interview.status)} shrink-0`}>
                             {interview.status}
                           </Badge>
@@ -222,30 +256,40 @@ export default function InterviewsSection() {
                             Round {interview.round || 'N/A'}
                           </Badge>
                         </div>
-                        
+
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                           <div>
                             <span className="text-slate-500">Consultant</span>
-                            <p className="text-slate-900 font-medium truncate">{interview.consultantName || 'N/A'}</p>
+                            <p className="text-slate-900 font-medium truncate">
+                              {interview.consultantName || 'N/A'}
+                            </p>
                           </div>
                           <div>
                             <span className="text-slate-500">Company</span>
-                            <p className="text-slate-900 font-medium truncate">{interview.vendorCompany || 'N/A'}</p>
+                            <p className="text-slate-900 font-medium truncate">
+                              {interview.vendorCompany || 'N/A'}
+                            </p>
                           </div>
                           <div>
                             <span className="text-slate-500">Date</span>
-                            <p className="text-slate-900 font-medium">{interview.interviewDate ? new Date(interview.interviewDate).toLocaleDateString() : 'N/A'}</p>
+                            <p className="text-slate-900 font-medium">
+                              {interview.interviewDate
+                                ? new Date(interview.interviewDate).toLocaleDateString()
+                                : 'N/A'}
+                            </p>
                           </div>
                           <div>
                             <span className="text-slate-500">Time & Mode</span>
-                            <p className="text-slate-900 font-medium truncate">{interview.interviewTime || 'N/A'} • {interview.mode || 'N/A'}</p>
+                            <p className="text-slate-900 font-medium truncate">
+                              {interview.interviewTime || 'N/A'} • {interview.mode || 'N/A'}
+                            </p>
                           </div>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="sm"
                           onClick={() => handleViewInterview(interview)}
                           className="h-8 w-8 p-0"
@@ -253,17 +297,17 @@ export default function InterviewsSection() {
                         >
                           <Eye size={16} />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => handleEditInterview(interview)}
                           className="h-8 w-8 p-0"
                           title="Edit"
                         >
                           <EditIcon size={16} />
                         </Button>
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteInterview(interview.id)}
                           className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
@@ -282,17 +326,26 @@ export default function InterviewsSection() {
                 </Card>
               ))}
 
-            {filteredInterviews.filter((interview: any) => tab === 'All' || interview.status === tab).length === 0 && (
+            {filteredInterviews.filter(
+              (interview: any) => tab === 'All' || interview.status === tab
+            ).length === 0 && (
               <Card className="border-slate-200">
                 <CardContent className="p-12 text-center">
                   <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-indigo-100 flex items-center justify-center">
                     <Calendar className="h-8 w-8 text-indigo-600" />
                   </div>
-                  <h3 className="text-lg font-semibold text-slate-900 mb-2">No {tab.toLowerCase()} interviews</h3>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                    No {tab.toLowerCase()} interviews
+                  </h3>
                   <p className="text-slate-600 mb-4">
-                    {tab === 'All' ? 'Schedule your first interview to get started' : `No ${tab.toLowerCase()} interviews found`}
+                    {tab === 'All'
+                      ? 'Schedule your first interview to get started'
+                      : `No ${tab.toLowerCase()} interviews found`}
                   </p>
-                  <Button onClick={handleScheduleInterview} className="bg-blue-600 hover:bg-blue-700">
+                  <Button
+                    onClick={handleScheduleInterview}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
                     <Plus size={16} className="mr-2" />
                     Schedule Interview
                   </Button>
@@ -322,16 +375,18 @@ export default function InterviewsSection() {
                 <Calendar size={20} />
                 <span>{viewInterview.jobTitle || 'Interview Details'}</span>
               </DialogTitle>
-              <DialogDescription>
-                View interview details
-              </DialogDescription>
+              <DialogDescription>View interview details</DialogDescription>
             </DialogHeader>
-            
+
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Status</label>
-                  <p className="text-slate-600"><Badge className={getStatusColor(viewInterview.status)}>{viewInterview.status}</Badge></p>
+                  <p className="text-slate-600">
+                    <Badge className={getStatusColor(viewInterview.status)}>
+                      {viewInterview.status}
+                    </Badge>
+                  </p>
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Round</label>
@@ -347,7 +402,11 @@ export default function InterviewsSection() {
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Interview Date</label>
-                  <p className="text-slate-600">{viewInterview.interviewDate ? new Date(viewInterview.interviewDate).toLocaleDateString() : 'N/A'}</p>
+                  <p className="text-slate-600">
+                    {viewInterview.interviewDate
+                      ? new Date(viewInterview.interviewDate).toLocaleDateString()
+                      : 'N/A'}
+                  </p>
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Interview Time</label>
@@ -374,7 +433,12 @@ export default function InterviewsSection() {
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Meeting Link</label>
                   <p className="text-slate-600">
-                    <a href={viewInterview.meetingLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                    <a
+                      href={viewInterview.meetingLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
                       {viewInterview.meetingLink}
                     </a>
                   </p>
@@ -392,11 +456,15 @@ export default function InterviewsSection() {
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setViewInterview(null)}>Close</Button>
-              <Button onClick={() => {
-                setViewInterview(null);
-                handleEditInterview(viewInterview);
-              }}>
+              <Button variant="outline" onClick={() => setViewInterview(null)}>
+                Close
+              </Button>
+              <Button
+                onClick={() => {
+                  setViewInterview(null);
+                  handleEditInterview(viewInterview);
+                }}
+              >
                 <EditIcon size={16} className="mr-2" />
                 Edit
               </Button>
@@ -416,12 +484,16 @@ export default function InterviewsSection() {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleteMutation.isPending}>
+              <Button
+                variant="outline"
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleteMutation.isPending}
+              >
                 Cancel
               </Button>
-              <Button 
-                variant="destructive" 
-                onClick={confirmDelete} 
+              <Button
+                variant="destructive"
+                onClick={confirmDelete}
                 disabled={deleteMutation.isPending}
               >
                 {deleteMutation.isPending ? (

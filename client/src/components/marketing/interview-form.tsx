@@ -43,9 +43,7 @@ import { InterviewStatus } from '@shared/schema';
 
 // Form validation schema
 const interviewSchema = yup.object({
-  requirementId: yup
-    .string()
-    .required('Requirement is required'),
+  requirementId: yup.string().required('Requirement is required'),
 
   interviewDate: yup
     .date()
@@ -62,9 +60,7 @@ const interviewSchema = yup.object({
     .required('Timezone is required')
     .oneOf(['EST', 'CST', 'MST', 'PST'], 'Invalid timezone'),
 
-  interviewType: yup
-    .string()
-    .required('Interview type is required'),
+  interviewType: yup.string().required('Interview type is required'),
 
   status: yup
     .string()
@@ -100,7 +96,10 @@ const interviewSchema = yup.object({
   duration: yup
     .string()
     .required('Duration is required')
-    .matches(/^\d+\s?(min|mins|hour|hours|hr|hrs)$/i, 'Duration must be in format like "30 mins" or "1 hour"'),
+    .matches(
+      /^\d+\s?(min|mins|hour|hours|hr|hrs)$/i,
+      'Duration must be in format like "30 mins" or "1 hour"'
+    ),
 
   subjectLine: yup.string().nullable(),
 
@@ -109,10 +108,7 @@ const interviewSchema = yup.object({
     .required('Interviewer is required')
     .min(2, 'Interviewer name must be at least 2 characters'),
 
-  interviewLink: yup
-    .string()
-    .url('Interview link must be a valid URL')
-    .nullable(),
+  interviewLink: yup.string().url('Interview link must be a valid URL').nullable(),
 
   interviewFocus: yup.string().nullable(),
 
@@ -149,9 +145,7 @@ const FieldWrapper = ({
     {status === 'success' && (
       <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
     )}
-    {status === 'error' && (
-      <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
-    )}
+    {status === 'error' && <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />}
     {error && (
       <p className="text-sm text-red-500 mt-1 flex items-center">
         <AlertCircle className="h-3 w-3 mr-1" />
@@ -178,7 +172,8 @@ export default function InterviewForm({
       try {
         const response = await apiRequest('GET', '/api/marketing/requirements');
         if (!response.ok) return [];
-        return response.json();
+        const data = await response.json();
+        return Array.isArray(data) ? data : [];
       } catch {
         return [] as any[];
       }
@@ -193,7 +188,8 @@ export default function InterviewForm({
       try {
         const response = await apiRequest('GET', '/api/marketing/consultants?status=Active');
         if (!response.ok) return [];
-        return response.json();
+        const data = await response.json();
+        return Array.isArray(data) ? data : [];
       } catch {
         return [] as any[];
       }
@@ -249,7 +245,11 @@ export default function InterviewForm({
     const formValues = watch();
     const requirement = requirements.find((r: any) => r.id === formValues.requirementId);
     if (requirement) {
-      const subjectLine = `Interview - ${requirement.jobTitle} - Round ${formValues.round} - ${formValues.interviewDate ? new Date(formValues.interviewDate).toLocaleDateString() : '[Date]'}`;
+      const subjectLine = `Interview - ${requirement.jobTitle} - Round ${formValues.round} - ${
+        formValues.interviewDate
+          ? new Date(formValues.interviewDate).toLocaleDateString()
+          : '[Date]'
+      }`;
       setValue('subjectLine', subjectLine);
       toast.success('Subject line generated');
     }
@@ -277,20 +277,24 @@ export default function InterviewForm({
           </div>
         </DialogHeader>
 
-        <form id="interview-form" onSubmit={handleSubmit(handleFormSubmit)} className="flex-1 overflow-y-auto">
+        <form
+          id="interview-form"
+          onSubmit={handleSubmit(handleFormSubmit)}
+          className="flex-1 overflow-y-auto"
+        >
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="basic" className="flex items-center space-x-2">
                 <Calendar size={16} />
                 <span>Basic Info</span>
-                {(errors.requirementId || errors.interviewDate || errors.interviewTime) ? (
+                {errors.requirementId || errors.interviewDate || errors.interviewTime ? (
                   <AlertCircle size={12} className="text-red-500" />
                 ) : null}
               </TabsTrigger>
               <TabsTrigger value="details" className="flex items-center space-x-2">
                 <User size={16} />
                 <span>Interview Details</span>
-                {(errors.interviewer || errors.vendorCompany) ? (
+                {errors.interviewer || errors.vendorCompany ? (
                   <AlertCircle size={12} className="text-red-500" />
                 ) : null}
               </TabsTrigger>
@@ -322,11 +326,13 @@ export default function InterviewForm({
                                 <SelectValue placeholder="Select requirement" />
                               </SelectTrigger>
                               <SelectContent>
-                                {requirements.map((requirement: any) => (
-                                  <SelectItem key={requirement.id} value={requirement.id}>
-                                    {requirement.jobTitle} - {requirement.clientCompany}
-                                  </SelectItem>
-                                ))}
+                                {(Array.isArray(requirements) ? requirements : []).map(
+                                  (requirement: any) => (
+                                    <SelectItem key={requirement?.id} value={requirement?.id}>
+                                      {requirement?.jobTitle} - {requirement?.clientCompany}
+                                    </SelectItem>
+                                  )
+                                )}
                               </SelectContent>
                             </Select>
                           )}
@@ -341,8 +347,10 @@ export default function InterviewForm({
                           name="consultantId"
                           control={control}
                           render={({ field }) => (
-                            <Select 
-                              onValueChange={(value) => field.onChange(value === 'unassigned' ? null : value)} 
+                            <Select
+                              onValueChange={(value) =>
+                                field.onChange(value === 'unassigned' ? null : value)
+                              }
                               value={field.value ?? 'unassigned'}
                             >
                               <SelectTrigger>
@@ -350,11 +358,13 @@ export default function InterviewForm({
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="unassigned">No consultant assigned</SelectItem>
-                                {consultants.filter((c: any) => c.status === 'Active').map((consultant: any) => (
-                                  <SelectItem key={consultant.id} value={consultant.id}>
-                                    {consultant.name} ({consultant.email})
-                                  </SelectItem>
-                                ))}
+                                {(Array.isArray(consultants) ? consultants : [])
+                                  .filter((c: any) => c?.status === 'Active')
+                                  .map((consultant: any) => (
+                                    <SelectItem key={consultant?.id} value={consultant?.id}>
+                                      {consultant?.name} ({consultant?.email})
+                                    </SelectItem>
+                                  ))}
                               </SelectContent>
                             </Select>
                           )}
@@ -375,7 +385,9 @@ export default function InterviewForm({
                             <Input
                               {...field}
                               type="date"
-                              value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
+                              value={
+                                field.value ? new Date(field.value).toISOString().split('T')[0] : ''
+                              }
                               onChange={(e) => field.onChange(new Date(e.target.value))}
                               className={errors.interviewDate ? 'border-red-500' : ''}
                             />
