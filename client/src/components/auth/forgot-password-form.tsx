@@ -114,7 +114,12 @@ export function ForgotPasswordForm({ onBackToLogin }: ForgotPasswordFormProps) {
               <FormItem>
                 <FormLabel>Email</FormLabel>
                 <FormControl>
-                  <Input placeholder="Enter your email" {...field} />
+                  <Input 
+                    placeholder="Enter your email" 
+                    autoComplete="email"
+                    type="email"
+                    {...field} 
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>

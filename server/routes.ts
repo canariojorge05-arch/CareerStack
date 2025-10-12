@@ -573,11 +573,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // File attachment routes
   app.use('/api/attachments', attachmentRoutes);
 
+  // Use distributed Redis-backed rate limiting for login
+  const { authRateLimiter: distributedLoginRateLimiter } = await import('./middleware/distributedRateLimiter');
+  
   // Auth routes (includes login, register, logout, etc.)
-  // Apply rate limiting to login route specifically
-  app.use('/api/auth', (req, res, next) => {
+  // Apply distributed rate limiting to login route
+  app.use('/api/auth', async (req, res, next) => {
     if (req.path === '/login' && req.method === 'POST') {
-      return loginRateLimiter(req, res, next);
+      // Apply distributed rate limiter first
+      return distributedLoginRateLimiter(req, res, () => {
+        // Then apply database fallback rate limiter
+        return loginRateLimiter(req, res, next);
+      });
     }
     next();
   }, authRoutes);
@@ -814,7 +821,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Resend email verification
-  // Minimal DB-backed rate limit: max 3 per 5 minutes per email+IP
+  // Use distributed Redis-backed rate limiting for verification resend
+  const { verificationRateLimiter: distributedVerificationRateLimiter } = await import('./middleware/distributedRateLimiter');
+  
+  // Fallback DB-backed rate limit: max 3 per 5 minutes per email+IP
   const resendVerificationRateLimiter = async (req: any, res: any, next: any) => {
     try {
       const email = String(req.body?.email || '').toLowerCase().trim();
@@ -868,7 +878,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
-  app.post('/api/auth/resend-verification', resendVerificationRateLimiter, async (req, res) => {
+  app.post('/api/auth/resend-verification', 
+    distributedVerificationRateLimiter, // Redis-backed distributed rate limiter
+    resendVerificationRateLimiter, // Database-backed fallback
+    async (req, res) => {
     try {
       const email = String(req.body?.email || '').toLowerCase().trim();
       if (!email || !/.+@.+\..+/.test(email)) {
@@ -1263,8 +1276,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const uploadRateLimiter = makeRateLimiter('upload_resume', RATE_WINDOW_MS, RATE_UPLOAD_MAX);
+  
+  // Use distributed rate limiting for uploads
+  const { uploadRateLimiter: distributedUploadRateLimiter } = await import('./middleware/distributedRateLimiter');
 
-  app.post('/api/resumes/upload', isAuthenticated, uploadRateLimiter, upload.array('files'), async (req: any, res) => {
+  app.post('/api/resumes/upload', 
+    isAuthenticated, 
+    distributedUploadRateLimiter, // Redis-backed distributed rate limiter
+    uploadRateLimiter, // Database-backed fallback
+    upload.array('files'), 
+    async (req: any, res) => {
     try {
       const userId = req.user.id;
       const sessionId = req.sessionID as string | undefined;

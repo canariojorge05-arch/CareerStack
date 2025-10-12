@@ -217,7 +217,13 @@ export default function Dashboard() {
   // Track optimistic updates
   const optimisticUpdatesRef = useRef<Set<string>>(new Set());
 
-  // Router guards will render Landing when not authenticated. Avoid forcing redirects here to prevent loops.
+  // Defensive check: redirect if not authenticated (belt and suspenders with PrivateRoute)
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      console.warn('[Dashboard] Accessed without authentication, redirecting...');
+      navigate('/login');
+    }
+  }, [isLoading, isAuthenticated, navigate]);
 
   // Fetch resumes
   const {

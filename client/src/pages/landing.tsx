@@ -41,8 +41,8 @@ export default function Landing() {
     }
   }, [isAuthenticated, isLoading, setLocation]);
 
-  // Show loading if we're checking auth or redirecting
-  if (isLoading || isAuthenticated) {
+  // Show loading only while checking auth, not during redirect
+  if (isLoading) {
     return <PageLoader variant="branded" text="Loading..." />;
   }
 

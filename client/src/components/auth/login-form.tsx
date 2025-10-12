@@ -56,7 +56,7 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
       passwordLength: data.password.length,
     });
 
-    if (attemptCount >= 3) {
+    if (attemptCount >= 5) {
       toast({
         variant: 'destructive',
         title: 'Account Locked',
@@ -162,7 +162,7 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
 
       let errorMessage = error.message || 'Login failed. Please try again.';
       if (attemptCount >= 1) {
-        const remainingAttempts = 3 - (attemptCount + 1);
+        const remainingAttempts = 5 - (attemptCount + 1);
         errorMessage += ` (${remainingAttempts} attempts remaining)`;
       }
 
@@ -177,8 +177,8 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
         console.log('Showing error toast:', errorMessage);
       }
 
-      // If this was the third failed attempt, set a timeout
-      if (attemptCount + 1 >= 3) {
+      // If this was the fifth failed attempt, set a timeout
+      if (attemptCount + 1 >= 5) {
         setTimeout(() => {
           setAttemptCount(0);
           toast({
@@ -268,7 +268,12 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
             <FormItem>
               <FormLabel>Email</FormLabel>
               <FormControl>
-                <Input placeholder="Enter your email" {...field} />
+                <Input 
+                  placeholder="Enter your email" 
+                  autoComplete="email"
+                  type="email"
+                  {...field} 
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -285,6 +290,7 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
                   <Input
                     type={showPassword ? 'text' : 'password'}
                     placeholder="Enter your password"
+                    autoComplete="current-password"
                     {...field}
                   />
                   <Button
@@ -293,6 +299,7 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
                     size="sm"
                     className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                     onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
@@ -307,9 +314,9 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
           className="w-full"
           loading={isLoading}
           loadingText="Logging in..."
-          disabled={attemptCount >= 3}
+          disabled={attemptCount >= 5}
         >
-          {attemptCount >= 3 ? 'Too many attempts' : 'Login'}
+          {attemptCount >= 5 ? 'Too many attempts' : 'Login'}
         </LoadingButton>
 
         {/* Forgot Password Link */}
@@ -324,7 +331,7 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
             </button>
           </div>
         )}
-        {attemptCount >= 3 && (
+        {attemptCount >= 5 && (
           <p className="text-sm text-red-600 text-center">
             Account temporarily locked. Please try again later.
           </p>
