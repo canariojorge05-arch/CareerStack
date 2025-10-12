@@ -801,7 +801,7 @@ export default function InterviewForm({
           </div>
 
           <div className="flex items-center space-x-2">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
               Cancel
             </Button>
             <Button type="submit" form="interview-form" disabled={isSubmitting || !isValid}>

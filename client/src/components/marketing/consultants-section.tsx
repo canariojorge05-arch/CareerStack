@@ -6,6 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Pagination } from '@/components/ui/pagination';
+import { useDebounce } from '@/hooks/useDebounce';
+import { usePagination } from '@/hooks/usePagination';
 import { 
   Users, 
   Plus, 
@@ -78,13 +81,41 @@ function ConsultantsSection() {
   const [showEditForm, setShowEditForm] = useState(false);
   const [viewConsultant, setViewConsultant] = useState<Consultant | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  
+  // Debounce search query
+  const debouncedSearch = useDebounce(searchQuery, 300);
+  
+  // Pagination state
+  const pagination = usePagination(0, {
+    initialPageSize: 25,
+    pageSizeOptions: [10, 25, 50, 100],
+  });
 
-  // Fetch consultants with pagination support
+  // Fetch consultants with pagination and filtering
   const { data: consultantsResponse, isLoading, isError, error } = useQuery({
-    queryKey: ['/api/marketing/consultants'],
+    queryKey: [
+      '/api/marketing/consultants',
+      pagination.page,
+      pagination.pageSize,
+      statusFilter,
+      debouncedSearch,
+    ],
     queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(pagination.page),
+        limit: String(pagination.pageSize),
+      });
+      
+      if (statusFilter && statusFilter !== 'All') {
+        params.append('status', statusFilter);
+      }
+      
+      if (debouncedSearch) {
+        params.append('search', debouncedSearch);
+      }
+      
       try {
-        const response = await apiRequest('GET', '/api/marketing/consultants');
+        const response = await apiRequest('GET', `/api/marketing/consultants?${params}`);
         if (!response.ok) {
           throw new Error('Failed to fetch consultants');
         }
@@ -100,9 +131,11 @@ function ConsultantsSection() {
     },
     retry: 1,
     staleTime: 60000, // 1 minute - data stays fresh longer
+    keepPreviousData: true,
   });
 
   const consultants = consultantsResponse?.data || [];
+  const totalItems = consultantsResponse?.pagination?.total || consultants.length;
 
   // Create consultant mutation with optimistic updates
   const createMutation = useMutation({
@@ -265,28 +298,8 @@ function ConsultantsSection() {
     }
   };
 
-  // Filter consultants based on search and status
-  const filteredConsultants = useMemo(() => {
-    let filtered = consultants;
-
-    // Apply status filter
-    if (statusFilter && statusFilter !== 'All') {
-      filtered = filtered.filter((consultant: Consultant) => consultant.status === statusFilter);
-    }
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((consultant: Consultant) => 
-        consultant.name?.toLowerCase().includes(query) ||
-        consultant.email?.toLowerCase().includes(query) ||
-        consultant.visaStatus?.toLowerCase().includes(query) ||
-        consultant.countryOfOrigin?.toLowerCase().includes(query)
-      );
-    }
-
-    return filtered;
-  }, [consultants, statusFilter, searchQuery]);
+  // Since we now filter on the backend, use consultants directly
+  const filteredConsultants = consultants;
 
   const handleAddConsultant = () => {
     setSelectedConsultant(null);
@@ -458,7 +471,7 @@ function ConsultantsSection() {
 
       {/* Consultants List */}
       <div className="space-y-3">
-        {filteredConsultants.length === 0 ? (
+        {filteredConsultants.length === 0 && totalItems === 0 ? (
           <Card className="border-slate-200">
             <CardContent className="p-12 text-center">
               <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-purple-100 flex items-center justify-center">
@@ -584,6 +597,46 @@ function ConsultantsSection() {
           ))
         )}
       </div>
+      
+      {/* Pagination Controls */}
+      {totalItems > pagination.pageSize && (
+        <Pagination
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          totalItems={totalItems}
+          totalPages={pagination.totalPages}
+          hasNextPage={pagination.hasNextPage}
+          hasPreviousPage={pagination.hasPreviousPage}
+          onPageChange={pagination.goToPage}
+          onPageSizeChange={pagination.setPageSize}
+          showPageSize={true}
+          showPageInfo={true}
+        />
+      )}
+      
+      {/* No results after search/filter */}
+      {filteredConsultants.length === 0 && totalItems > 0 && (
+        <Card className="border-slate-200">
+          <CardContent className="p-12 text-center">
+            <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">
+              <Search className="h-8 w-8 text-slate-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">No matching consultants</h3>
+            <p className="text-slate-600 mb-4">Try adjusting your search or filters</p>
+            <Button
+              onClick={() => {
+                setSearchQuery('');
+                setStatusFilter('All');
+                pagination.reset();
+              }}
+              variant="outline"
+              size="sm"
+            >
+              Clear Filters
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Add/Edit Consultant Form */}
       <AdvancedConsultantForm

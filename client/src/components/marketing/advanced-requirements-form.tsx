@@ -287,7 +287,7 @@ Additional Information:
           </div>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(handleFormSubmit)} className="flex-1 overflow-y-auto">
+        <form id="requirement-form" onSubmit={handleSubmit(handleFormSubmit)} className="flex-1 overflow-y-auto">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="requirement" className="flex items-center space-x-2">
@@ -775,6 +775,10 @@ Additional Information:
           </div>
         </DialogFooter>
       </DialogContent>
+    </Dialog>
+  );
+}
+ent>
     </Dialog>
   );
 }

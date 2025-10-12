@@ -808,7 +808,7 @@ export default function AdvancedConsultantForm({
           </div>
 
           <div className="flex items-center space-x-2">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
               Cancel
             </Button>
             <Button
