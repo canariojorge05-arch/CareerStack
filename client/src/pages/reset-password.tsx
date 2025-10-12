@@ -23,7 +23,7 @@ const formSchema = z.object({
     .min(8, "Password must be at least 8 characters")
     .regex(
       /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/,
-      "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character"
+      "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)"
     ),
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
@@ -166,6 +166,7 @@ export default function ResetPassword() {
                       <Input
                         type={showPassword ? 'text' : 'password'}
                         placeholder="Enter your new password"
+                        autoComplete="new-password"
                         {...field}
                       />
                       <Button
@@ -174,6 +175,7 @@ export default function ResetPassword() {
                         size="sm"
                         className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                         onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
                       >
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>
@@ -195,6 +197,7 @@ export default function ResetPassword() {
                       <Input
                         type={showConfirmPassword ? 'text' : 'password'}
                         placeholder="Confirm your new password"
+                        autoComplete="new-password"
                         {...field}
                       />
                       <Button
@@ -203,6 +206,7 @@ export default function ResetPassword() {
                         size="sm"
                         className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        aria-label={showConfirmPassword ? "Hide password" : "Show password"}
                       >
                         {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>

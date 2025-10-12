@@ -39,8 +39,8 @@ const formSchema = z
       .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
       .max(MAX_PASSWORD_LENGTH, `Password must be less than ${MAX_PASSWORD_LENGTH} characters`)
       .regex(
-        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/,
-        'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
+        'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)'
       )
       .refine(
         (password) => !/(.)\1{2,}/.test(password),
@@ -155,7 +155,12 @@ export function RegisterForm() {
             <FormItem>
               <FormLabel>Email</FormLabel>
               <FormControl>
-                <Input placeholder="Enter your email" {...field} />
+                <Input 
+                  placeholder="Enter your email" 
+                  autoComplete="email"
+                  type="email"
+                  {...field} 
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -172,6 +177,7 @@ export function RegisterForm() {
                   <Input
                     type={showPassword ? 'text' : 'password'}
                     placeholder="Enter your password"
+                    autoComplete="new-password"
                     {...field}
                     onChange={(e) => {
                       field.onChange(e);
@@ -192,6 +198,7 @@ export function RegisterForm() {
                     size="sm"
                     className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                     onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
@@ -234,6 +241,7 @@ export function RegisterForm() {
                   <Input
                     type={showConfirmPassword ? 'text' : 'password'}
                     placeholder="Confirm your password"
+                    autoComplete="new-password"
                     {...field}
                   />
                   <Button
@@ -242,6 +250,7 @@ export function RegisterForm() {
                     size="sm"
                     className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
                   >
                     {showConfirmPassword ? (
                       <EyeOff className="h-4 w-4" />
@@ -284,14 +293,14 @@ export function RegisterForm() {
           className="w-full" 
           loading={isLoading}
           loadingText="Creating account..."
-          disabled={passwordStrength < 3}
+          disabled={passwordStrength < 4}
         >
           <Shield className="w-4 h-4 mr-2" />
           Create Account
         </LoadingButton>
-        {passwordStrength < 3 && (
+        {passwordStrength < 4 && (
           <p className="text-sm text-amber-600 text-center">
-            Please create a stronger password to continue
+            Please create a stronger password to continue (must meet at least 4 criteria)
           </p>
         )}
         
