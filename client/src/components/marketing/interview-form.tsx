@@ -134,6 +134,33 @@ interface InterviewFormProps {
   isSubmitting?: boolean;
 }
 
+// FieldWrapper component moved outside to prevent re-creation on every render
+const FieldWrapper = ({
+  children,
+  error,
+  status = 'default',
+}: {
+  children: React.ReactNode;
+  error?: string;
+  status?: 'default' | 'success' | 'error';
+}) => (
+  <div className="relative">
+    {children}
+    {status === 'success' && (
+      <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
+    )}
+    {status === 'error' && (
+      <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
+    )}
+    {error && (
+      <p className="text-sm text-red-500 mt-1 flex items-center">
+        <AlertCircle className="h-3 w-3 mr-1" />
+        {error}
+      </p>
+    )}
+  </div>
+);
+
 export default function InterviewForm({
   open,
   onClose,
@@ -227,32 +254,6 @@ export default function InterviewForm({
       toast.success('Subject line generated');
     }
   };
-
-  const FieldWrapper = ({
-    children,
-    error,
-    status = 'default',
-  }: {
-    children: React.ReactNode;
-    error?: string;
-    status?: 'default' | 'success' | 'error';
-  }) => (
-    <div className="relative">
-      {children}
-      {status === 'success' && (
-        <CheckCircle className="absolute right-3 top-3 h-4 w-4 text-green-500" />
-      )}
-      {status === 'error' && (
-        <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
-      )}
-      {error && (
-        <p className="text-sm text-red-500 mt-1 flex items-center">
-          <AlertCircle className="h-3 w-3 mr-1" />
-          {error}
-        </p>
-      )}
-    </div>
-  );
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
