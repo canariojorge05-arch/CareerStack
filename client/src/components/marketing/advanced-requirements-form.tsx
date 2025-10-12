@@ -144,6 +144,9 @@ const FieldWrapper = ({
   </div>
 );
 
+// Constants moved outside to prevent re-creation on every render
+const appliedForOptions = ['Rahul', 'Sarah Johnson', 'Mike Chen', 'Lisa Rodriguez'];
+
 export default function AdvancedRequirementsForm({
   open,
   onClose,
@@ -177,9 +180,6 @@ export default function AdvancedRequirementsForm({
 
 
   // Note: Removed watch() calls to prevent re-renders on every keystroke that cause focus loss
-
-  // Auto-generate applied for options
-  const appliedForOptions = ['Rahul', 'Sarah Johnson', 'Mike Chen', 'Lisa Rodriguez'];
 
   const getFieldError = (fieldName: keyof RequirementFormData) => {
     return errors[fieldName]?.message;

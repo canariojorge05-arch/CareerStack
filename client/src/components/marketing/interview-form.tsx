@@ -277,7 +277,7 @@ export default function InterviewForm({
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto">
+        <form id="interview-form" onSubmit={handleSubmit(handleFormSubmit)} className="flex-1 overflow-y-auto">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="basic" className="flex items-center space-x-2">
@@ -779,7 +779,7 @@ export default function InterviewForm({
               </Card>
             </TabsContent>
           </Tabs>
-        </div>
+        </form>
 
         <DialogFooter className="flex-shrink-0 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -789,10 +789,10 @@ export default function InterviewForm({
           </div>
 
           <div className="flex items-center space-x-2">
-            <Button variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit(handleFormSubmit)} disabled={isSubmitting || !isValid}>
+            <Button type="submit" form="interview-form" disabled={isSubmitting || !isValid}>
               <Save className="h-4 w-4 mr-2" />
               {isSubmitting
                 ? 'Scheduling...'

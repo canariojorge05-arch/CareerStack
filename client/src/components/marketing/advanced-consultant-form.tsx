@@ -298,7 +298,7 @@ export default function AdvancedConsultantForm({
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto">
+        <form id="consultant-form" onSubmit={handleSubmit(handleFormSubmit)} className="flex-1 overflow-y-auto">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="consultant" className="flex items-center space-x-2">
@@ -318,7 +318,6 @@ export default function AdvancedConsultantForm({
             </TabsList>
 
             <TabsContent value="consultant" className="space-y-6">
-              <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
                 {/* Basic Info */}
                 <Card>
                   <CardHeader>
@@ -629,7 +628,6 @@ export default function AdvancedConsultantForm({
                     </div>
                   </CardContent>
                 </Card>
-              </form>
             </TabsContent>
 
             <TabsContent value="projects" className="space-y-6">
@@ -792,7 +790,7 @@ export default function AdvancedConsultantForm({
               </Card>
             </TabsContent>
           </Tabs>
-        </div>
+        </form>
 
         <DialogFooter className="flex-shrink-0 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -810,11 +808,12 @@ export default function AdvancedConsultantForm({
           </div>
 
           <div className="flex items-center space-x-2">
-            <Button variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button
-              onClick={handleSubmit(handleFormSubmit)}
+              type="submit"
+              form="consultant-form"
               disabled={isSubmitting || !isValid}
             >
               {isSubmitting
