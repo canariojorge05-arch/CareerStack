@@ -90,6 +90,15 @@ export function csrfTokenMiddleware(req: Request, res: Response, next: NextFunct
     // Add to response header for SPA consumption
     res.setHeader('X-CSRF-Token', token);
     
+    // **CRITICAL FIX:** Set as cookie so frontend JavaScript can access it
+    res.cookie('csrf_token', token, {
+      httpOnly: false, // Must be false so JavaScript can read it
+      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      sameSite: 'strict', // Prevent CSRF attacks
+      maxAge: 60 * 60 * 1000, // 1 hour
+      path: '/', // Available across entire site
+    });
+    
     next();
   } catch (error) {
     console.error('CSRF token generation error:', error);

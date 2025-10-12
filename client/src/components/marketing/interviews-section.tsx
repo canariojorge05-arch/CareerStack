@@ -5,6 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Pagination } from '@/components/ui/pagination';
+import { useDebounce } from '@/hooks/useDebounce';
+import { usePagination } from '@/hooks/usePagination';
 import {
   Calendar,
   Plus,
@@ -16,6 +20,7 @@ import {
   Eye,
   Edit as EditIcon,
   Trash2,
+  Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import InterviewForm from './interview-form';
@@ -31,32 +36,63 @@ import {
 export default function InterviewsSection() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showInterviewForm, setShowInterviewForm] = useState(false);
   const [selectedInterview, setSelectedInterview] = useState<any>(null);
   const [showEditForm, setShowEditForm] = useState(false);
   const [viewInterview, setViewInterview] = useState<any>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  
+  // Debounce search query
+  const debouncedSearch = useDebounce(searchQuery, 300);
+  
+  // Pagination state
+  const pagination = usePagination(0, {
+    initialPageSize: 25,
+    pageSizeOptions: [10, 25, 50, 100],
+  });
 
   const interviewTabs = ['All', 'Cancelled', 'Re-Scheduled', 'Confirmed', 'Completed'];
 
-  // Fetch interviews with proper error handling
+  // Fetch interviews with pagination and filtering
   const {
-    data: interviews = [],
+    data: interviewsResponse,
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ['/api/marketing/interviews'],
+    queryKey: [
+      '/api/marketing/interviews',
+      pagination.page,
+      pagination.pageSize,
+      activeTab,
+      debouncedSearch,
+    ],
     queryFn: async () => {
-      const response = await apiRequest('GET', '/api/marketing/interviews');
+      const params = new URLSearchParams({
+        page: String(pagination.page),
+        limit: String(pagination.pageSize),
+      });
+      
+      if (activeTab && activeTab !== 'All') {
+        params.append('status', activeTab);
+      }
+      
+      const response = await apiRequest('GET', `/api/marketing/interviews?${params}`);
       if (!response.ok) {
         throw new Error('Failed to fetch interviews');
       }
-      const data = await response.json();
-      return Array.isArray(data) ? data : [];
+      return response.json();
     },
     retry: 1,
+    keepPreviousData: true,
   });
+  
+  // Handle both paginated and non-paginated responses
+  const interviews = Array.isArray(interviewsResponse)
+    ? interviewsResponse
+    : interviewsResponse?.data || [];
+  const totalItems = interviewsResponse?.pagination?.total || interviews.length;
 
   // Create interview mutation
   const createMutation = useMutation({
@@ -223,6 +259,17 @@ export default function InterviewsSection() {
           Schedule Interview
         </Button>
       </div>
+      
+      {/* Search Bar */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+        <Input
+          placeholder="Search by consultant, company, or interviewer..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-10"
+        />
+      </div>
 
       <Tabs defaultValue="All" value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-5">
@@ -235,6 +282,7 @@ export default function InterviewsSection() {
 
         {interviewTabs.map((tab) => (
           <TabsContent key={tab} value={tab} className="space-y-3 mt-4">
+            {/* Interviews List */}
             {filteredInterviews
               .filter((interview: any) => tab === 'All' || interview.status === tab)
               .map((interview: any) => (
@@ -325,7 +373,24 @@ export default function InterviewsSection() {
                   </CardContent>
                 </Card>
               ))}
+            
+            {/* Pagination */}
+            {totalItems > pagination.pageSize && (
+              <Pagination
+                page={pagination.page}
+                pageSize={pagination.pageSize}
+                totalItems={totalItems}
+                totalPages={pagination.totalPages}
+                hasNextPage={pagination.hasNextPage}
+                hasPreviousPage={pagination.hasPreviousPage}
+                onPageChange={pagination.goToPage}
+                onPageSizeChange={pagination.setPageSize}
+                showPageSize={true}
+                showPageInfo={true}
+              />
+            )}
 
+            {/* Empty State */}
             {filteredInterviews.filter(
               (interview: any) => tab === 'All' || interview.status === tab
             ).length === 0 && (

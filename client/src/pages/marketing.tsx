@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -58,6 +60,33 @@ export default function MarketingPage() {
   }
 
   const marketingUser = user as MarketingUser;
+  
+  // Fetch real stats from API
+  const { data: stats } = useQuery({
+    queryKey: ['/api/stats/marketing/stats'],
+    queryFn: async () => {
+      try {
+        const response = await apiRequest('GET', '/api/stats/marketing/stats');
+        if (!response.ok) {
+          // Return fallback data if API fails
+          return {
+            activeRequirements: { total: 0, weeklyChange: 0, trend: 'neutral' },
+            upcomingInterviews: { total: 0, nextInterview: 'No upcoming' },
+            activeConsultants: { total: 0, monthlyChange: 0, trend: 'neutral' },
+          };
+        }
+        return response.json();
+      } catch {
+        return {
+          activeRequirements: { total: 0, weeklyChange: 0, trend: 'neutral' },
+          upcomingInterviews: { total: 0, nextInterview: 'No upcoming' },
+          activeConsultants: { total: 0, monthlyChange: 0, trend: 'neutral' },
+        };
+      }
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+    staleTime: 15000, // Consider stale after 15 seconds
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
@@ -118,17 +147,24 @@ export default function MarketingPage() {
           </div>
         </div>
 
-        {/* Quick Stats - Only show in Requirements section */}
-        {activeSection === 'requirements' && (
+        {/* Quick Stats - Only show in Requirements section - NOW WITH REAL DATA */}
+        {activeSection === 'requirements' && stats && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="border-slate-200 hover:shadow-md transition-shadow">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-slate-600 mb-1">Active Requirements</p>
-                    <p className="text-3xl font-bold text-slate-900">24</p>
-                    <p className="text-xs text-green-600 mt-1 flex items-center">
-                      <span className="mr-1">↑</span> +3 this week
+                    <p className="text-3xl font-bold text-slate-900">
+                      {stats.activeRequirements?.total || 0}
+                    </p>
+                    <p className={`text-xs mt-1 flex items-center ${
+                      stats.activeRequirements?.trend === 'up' ? 'text-green-600' : 'text-slate-600'
+                    }`}>
+                      {stats.activeRequirements?.trend === 'up' && <span className="mr-1">↑</span>}
+                      {stats.activeRequirements?.weeklyChange > 0 
+                        ? `+${stats.activeRequirements.weeklyChange} this week`
+                        : 'No new this week'}
                     </p>
                   </div>
                   <div className="h-12 w-12 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -143,8 +179,12 @@ export default function MarketingPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-slate-600 mb-1">Upcoming Interviews</p>
-                    <p className="text-3xl font-bold text-slate-900">8</p>
-                    <p className="text-xs text-slate-600 mt-1">Next: Tomorrow</p>
+                    <p className="text-3xl font-bold text-slate-900">
+                      {stats.upcomingInterviews?.total || 0}
+                    </p>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Next: {stats.upcomingInterviews?.nextInterview || 'No upcoming'}
+                    </p>
                   </div>
                   <div className="h-12 w-12 bg-indigo-100 rounded-lg flex items-center justify-center">
                     <Calendar className="text-indigo-600" size={24} />
@@ -158,9 +198,16 @@ export default function MarketingPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-slate-600 mb-1">Active Consultants</p>
-                    <p className="text-3xl font-bold text-slate-900">12</p>
-                    <p className="text-xs text-green-600 mt-1 flex items-center">
-                      <span className="mr-1">↑</span> 2 new this month
+                    <p className="text-3xl font-bold text-slate-900">
+                      {stats.activeConsultants?.total || 0}
+                    </p>
+                    <p className={`text-xs mt-1 flex items-center ${
+                      stats.activeConsultants?.trend === 'up' ? 'text-green-600' : 'text-slate-600'
+                    }`}>
+                      {stats.activeConsultants?.trend === 'up' && <span className="mr-1">↑</span>}
+                      {stats.activeConsultants?.monthlyChange > 0
+                        ? `${stats.activeConsultants.monthlyChange} new this month`
+                        : 'No new this month'}
                     </p>
                   </div>
                   <div className="h-12 w-12 bg-purple-100 rounded-lg flex items-center justify-center">

@@ -560,6 +560,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Marketing module routes
   app.use('/api/marketing', (await import('./routes/marketingRoutes')).default);
+  
+  // Stats routes (for dashboard metrics)
+  app.use('/api/stats', (await import('./routes/statsRoutes')).default);
 
   // Email enhancements routes
   app.use('/api/email-enhancements', emailEnhancementsRoutes);
