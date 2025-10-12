@@ -177,10 +177,7 @@ export default function AdvancedConsultantForm({
     name: 'projects',
   });
 
-  // Watch specific form values for real-time validation feedback
-  const name = watch('name');
-  const email = watch('email');
-  const status = watch('status');
+  // Note: Removed watch() calls to prevent re-renders on every keystroke that cause focus loss
   const watchedProjects = watchProjects('projects');
 
   const createConsultantMutation = useMutation({
@@ -212,12 +209,6 @@ export default function AdvancedConsultantForm({
 
   const getFieldStatus = (fieldName: keyof ConsultantFormData) => {
     if (errors[fieldName]) return 'error';
-    // Check specific watched fields
-    const fieldValue = fieldName === 'name' ? name :
-                      fieldName === 'email' ? email :
-                      fieldName === 'status' ? status : null;
-    
-    if (fieldValue && !errors[fieldName]) return 'success';
     return 'default';
   };
 
@@ -314,11 +305,7 @@ export default function AdvancedConsultantForm({
                 <span>Consultant Info</span>
                 {errors.name || errors.email || errors.status ? (
                   <AlertCircle size={12} className="text-red-500" />
-                ) : (
-                  name && email && (
-                    <CheckCircle size={12} className="text-green-500" />
-                  )
-                )}
+                ) : null}
               </TabsTrigger>
               <TabsTrigger value="projects" className="flex items-center space-x-2">
                 <FileText size={16} />
