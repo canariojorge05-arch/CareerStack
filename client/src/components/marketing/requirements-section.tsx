@@ -5,6 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Pagination } from '@/components/ui/pagination';
+import { useDebounce } from '@/hooks/useDebounce';
+import { usePagination } from '@/hooks/usePagination';
 import {
   FileText,
   Plus,
@@ -36,6 +39,15 @@ export default function RequirementsSection() {
   const [showEditForm, setShowEditForm] = useState(false);
   const [viewRequirement, setViewRequirement] = useState<any>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  
+  // Debounce search query to reduce API calls
+  const debouncedSearch = useDebounce(searchQuery, 300);
+  
+  // Pagination state
+  const pagination = usePagination(0, {
+    initialPageSize: 25,
+    pageSizeOptions: [10, 25, 50, 100],
+  });
 
   // Fetch consultants for assignment
   const { data: consultants = [] } = useQuery({
@@ -53,23 +65,49 @@ export default function RequirementsSection() {
     retry: false,
   });
 
-  // Fetch requirements with proper error handling
+  // Fetch requirements with pagination and filtering
   const {
-    data: requirements = [],
+    data: requirementsResponse,
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ['/api/marketing/requirements'],
+    queryKey: [
+      '/api/marketing/requirements',
+      pagination.page,
+      pagination.pageSize,
+      statusFilter,
+      debouncedSearch,
+    ],
     queryFn: async () => {
-      const response = await apiRequest('GET', '/api/marketing/requirements');
+      const params = new URLSearchParams({
+        page: String(pagination.page),
+        limit: String(pagination.pageSize),
+      });
+      
+      if (statusFilter && statusFilter !== 'All') {
+        params.append('status', statusFilter);
+      }
+      
+      if (debouncedSearch) {
+        params.append('search', debouncedSearch);
+      }
+      
+      const response = await apiRequest('GET', `/api/marketing/requirements?${params}`);
       if (!response.ok) {
         throw new Error('Failed to fetch requirements');
       }
       return response.json();
     },
     retry: 1,
+    keepPreviousData: true, // Keep showing old data while fetching new
   });
+  
+  // Handle both paginated and non-paginated responses
+  const requirements = Array.isArray(requirementsResponse) 
+    ? requirementsResponse 
+    : requirementsResponse?.data || [];
+  const totalItems = requirementsResponse?.pagination?.total || requirements.length;
 
   // Create requirement mutation
   const createMutation = useMutation({
@@ -134,30 +172,8 @@ export default function RequirementsSection() {
     },
   });
 
-  // Filter requirements based on search and status
-  const filteredRequirements = useMemo(() => {
-    // Ensure requirements is an array
-    let filtered = Array.isArray(requirements) ? requirements : [];
-
-    // Apply status filter
-    if (statusFilter && statusFilter !== 'All') {
-      filtered = filtered.filter((req: any) => req.status === statusFilter);
-    }
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (req: any) =>
-          req.jobTitle?.toLowerCase().includes(query) ||
-          req.clientCompany?.toLowerCase().includes(query) ||
-          req.primaryTechStack?.toLowerCase().includes(query) ||
-          req.appliedFor?.toLowerCase().includes(query)
-      );
-    }
-
-    return filtered;
-  }, [requirements, statusFilter, searchQuery]);
+  // Since we now filter on the backend, we can just use the requirements directly
+  const filteredRequirements = requirements;
 
   const statusOptions = ['All', 'New', 'In Progress', 'Submitted', 'Closed'];
 
@@ -398,8 +414,24 @@ export default function RequirementsSection() {
         ))}
       </div>
 
+      {/* Pagination Controls */}
+      {totalItems > 0 && (
+        <Pagination
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          totalItems={totalItems}
+          totalPages={pagination.totalPages}
+          hasNextPage={pagination.hasNextPage}
+          hasPreviousPage={pagination.hasPreviousPage}
+          onPageChange={pagination.goToPage}
+          onPageSizeChange={pagination.setPageSize}
+          showPageSize={true}
+          showPageInfo={true}
+        />
+      )}
+
       {/* Empty States */}
-      {filteredRequirements.length === 0 && requirements.length > 0 && (
+      {filteredRequirements.length === 0 && totalItems > 0 && (
         <Card className="border-slate-200">
           <CardContent className="p-12 text-center">
             <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">
@@ -411,6 +443,7 @@ export default function RequirementsSection() {
               onClick={() => {
                 setSearchQuery('');
                 setStatusFilter('All');
+                pagination.reset();
               }}
               variant="outline"
               size="sm"
@@ -421,7 +454,7 @@ export default function RequirementsSection() {
         </Card>
       )}
 
-      {requirements.length === 0 && (
+      {totalItems === 0 && (
         <Card className="border-slate-200">
           <CardContent className="p-12 text-center">
             <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-blue-100 flex items-center justify-center">

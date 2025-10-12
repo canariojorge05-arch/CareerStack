@@ -7,6 +7,7 @@ import {
   bulkOperationsRateLimiter,
   emailRateLimiter 
 } from '../middleware/rateLimiter';
+import { csrfProtection, csrfTokenMiddleware } from '../middleware/csrf';
 import { EmailService } from '../services/emailService';
 import { ImapService } from '../services/imapService';
 import { EnhancedGmailOAuthService } from '../services/enhancedGmailOAuthService';
@@ -16,6 +17,13 @@ import { EmailSyncService } from '../services/emailSyncService';
 import { EmailSearchService } from '../services/emailSearchService';
 import { EmailDeliverabilityService } from '../services/emailDeliverabilityService';
 import { EmailRateLimiter } from '../services/emailRateLimiter';
+import { encrypt, decrypt, maskSSN } from '../utils/encryption';
+import { logCreate, logUpdate, logDelete, logView } from '../utils/auditLogger';
+import { 
+  sanitizeConsultantData, 
+  sanitizeRequirementData, 
+  sanitizeInterviewData 
+} from '../utils/sanitizer';
 import multer from 'multer';
 import { 
   consultants,
@@ -159,6 +167,9 @@ const requireMarketingRole = async (req: any, res: any, next: any) => {
 router.use(isAuthenticated);
 router.use(requireMarketingRole);
 
+// Apply CSRF token generation to all routes (adds token to response)
+router.use(csrfTokenMiddleware);
+
 // Apply global rate limiting to all marketing routes
 router.use(marketingRateLimiter);
 
@@ -266,13 +277,21 @@ router.get('/consultants/:id', async (req, res) => {
 });
 
 // Create consultant with projects (OPTIMIZED with transaction and batch insert)
-router.post('/consultants', writeOperationsRateLimiter, async (req, res) => {
+router.post('/consultants', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { consultant: consultantData, projects = [] } = req.body;
     
+    // Sanitize input data
+    const sanitizedData = sanitizeConsultantData(consultantData);
+    
+    // Encrypt SSN if provided
+    if (sanitizedData.ssn) {
+      sanitizedData.ssn = encrypt(sanitizedData.ssn);
+    }
+    
     // Validate consultant data
     const validatedConsultant = insertConsultantSchema.parse({
-      ...consultantData,
+      ...sanitizedData,
       createdBy: req.user!.id
     });
     
@@ -298,7 +317,22 @@ router.post('/consultants', writeOperationsRateLimiter, async (req, res) => {
       return { newConsultant, createdProjects };
     });
     
-    res.status(201).json({ ...result.newConsultant, projects: result.createdProjects });
+    // Log audit trail
+    await logCreate(
+      req.user!.id,
+      'consultant',
+      result.newConsultant.id,
+      result.newConsultant,
+      req
+    );
+    
+    // Mask SSN before sending response
+    const responseData = { ...result.newConsultant, projects: result.createdProjects };
+    if (responseData.ssn) {
+      responseData.ssn = maskSSN(responseData.ssn);
+    }
+    
+    res.status(201).json(responseData);
   } catch (error) {
     console.error('Error creating consultant:', error);
     if (error instanceof z.ZodError) {
@@ -309,10 +343,27 @@ router.post('/consultants', writeOperationsRateLimiter, async (req, res) => {
 });
 
 // Update consultant (OPTIMIZED with transaction and batch insert)
-router.patch('/consultants/:id', writeOperationsRateLimiter, async (req, res) => {
+router.patch('/consultants/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const { consultant: consultantData, projects = [] } = req.body;
+    
+    // Get old data for audit log
+    const oldConsultant = await db.query.consultants.findFirst({
+      where: eq(consultants.id, id),
+    });
+    
+    if (!oldConsultant) {
+      return res.status(404).json({ message: 'Consultant not found' });
+    }
+    
+    // Sanitize input data
+    const sanitizedData = sanitizeConsultantData(consultantData);
+    
+    // Encrypt SSN if provided
+    if (sanitizedData.ssn) {
+      sanitizedData.ssn = encrypt(sanitizedData.ssn);
+    }
     
     // Use transaction for atomic operation
     const result = await executeTransaction(async (tx) => {
@@ -347,8 +398,24 @@ router.patch('/consultants/:id', writeOperationsRateLimiter, async (req, res) =>
 
       return { updatedConsultant, createdProjects };
     });
+    
+    // Log audit trail
+    await logUpdate(
+      req.user!.id,
+      'consultant',
+      id,
+      oldConsultant,
+      result.updatedConsultant,
+      req
+    );
+    
+    // Mask SSN before sending response
+    const responseData = { ...result.updatedConsultant, projects: result.createdProjects };
+    if (responseData.ssn) {
+      responseData.ssn = maskSSN(responseData.ssn);
+    }
 
-    res.json({ ...result.updatedConsultant, projects: result.createdProjects });
+    res.json(responseData);
   } catch (error) {
     console.error('Error updating consultant:', error);
     if (error instanceof z.ZodError) {
@@ -362,7 +429,7 @@ router.patch('/consultants/:id', writeOperationsRateLimiter, async (req, res) =>
 });
 
 // Delete consultant
-router.delete('/consultants/:id', writeOperationsRateLimiter, async (req, res) => {
+router.delete('/consultants/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -389,6 +456,15 @@ router.delete('/consultants/:id', writeOperationsRateLimiter, async (req, res) =
       .delete(consultants)
       .where(eq(consultants.id, id))
       .returning();
+    
+    // Log audit trail
+    await logDelete(
+      req.user!.id,
+      'consultant',
+      id,
+      consultant,
+      req
+    );
 
     res.json({ message: 'Consultant deleted successfully' });
   } catch (error) {
@@ -489,19 +565,25 @@ router.get('/requirements/:id', async (req, res) => {
 });
 
 // Create requirement (single or bulk)
-router.post('/requirements', writeOperationsRateLimiter, async (req, res) => {
+router.post('/requirements', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { requirements: reqArray, single } = req.body;
     
     if (single) {
-      // Single requirement
+      // Single requirement - sanitize input
+      const sanitizedData = sanitizeRequirementData(req.body);
+      
       const requirementData = insertRequirementSchema.parse({
-        ...req.body,
+        ...sanitizedData,
         createdBy: req.user!.id,
         marketingComments: []
       });
       
       const [newRequirement] = await db.insert(requirements).values(requirementData).returning();
+      
+      // Log audit trail
+      await logCreate(req.user!.id, 'requirement', newRequirement.id, newRequirement, req);
+      
       res.status(201).json(newRequirement);
     } else {
       // Bulk requirements
@@ -509,13 +591,23 @@ router.post('/requirements', writeOperationsRateLimiter, async (req, res) => {
         return res.status(400).json({ message: 'Requirements array is required for bulk creation' });
       }
 
-      const requirementDataArray = reqArray.map(req => insertRequirementSchema.parse({
-        ...req,
-        createdBy: req.user!.id,
-        marketingComments: []
-      }));
+      // Sanitize all requirements
+      const requirementDataArray = reqArray.map(reqData => {
+        const sanitizedData = sanitizeRequirementData(reqData);
+        return insertRequirementSchema.parse({
+          ...sanitizedData,
+          createdBy: req.user!.id,
+          marketingComments: []
+        });
+      });
 
       const newRequirements = await db.insert(requirements).values(requirementDataArray).returning();
+      
+      // Log bulk creation
+      for (const newReq of newRequirements) {
+        await logCreate(req.user!.id, 'requirement', newReq.id, newReq, req);
+      }
+      
       res.status(201).json(newRequirements);
     }
   } catch (error) {
@@ -528,20 +620,31 @@ router.post('/requirements', writeOperationsRateLimiter, async (req, res) => {
 });
 
 // Update requirement
-router.patch('/requirements/:id', writeOperationsRateLimiter, async (req, res) => {
+router.patch('/requirements/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = insertRequirementSchema.partial().parse(req.body);
+    
+    // Get old data for audit log
+    const oldRequirement = await db.query.requirements.findFirst({
+      where: eq(requirements.id, id),
+    });
+    
+    if (!oldRequirement) {
+      return res.status(404).json({ message: 'Requirement not found' });
+    }
+    
+    // Sanitize input
+    const sanitizedData = sanitizeRequirementData(req.body);
+    const updateData = insertRequirementSchema.partial().parse(sanitizedData);
     
     const [updatedRequirement] = await db
       .update(requirements)
       .set({ ...updateData, updatedAt: new Date() })
       .where(eq(requirements.id, id))
       .returning();
-
-    if (!updatedRequirement) {
-      return res.status(404).json({ message: 'Requirement not found' });
-    }
+    
+    // Log audit trail
+    await logUpdate(req.user!.id, 'requirement', id, oldRequirement, updatedRequirement, req);
 
     res.json(updatedRequirement);
   } catch (error) {
@@ -600,17 +703,26 @@ router.post('/requirements/:id/comments', async (req, res) => {
 });
 
 // Delete requirement
-router.delete('/requirements/:id', writeOperationsRateLimiter, async (req, res) => {
+router.delete('/requirements/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Get requirement data for audit log
+    const requirement = await db.query.requirements.findFirst({
+      where: eq(requirements.id, id),
+    });
+    
+    if (!requirement) {
+      return res.status(404).json({ message: 'Requirement not found' });
+    }
+    
     const [deletedRequirement] = await db
       .delete(requirements)
       .where(eq(requirements.id, id))
       .returning();
-
-    if (!deletedRequirement) {
-      return res.status(404).json({ message: 'Requirement not found' });
-    }
+    
+    // Log audit trail
+    await logDelete(req.user!.id, 'requirement', id, requirement, req);
 
     res.json({ message: 'Requirement deleted successfully' });
   } catch (error) {
@@ -716,14 +828,21 @@ router.get('/interviews/:id', async (req, res) => {
 });
 
 // Create interview
-router.post('/interviews', writeOperationsRateLimiter, async (req, res) => {
+router.post('/interviews', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
   try {
+    // Sanitize input
+    const sanitizedData = sanitizeInterviewData(req.body);
+    
     const interviewData = insertInterviewSchema.parse({
-      ...req.body,
+      ...sanitizedData,
       createdBy: req.user!.id
     });
     
     const [newInterview] = await db.insert(interviews).values(interviewData).returning();
+    
+    // Log audit trail
+    await logCreate(req.user!.id, 'interview', newInterview.id, newInterview, req);
+    
     res.status(201).json(newInterview);
   } catch (error) {
     console.error('Error creating interview:', error);
@@ -735,20 +854,31 @@ router.post('/interviews', writeOperationsRateLimiter, async (req, res) => {
 });
 
 // Update interview
-router.patch('/interviews/:id', writeOperationsRateLimiter, async (req, res) => {
+router.patch('/interviews/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = insertInterviewSchema.partial().parse(req.body);
+    
+    // Get old data for audit log
+    const oldInterview = await db.query.interviews.findFirst({
+      where: eq(interviews.id, id),
+    });
+    
+    if (!oldInterview) {
+      return res.status(404).json({ message: 'Interview not found' });
+    }
+    
+    // Sanitize input
+    const sanitizedData = sanitizeInterviewData(req.body);
+    const updateData = insertInterviewSchema.partial().parse(sanitizedData);
     
     const [updatedInterview] = await db
       .update(interviews)
       .set({ ...updateData, updatedAt: new Date() })
       .where(eq(interviews.id, id))
       .returning();
-
-    if (!updatedInterview) {
-      return res.status(404).json({ message: 'Interview not found' });
-    }
+    
+    // Log audit trail
+    await logUpdate(req.user!.id, 'interview', id, oldInterview, updatedInterview, req);
 
     res.json(updatedInterview);
   } catch (error) {
@@ -761,17 +891,26 @@ router.patch('/interviews/:id', writeOperationsRateLimiter, async (req, res) => 
 });
 
 // Delete interview
-router.delete('/interviews/:id', writeOperationsRateLimiter, async (req, res) => {
+router.delete('/interviews/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Get interview data for audit log
+    const interview = await db.query.interviews.findFirst({
+      where: eq(interviews.id, id),
+    });
+    
+    if (!interview) {
+      return res.status(404).json({ message: 'Interview not found' });
+    }
+    
     const [deletedInterview] = await db
       .delete(interviews)
       .where(eq(interviews.id, id))
       .returning();
-
-    if (!deletedInterview) {
-      return res.status(404).json({ message: 'Interview not found' });
-    }
+    
+    // Log audit trail
+    await logDelete(req.user!.id, 'interview', id, interview, req);
 
     res.json({ message: 'Interview deleted successfully' });
   } catch (error) {
