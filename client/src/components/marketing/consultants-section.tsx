@@ -413,7 +413,7 @@ function ConsultantsSection() {
               <div>
                 <p className="text-sm text-slate-600">Active</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {consultants.filter(c => c.status === 'Active').length}
+                  {consultants.filter((c: Consultant) => c.status === 'Active').length}
                 </p>
               </div>
               <div className="h-10 w-10 bg-green-100 rounded-lg flex items-center justify-center">
@@ -429,7 +429,7 @@ function ConsultantsSection() {
               <div>
                 <p className="text-sm text-slate-600">Not Active</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {consultants.filter(c => c.status === 'Not Active').length}
+                  {consultants.filter((c: Consultant) => c.status === 'Not Active').length}
                 </p>
               </div>
               <div className="h-10 w-10 bg-red-100 rounded-lg flex items-center justify-center">
@@ -445,7 +445,7 @@ function ConsultantsSection() {
               <div>
                 <p className="text-sm text-slate-600">Total Projects</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {consultants.reduce((acc, c) => acc + (c.projects?.length || 0), 0)}
+                  {consultants.reduce((acc: number, c: Consultant) => acc + (c.projects?.length || 0), 0)}
                 </p>
               </div>
               <div className="h-10 w-10 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -475,14 +475,14 @@ function ConsultantsSection() {
             </CardContent>
           </Card>
         ) : (
-          filteredConsultants.map((consultant) => (
+          filteredConsultants.map((consultant: Consultant) => (
             <Card key={consultant.id} className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group">
               <CardContent className="p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-4 flex-1 min-w-0">
                     <Avatar className="h-12 w-12 shrink-0">
                       <AvatarFallback className="text-base font-semibold bg-blue-100 text-blue-700">
-                        {consultant.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'CN'}
+                        {consultant.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || 'CN'}
                       </AvatarFallback>
                     </Avatar>
                     
@@ -529,7 +529,7 @@ function ConsultantsSection() {
                       
                       {consultant.projects && consultant.projects.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
-                          {consultant.projects.slice(0, 3).map((project) => (
+                          {consultant.projects.slice(0, 3).map((project: ConsultantProject) => (
                             <Badge key={project.id} variant="secondary" className="text-xs">
                               {project.projectName}
                             </Badge>
