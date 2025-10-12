@@ -31,15 +31,15 @@ export const PrivateRoute: React.FC<PrivateRouteProps> = ({ path, component: Com
         const lastRedirect = localStorage.getItem('lastPrivateRedirect');
         const now = Date.now();
         
-        // Increase throttling time to 5 seconds to prevent interference with navigation
-        if (!lastRedirect || (now - parseInt(lastRedirect)) > 5000) {
+        // Throttle redirects to prevent loops (3 second cooldown)
+        if (!lastRedirect || (now - parseInt(lastRedirect)) > 3000) {
           localStorage.setItem('lastPrivateRedirect', now.toString());
           localStorage.setItem('redirectAfterLogin', currentPath);
           setHasRedirected(true);
           setLocation('/login');
         }
       }
-    }, 200); // Slightly longer delay to allow navigation to settle
+    }, 100); // Faster redirect for better UX
     
     return () => clearTimeout(redirectTimer);
   }, [isAuthenticated, isLoading, hasRedirected, setLocation]);

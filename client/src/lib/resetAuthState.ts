@@ -30,10 +30,6 @@ export function resetAllAuthState() {
   }
 }
 
-// Auto-reset on page load if needed
-if (typeof window !== 'undefined') {
-  // Reset auth state on page load to prevent persistent loops
-  window.addEventListener('load', () => {
-    resetAllAuthState();
-  });
-}
+// Note: Auto-reset removed to prevent clearing legitimate sessions
+// Loop detection is handled by authGlobalState and circuit breaker
+// Manual reset can be triggered via resetAllAuthState() if needed
