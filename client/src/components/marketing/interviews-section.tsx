@@ -304,16 +304,14 @@ export default function InterviewsSection() {
       </Tabs>
 
       {/* Interview Form */}
-      {(showInterviewForm || showEditForm) && (
-        <InterviewForm
-          open={showInterviewForm || showEditForm}
-          onClose={handleFormClose}
-          onSubmit={handleFormSubmit}
-          initialData={showEditForm ? selectedInterview : undefined}
-          editMode={showEditForm}
-          isSubmitting={createMutation.isPending || updateMutation.isPending}
-        />
-      )}
+      <InterviewForm
+        open={showInterviewForm || showEditForm}
+        onClose={handleFormClose}
+        onSubmit={handleFormSubmit}
+        initialData={showEditForm ? selectedInterview : undefined}
+        editMode={showEditForm}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
+      />
 
       {/* View Interview Dialog */}
       {viewInterview && (

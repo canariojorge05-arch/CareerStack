@@ -193,11 +193,16 @@ export default function InterviewForm({
       duration: '1 hour',
       ...initialData,
     },
-    mode: 'onChange',
+    mode: 'onBlur',
   });
 
-  // Watch form values for real-time updates
-  const watchedValues = watch();
+  // Watch specific form values for real-time updates
+  const requirementId = watch('requirementId');
+  const interviewDate = watch('interviewDate');
+  const interviewTime = watch('interviewTime');
+  const interviewer = watch('interviewer');
+  const vendorCompany = watch('vendorCompany');
+  const round = watch('round');
 
   const getFieldError = (fieldName: keyof InterviewFormData) => {
     return errors[fieldName]?.message;
@@ -205,7 +210,15 @@ export default function InterviewForm({
 
   const getFieldStatus = (fieldName: keyof InterviewFormData) => {
     if (errors[fieldName]) return 'error';
-    if (watchedValues[fieldName] && !errors[fieldName]) return 'success';
+    // Check specific watched fields
+    const fieldValue = fieldName === 'requirementId' ? requirementId :
+                      fieldName === 'interviewDate' ? interviewDate :
+                      fieldName === 'interviewTime' ? interviewTime :
+                      fieldName === 'interviewer' ? interviewer :
+                      fieldName === 'vendorCompany' ? vendorCompany :
+                      fieldName === 'round' ? round : null;
+    
+    if (fieldValue && !errors[fieldName]) return 'success';
     return 'default';
   };
 
@@ -221,9 +234,9 @@ export default function InterviewForm({
 
   // Auto-generate subject line based on form data
   const generateSubjectLine = () => {
-    const requirement = requirements.find((r: any) => r.id === watchedValues.requirementId);
+    const requirement = requirements.find((r: any) => r.id === requirementId);
     if (requirement) {
-      const subjectLine = `Interview - ${requirement.jobTitle} - Round ${watchedValues.round} - ${watchedValues.interviewDate ? new Date(watchedValues.interviewDate).toLocaleDateString() : '[Date]'}`;
+      const subjectLine = `Interview - ${requirement.jobTitle} - Round ${round} - ${interviewDate ? new Date(interviewDate).toLocaleDateString() : '[Date]'}`;
       setValue('subjectLine', subjectLine);
       toast.success('Subject line generated');
     }
@@ -286,9 +299,9 @@ export default function InterviewForm({
                 {(errors.requirementId || errors.interviewDate || errors.interviewTime) ? (
                   <AlertCircle size={12} className="text-red-500" />
                 ) : (
-                  watchedValues.requirementId &&
-                  watchedValues.interviewDate &&
-                  watchedValues.interviewTime && (
+                  requirementId &&
+                  interviewDate &&
+                  interviewTime && (
                     <CheckCircle size={12} className="text-green-500" />
                   )
                 )}
@@ -299,8 +312,8 @@ export default function InterviewForm({
                 {(errors.interviewer || errors.vendorCompany) ? (
                   <AlertCircle size={12} className="text-red-500" />
                 ) : (
-                  watchedValues.interviewer &&
-                  watchedValues.vendorCompany && (
+                  interviewer &&
+                  vendorCompany && (
                     <CheckCircle size={12} className="text-green-500" />
                   )
                 )}
@@ -643,7 +656,7 @@ export default function InterviewForm({
                           variant="outline"
                           size="sm"
                           onClick={generateSubjectLine}
-                          disabled={!watchedValues.requirementId}
+                          disabled={!requirementId}
                         >
                           Auto-Generate
                         </Button>

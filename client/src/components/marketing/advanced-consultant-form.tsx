@@ -145,7 +145,7 @@ export default function AdvancedConsultantForm({
       status: ConsultantStatus.ACTIVE,
       ...initialData,
     },
-    mode: 'onChange',
+    mode: 'onBlur',
   });
 
   const {
@@ -177,8 +177,10 @@ export default function AdvancedConsultantForm({
     name: 'projects',
   });
 
-  // Watch form values for real-time validation feedback
-  const watchedValues = watch();
+  // Watch specific form values for real-time validation feedback
+  const name = watch('name');
+  const email = watch('email');
+  const status = watch('status');
   const watchedProjects = watchProjects('projects');
 
   const createConsultantMutation = useMutation({
@@ -210,7 +212,12 @@ export default function AdvancedConsultantForm({
 
   const getFieldStatus = (fieldName: keyof ConsultantFormData) => {
     if (errors[fieldName]) return 'error';
-    if (watchedValues[fieldName] && !errors[fieldName]) return 'success';
+    // Check specific watched fields
+    const fieldValue = fieldName === 'name' ? name :
+                      fieldName === 'email' ? email :
+                      fieldName === 'status' ? status : null;
+    
+    if (fieldValue && !errors[fieldName]) return 'success';
     return 'default';
   };
 
@@ -308,7 +315,7 @@ export default function AdvancedConsultantForm({
                 {errors.name || errors.email || errors.status ? (
                   <AlertCircle size={12} className="text-red-500" />
                 ) : (
-                  watchedValues.name && watchedValues.email && (
+                  name && email && (
                     <CheckCircle size={12} className="text-green-500" />
                   )
                 )}

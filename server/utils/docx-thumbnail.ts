@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
-import Jimp from 'jimp';
+import * as Jimp from 'jimp';
+const JimpLib = (Jimp as unknown) as any;
 
 function decodeXmlEntities(text: string): string {
   return text
@@ -37,10 +38,10 @@ export async function generateDocxFirstPageThumbnail(buffer: Buffer, options?: {
     const height = options?.height ?? Math.round(width * 1.414); // A4-ish ratio
 
     const text = await extractDocxPreviewText(buffer);
-    const img = new Jimp(width, height, 0xffffffff);
+  const img = await new JimpLib(width, height, 0xffffffff);
 
     // Header band
-    img.scan(0, 0, width, 36, function(x, y, idx) {
+  img.scan(0, 0, width, 36, function(this: any, x: number, y: number, idx: number) {
       if (y < 36) {
         this.bitmap.data[idx + 0] = 242; // #f2f2f2
         this.bitmap.data[idx + 1] = 242;
@@ -49,11 +50,11 @@ export async function generateDocxFirstPageThumbnail(buffer: Buffer, options?: {
       }
     });
 
-    const fontTitle = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
-    const fontBody = await Jimp.loadFont(Jimp.FONT_SANS_12_BLACK);
+  const fontTitle = await JimpLib.loadFont(JimpLib.FONT_SANS_16_BLACK);
+  const fontBody = await JimpLib.loadFont(JimpLib.FONT_SANS_12_BLACK);
 
     // Title
-    img.print(fontTitle, 10, 8, { text: 'Preview', alignmentX: Jimp.HORIZONTAL_ALIGN_LEFT, alignmentY: Jimp.VERTICAL_ALIGN_MIDDLE }, width - 20, 20);
+  img.print(fontTitle, 10, 8, { text: 'Preview', alignmentX: JimpLib.HORIZONTAL_ALIGN_LEFT, alignmentY: JimpLib.VERTICAL_ALIGN_MIDDLE }, width - 20, 20);
 
     const bodyTop = 48;
     const maxBodyHeight = height - bodyTop - 10;
@@ -67,14 +68,14 @@ export async function generateDocxFirstPageThumbnail(buffer: Buffer, options?: {
       bodyTop,
       {
         text: preview,
-        alignmentX: Jimp.HORIZONTAL_ALIGN_LEFT,
-        alignmentY: Jimp.VERTICAL_ALIGN_TOP,
+  alignmentX: JimpLib.HORIZONTAL_ALIGN_LEFT,
+  alignmentY: JimpLib.VERTICAL_ALIGN_TOP,
       },
       maxBodyWidth,
       maxBodyHeight
     );
 
-    const dataUrl = await img.getBase64Async(Jimp.MIME_PNG);
+  const dataUrl = await img.getBase64Async(JimpLib.MIME_PNG);
     return dataUrl;
   } catch {
     return null;

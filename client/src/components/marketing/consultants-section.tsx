@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, memo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
@@ -69,7 +69,7 @@ interface Consultant {
   };
 }
 
-export default function ConsultantsSection() {
+function ConsultantsSection() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -81,20 +81,10 @@ export default function ConsultantsSection() {
 
   // Fetch consultants
   const { data: consultants = [], isLoading, isError, error } = useQuery({
-    queryKey: ['/api/marketing/consultants', statusFilter, searchQuery],
+    queryKey: ['/api/marketing/consultants'],
     queryFn: async () => {
       try {
-        const params = new URLSearchParams();
-        if (statusFilter && statusFilter !== 'All') {
-          params.append('status', statusFilter);
-        }
-        if (searchQuery) {
-          params.append('search', searchQuery);
-        }
-        
-        const qs = params.toString();
-        const url = qs ? `/api/marketing/consultants?${qs}` : '/api/marketing/consultants';
-        const response = await apiRequest('GET', url);
+        const response = await apiRequest('GET', '/api/marketing/consultants');
         if (!response.ok) {
           throw new Error('Failed to fetch consultants');
         }
@@ -168,6 +158,14 @@ export default function ConsultantsSection() {
 
   const statusOptions = ['All', 'Active', 'Not Active'];
 
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+  }, []);
+
+  const handleStatusChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    setStatusFilter(e.target.value);
+  }, []);
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Active': 
@@ -179,17 +177,28 @@ export default function ConsultantsSection() {
     }
   };
 
-  const filteredConsultants = consultants.filter(consultant => {
-    const matchesSearch = !searchQuery || 
-      consultant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      consultant.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      consultant.visaStatus?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      consultant.countryOfOrigin?.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'All' || consultant.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  });
+  // Filter consultants based on search and status
+  const filteredConsultants = useMemo(() => {
+    let filtered = consultants;
+
+    // Apply status filter
+    if (statusFilter && statusFilter !== 'All') {
+      filtered = filtered.filter((consultant: Consultant) => consultant.status === statusFilter);
+    }
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((consultant: Consultant) => 
+        consultant.name?.toLowerCase().includes(query) ||
+        consultant.email?.toLowerCase().includes(query) ||
+        consultant.visaStatus?.toLowerCase().includes(query) ||
+        consultant.countryOfOrigin?.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
+  }, [consultants, statusFilter, searchQuery]);
 
   const handleAddConsultant = () => {
     setSelectedConsultant(null);
@@ -278,14 +287,14 @@ export default function ConsultantsSection() {
           <Input
             placeholder="Search by name, email, or country..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={handleSearchChange}
             className="pl-10"
           />
         </div>
         
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={handleStatusChange}
           className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white hover:bg-slate-50 focus:ring-2 focus:ring-blue-500"
         >
           {statusOptions.map((status) => (
@@ -489,16 +498,14 @@ export default function ConsultantsSection() {
       </div>
 
       {/* Add/Edit Consultant Form */}
-      {(showAddForm || showEditForm) && (
-        <AdvancedConsultantForm
-          open={showAddForm || showEditForm}
-          onClose={handleFormClose}
-          onSubmit={handleFormSubmit}
-          initialData={showEditForm ? selectedConsultant : undefined}
-          editMode={showEditForm}
-          isSubmitting={createMutation.isPending || updateMutation.isPending}
-        />
-      )}
+      <AdvancedConsultantForm
+        open={showAddForm || showEditForm}
+        onClose={handleFormClose}
+        onSubmit={handleFormSubmit}
+        initialData={showEditForm ? selectedConsultant : undefined}
+        editMode={showEditForm}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
+      />
 
       {/* View Consultant Dialog */}
       {viewConsultant && (
@@ -661,3 +668,5 @@ export default function ConsultantsSection() {
     </div>
   );
 }
+
+export default memo(ConsultantsSection);

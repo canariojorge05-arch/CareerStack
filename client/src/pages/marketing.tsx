@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,7 @@ export default function MarketingPage() {
     },
   ];
 
-  const renderActiveSection = () => {
+  const activeComponent = useMemo(() => {
     switch (activeSection) {
       case 'consultants':
         return <ConsultantsSection />;
@@ -49,7 +49,7 @@ export default function MarketingPage() {
       default:
         return <RequirementsSection />;
     }
-  };
+  }, [activeSection]);
 
   // Define type for user object
   interface MarketingUser {
@@ -59,12 +59,11 @@ export default function MarketingPage() {
 
   const marketingUser = user as MarketingUser;
 
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
       {/* Shared Header with Auto-hide */}
       <AppHeader currentPage="marketing" />
-      
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Page Header */}
         <div className="mb-8">
@@ -90,12 +89,25 @@ export default function MarketingPage() {
                   }`}
                 >
                   <div className="flex items-center justify-center space-x-2">
-                    <IconComponent size={20} className={isActive ? 'text-white' : 'text-slate-500 group-hover:text-slate-700'} />
+                    <IconComponent
+                      size={20}
+                      className={
+                        isActive ? 'text-white' : 'text-slate-500 group-hover:text-slate-700'
+                      }
+                    />
                     <div className="text-left">
-                      <div className={`font-semibold text-sm ${isActive ? 'text-white' : 'text-slate-700 group-hover:text-slate-900'}`}>
+                      <div
+                        className={`font-semibold text-sm ${
+                          isActive ? 'text-white' : 'text-slate-700 group-hover:text-slate-900'
+                        }`}
+                      >
                         {item.label}
                       </div>
-                      <div className={`text-xs ${isActive ? 'text-blue-100' : 'text-slate-500 group-hover:text-slate-600'} hidden sm:block`}>
+                      <div
+                        className={`text-xs ${
+                          isActive ? 'text-blue-100' : 'text-slate-500 group-hover:text-slate-600'
+                        } hidden sm:block`}
+                      >
                         {item.description}
                       </div>
                     </div>
@@ -105,7 +117,6 @@ export default function MarketingPage() {
             })}
           </div>
         </div>
-
 
         {/* Quick Stats - Only show in Requirements section */}
         {activeSection === 'requirements' && (
@@ -163,10 +174,7 @@ export default function MarketingPage() {
 
         {/* Main Content Area */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200">
-          <div className="p-6">
-            {renderActiveSection()}
-          </div>
-        </div>
+          <div className="p-6">{activeComponent}</div>
         </div>
       </div>
     </div>

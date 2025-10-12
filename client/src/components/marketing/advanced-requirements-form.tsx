@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
@@ -144,12 +144,19 @@ export default function AdvancedRequirementsForm({
       appliedFor: 'Rahul',
       ...initialData,
     },
-    mode: 'onChange',
+    mode: 'onBlur',
   });
   // Removed useFieldArray as multipleRequirements is not part of the schema
 
-  // Watch form values for real-time validation feedback
-  const watchedValues = watch();
+
+  // Watch specific form values for real-time validation feedback
+  const jobTitle = watch('jobTitle');
+  const clientCompany = watch('clientCompany');
+  const primaryTechStack = watch('primaryTechStack');
+  const completeJobDescription = watch('completeJobDescription');
+  const rate = watch('rate');
+  const duration = watch('duration');
+  const remote = watch('remote');
 
   // Auto-generate applied for options
   const appliedForOptions = ['Rahul', 'Sarah Johnson', 'Mike Chen', 'Lisa Rodriguez'];
@@ -160,14 +167,23 @@ export default function AdvancedRequirementsForm({
 
   const getFieldStatus = (fieldName: keyof RequirementFormData) => {
     if (errors[fieldName]) return 'error';
-    if (watchedValues[fieldName] && !errors[fieldName]) return 'success';
+    // Check specific watched fields
+    const fieldValue = fieldName === 'jobTitle' ? jobTitle :
+                      fieldName === 'clientCompany' ? clientCompany :
+                      fieldName === 'primaryTechStack' ? primaryTechStack :
+                      fieldName === 'completeJobDescription' ? completeJobDescription :
+                      fieldName === 'rate' ? rate :
+                      fieldName === 'duration' ? duration :
+                      fieldName === 'remote' ? remote : null;
+    
+    if (fieldValue && !errors[fieldName]) return 'success';
     return 'default';
   };
 
   const handleFormSubmit = async (data: RequirementFormData) => {
     try {
       await onSubmit([data]);
-      reset();
+      // Don't reset here - let the parent component handle dialog closing
     } catch (error: any) {
       // Error handling is done in the parent component
       console.error('Form submission error:', error);
@@ -193,9 +209,9 @@ export default function AdvancedRequirementsForm({
     setValue(
       'completeJobDescription',
       `
-Job Title: ${watchedValues.jobTitle || '[Job Title]'}
-Company: ${watchedValues.clientCompany || '[Company Name]'}
-Tech Stack: ${watchedValues.primaryTechStack || '[Tech Stack]'}
+Job Title: ${jobTitle || '[Job Title]'}
+Company: ${clientCompany || '[Company Name]'}
+Tech Stack: ${primaryTechStack || '[Tech Stack]'}
 
 Job Requirements:
 • [Requirement 1]
@@ -213,9 +229,9 @@ Qualifications:
 • [Qualification 3]
 
 Additional Information:
-• Rate: ${watchedValues.rate || '[Rate]'}
-• Duration: ${watchedValues.duration || '[Duration]'}
-• Remote: ${watchedValues.remote || '[Remote Policy]'}
+• Rate: ${rate || '[Rate]'}
+• Duration: ${duration || '[Duration]'}
+• Remote: ${remote || '[Remote Policy]'}
     `.trim()
     );
     toast.success('Template copied to job description');
@@ -269,7 +285,7 @@ Additional Information:
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto">
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="flex-1 overflow-y-auto">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="requirement" className="flex items-center space-x-2">
@@ -278,8 +294,8 @@ Additional Information:
                 {errors.jobTitle || errors.status || errors.primaryTechStack ? (
                   <AlertCircle size={12} className="text-red-500" />
                 ) : (
-                  watchedValues.jobTitle &&
-                  watchedValues.primaryTechStack && (
+                  jobTitle &&
+                  primaryTechStack && (
                     <CheckCircle size={12} className="text-green-500" />
                   )
                 )}
@@ -290,7 +306,7 @@ Additional Information:
                 {errors.clientCompany ? (
                   <AlertCircle size={12} className="text-red-500" />
                 ) : (
-                  watchedValues.clientCompany && (
+                  clientCompany && (
                     <CheckCircle size={12} className="text-green-500" />
                   )
                 )}
@@ -308,7 +324,7 @@ Additional Information:
                 {errors.completeJobDescription ? (
                   <AlertCircle size={12} className="text-red-500" />
                 ) : (
-                  watchedValues.completeJobDescription && (
+                  completeJobDescription && (
                     <CheckCircle size={12} className="text-green-500" />
                   )
                 )}
@@ -731,14 +747,14 @@ Additional Information:
                     </FieldWrapper>
                     <p className="text-sm text-gray-500 mt-1">
                       Minimum 50 characters required. Current:{' '}
-                      {watchedValues.completeJobDescription?.length || 0}
+                      {completeJobDescription?.length || 0}
                     </p>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
-        </div>
+        </form>
 
         <DialogFooter className="flex-shrink-0 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -759,7 +775,7 @@ Additional Information:
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit(handleFormSubmit)} disabled={isSubmitting || !isValid}>
+            <Button type="submit" disabled={isSubmitting || !isValid}>
               {isSubmitting
                 ? 'Creating...'
                 : editMode

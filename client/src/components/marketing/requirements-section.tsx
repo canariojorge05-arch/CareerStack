@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
@@ -141,12 +141,32 @@ export default function RequirementsSection() {
     return filtered;
   }, [requirements, statusFilter, searchQuery]);
 
-  const statusOptions = ['All', 'New', 'Working', 'Applied', 'Submitted', 'Interviewed', 'Cancelled'];
+  const statusOptions = ['All', 'New', 'In Progress', 'Submitted', 'Closed'];
+
+  // Stabilize form props to prevent unnecessary re-renders
+  const formInitialData = useMemo(() => {
+    return showEditForm ? selectedRequirement : null;
+  }, [showEditForm, selectedRequirement?.id]); // Only depend on ID to avoid object reference changes
+
+  const handleFormSubmit = useCallback(async (requirementData: any[]) => {
+    if (showEditForm && selectedRequirement) {
+      // Update existing requirement
+      await updateMutation.mutateAsync({ 
+        id: selectedRequirement.id, 
+        data: requirementData[0] 
+      });
+    } else {
+      // Create new requirement
+      await createMutation.mutateAsync(requirementData[0]);
+    }
+  }, [showEditForm, selectedRequirement?.id, updateMutation, createMutation]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'New': return 'bg-blue-100 text-blue-800';
-      case 'Working': return 'bg-yellow-100 text-yellow-800';
+      case 'In Progress': return 'bg-yellow-100 text-yellow-800';
+      case 'Submitted': return 'bg-purple-100 text-purple-800';
+      case 'Closed': return 'bg-green-100 text-green-800';
       case 'Applied': return 'bg-purple-100 text-purple-800';
       case 'Submitted': return 'bg-orange-100 text-orange-800';
       case 'Interviewed': return 'bg-green-100 text-green-800';
@@ -171,18 +191,6 @@ export default function RequirementsSection() {
     setSelectedRequirement(null);
   };
 
-  const handleFormSubmit = async (requirementData: any[]) => {
-    if (showEditForm && selectedRequirement) {
-      // Update existing requirement
-      await updateMutation.mutateAsync({ 
-        id: selectedRequirement.id, 
-        data: requirementData[0] 
-      });
-    } else {
-      // Create new requirement
-      await createMutation.mutateAsync(requirementData[0]);
-    }
-  };
 
   const handleViewRequirement = (requirement: any) => {
     setViewRequirement(requirement);
@@ -371,17 +379,15 @@ export default function RequirementsSection() {
       )}
 
       {/* Add/Edit Requirements Form */}
-      {(showRequirementForm || showEditForm) && (
-        <AdvancedRequirementsForm
-          open={showRequirementForm || showEditForm}
-          onClose={handleFormClose}
-          onSubmit={handleFormSubmit}
-          consultants={consultants}
-          initialData={showEditForm ? selectedRequirement : undefined}
-          editMode={showEditForm}
-          isSubmitting={createMutation.isPending || updateMutation.isPending}
-        />
-      )}
+      <AdvancedRequirementsForm
+        open={showRequirementForm || showEditForm}
+        onClose={handleFormClose}
+        onSubmit={handleFormSubmit}
+        consultants={consultants}
+        initialData={formInitialData}
+        editMode={showEditForm}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
+      />
 
       {/* View Requirement Dialog */}
       {viewRequirement && (
