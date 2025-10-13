@@ -88,3 +88,44 @@ export function StatsCardSkeleton() {
     </Card>
   );
 }
+
+// Requirements card skeleton
+export function RequirementCardSkeleton() {
+  return (
+    <Card className="border-slate-200">
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 mb-3">
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="space-y-1">
+                <Skeleton className="h-3 w-12" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+              <div className="space-y-1">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-4 w-16" />
+              </div>
+              <div className="space-y-1">
+                <Skeleton className="h-3 w-14" />
+                <Skeleton className="h-4 w-18" />
+              </div>
+              <div className="space-y-1">
+                <Skeleton className="h-3 w-10" />
+                <Skeleton className="h-4 w-16" />
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Skeleton className="h-8 w-8 rounded" />
+            <Skeleton className="h-8 w-8 rounded" />
+            <Skeleton className="h-8 w-8 rounded" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

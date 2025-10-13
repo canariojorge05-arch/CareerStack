@@ -6,8 +6,11 @@ import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Calendar, Users } from 'lucide-react';
+import { FileText, Calendar, Users, Download, Plus, Filter, BarChart3 } from 'lucide-react';
 import { AppHeader } from '@/components/shared/app-header';
+import { BreadcrumbNavigation } from '@/components/shared/breadcrumb-navigation';
+import { EnhancedHeader } from '@/components/shared/enhanced-header';
+import { MetricCard, StatusDistribution } from '@/components/ui/data-visualization';
 
 // Import Marketing components
 import RequirementsSection from '@/components/marketing/requirements-section';
@@ -115,17 +118,70 @@ export default function MarketingPage() {
     staleTime: 15000, // Consider stale after 15 seconds
   });
 
+  // Enhanced header actions
+  const headerActions = [
+    {
+      label: 'Export Data',
+      icon: Download,
+      onClick: () => {
+        // TODO: Implement export functionality
+        console.log('Export data');
+      },
+      variant: 'outline' as const,
+    },
+    {
+      label: 'Quick Add',
+      icon: Plus,
+      onClick: () => {
+        // TODO: Implement quick add functionality
+        console.log('Quick add');
+      },
+    },
+    {
+      label: 'Analytics',
+      icon: BarChart3,
+      onClick: () => {
+        // TODO: Navigate to analytics
+        console.log('Analytics');
+      },
+      variant: 'outline' as const,
+    },
+  ];
+
+  const headerStats = [
+    {
+      label: 'Active Requirements',
+      value: stats?.activeRequirements?.total || 0,
+      variant: 'outline' as const,
+    },
+    {
+      label: 'This Week',
+      value: `+${stats?.activeRequirements?.weeklyChange || 0}`,
+      variant: 'secondary' as const,
+    },
+  ];
+
+  const breadcrumbItems = [
+    { label: 'Marketing Hub', isActive: false },
+    { label: activeSection.charAt(0).toUpperCase() + activeSection.slice(1), isActive: true },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
       {/* Shared Header with Auto-hide */}
       <AppHeader currentPage="marketing" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Page Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">Marketing Hub</h1>
-          <p className="text-slate-600">Manage requirements, interviews, and consultant profiles</p>
-        </div>
+        {/* Breadcrumb Navigation */}
+        <BreadcrumbNavigation items={breadcrumbItems} />
+
+        {/* Enhanced Page Header */}
+        <EnhancedHeader
+          title="Marketing Hub"
+          description="Manage requirements, interviews, and consultant profiles with advanced analytics and automation"
+          stats={headerStats}
+          actions={headerActions}
+        />
 
         {/* Navigation Tabs - Modern Horizontal Style */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-1.5">
@@ -174,71 +230,91 @@ export default function MarketingPage() {
           </div>
         </div>
 
-        {/* Quick Stats - Only show in Requirements section - NOW WITH REAL DATA */}
-        {activeSection === 'requirements' && stats && (
+        {/* Enhanced Stats Dashboard - Show for all sections */}
+        {stats && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="border-slate-200 hover:shadow-md transition-shadow">
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-600 mb-1">Active Requirements</p>
-                    <p className="text-3xl font-bold text-slate-900">
-                      {stats.activeRequirements?.total || 0}
-                    </p>
-                    <p className={`text-xs mt-1 flex items-center ${
-                      stats.activeRequirements?.trend === 'up' ? 'text-green-600' : 'text-slate-600'
-                    }`}>
-                      {stats.activeRequirements?.trend === 'up' && <span className="mr-1">↑</span>}
-                      {stats.activeRequirements?.weeklyChange > 0 
-                        ? `+${stats.activeRequirements.weeklyChange} this week`
-                        : 'No new this week'}
-                    </p>
-                  </div>
-                  <div className="h-12 w-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <FileText className="text-blue-600" size={24} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <MetricCard
+              title="Active Requirements"
+              value={stats.activeRequirements?.total || 0}
+              previousValue={stats.activeRequirements?.total - (stats.activeRequirements?.weeklyChange || 0)}
+              icon={FileText}
+              trendValue={stats.activeRequirements?.weeklyChange > 0 
+                ? `+${stats.activeRequirements.weeklyChange} this week`
+                : 'No new this week'}
+              description="Total job requirements being managed"
+            />
 
-            <Card className="border-slate-200 hover:shadow-md transition-shadow">
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-600 mb-1">Upcoming Interviews</p>
-                    <p className="text-3xl font-bold text-slate-900">
-                      {stats.upcomingInterviews?.total || 0}
-                    </p>
-                    <p className="text-xs text-slate-600 mt-1">
-                      Next: {stats.upcomingInterviews?.nextInterview || 'No upcoming'}
-                    </p>
-                  </div>
-                  <div className="h-12 w-12 bg-indigo-100 rounded-lg flex items-center justify-center">
-                    <Calendar className="text-indigo-600" size={24} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <MetricCard
+              title="Upcoming Interviews"
+              value={stats.upcomingInterviews?.total || 0}
+              icon={Calendar}
+              description={`Next: ${stats.upcomingInterviews?.nextInterview || 'No upcoming'}`}
+            />
 
-            <Card className="border-slate-200 hover:shadow-md transition-shadow">
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-600 mb-1">Active Consultants</p>
-                    <p className="text-3xl font-bold text-slate-900">
-                      {stats.activeConsultants?.total || 0}
-                    </p>
-                    <p className={`text-xs mt-1 flex items-center ${
-                      stats.activeConsultants?.trend === 'up' ? 'text-green-600' : 'text-slate-600'
-                    }`}>
-                      {stats.activeConsultants?.trend === 'up' && <span className="mr-1">↑</span>}
-                      {stats.activeConsultants?.monthlyChange > 0
-                        ? `${stats.activeConsultants.monthlyChange} new this month`
-                        : 'No new this month'}
-                    </p>
+            <MetricCard
+              title="Active Consultants"
+              value={stats.activeConsultants?.total || 0}
+              previousValue={stats.activeConsultants?.total - (stats.activeConsultants?.monthlyChange || 0)}
+              icon={Users}
+              trendValue={stats.activeConsultants?.monthlyChange > 0
+                ? `+${stats.activeConsultants.monthlyChange} this month`
+                : 'No new this month'}
+              description="Consultants available for placement"
+            />
+          </div>
+        )}
+
+        {/* Status Distribution - Show only for requirements section */}
+        {activeSection === 'requirements' && stats && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <StatusDistribution
+              title="Requirements by Status"
+              data={[
+                { status: 'New', count: 12, color: '#3b82f6' },
+                { status: 'Working', count: 8, color: '#f59e0b' },
+                { status: 'Applied', count: 15, color: '#8b5cf6' },
+                { status: 'Interviewed', count: 6, color: '#10b981' },
+                { status: 'Cancelled', count: 3, color: '#ef4444' },
+              ]}
+            />
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Recent Activity</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-lg">
+                    <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
+                      <FileText size={16} className="text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-900">New requirement added</p>
+                      <p className="text-xs text-slate-500">Senior React Developer at TechCorp</p>
+                    </div>
+                    <span className="text-xs text-slate-500">2h ago</span>
                   </div>
-                  <div className="h-12 w-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                    <Users className="text-purple-600" size={24} />
+                  
+                  <div className="flex items-center space-x-3 p-3 bg-green-50 rounded-lg">
+                    <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
+                      <Calendar size={16} className="text-green-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-900">Interview scheduled</p>
+                      <p className="text-xs text-slate-500">John Doe - Frontend Position</p>
+                    </div>
+                    <span className="text-xs text-slate-500">4h ago</span>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3 p-3 bg-purple-50 rounded-lg">
+                    <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center">
+                      <Users size={16} className="text-purple-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-900">Consultant updated</p>
+                      <p className="text-xs text-slate-500">Jane Smith - Profile completed</p>
+                    </div>
+                    <span className="text-xs text-slate-500">6h ago</span>
                   </div>
                 </div>
               </CardContent>

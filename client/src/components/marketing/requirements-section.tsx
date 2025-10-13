@@ -29,6 +29,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ErrorBoundaryWrapper } from '@/components/ui/error-boundary';
+import { RequirementCardSkeleton } from '@/components/ui/card-skeleton';
 
 export default function RequirementsSection() {
   const queryClient = useQueryClient();
@@ -102,23 +104,21 @@ export default function RequirementsSection() {
       }
       return response.json();
     },
-    retry: 1,
-    placeholderData: keepPreviousData, // Keep showing old data while fetching new
+    staleTime: 30000,
+    retry: 2,
   });
-  
-  // Handle both paginated and non-paginated responses
-  const requirements = Array.isArray(requirementsResponse) 
-    ? requirementsResponse 
-    : requirementsResponse?.data || [];
-  const totalItems = requirementsResponse?.pagination?.total || requirements.length;
-  
-  // Calculate pagination values
-  const totalPages = requirementsResponse?.pagination?.totalPages || Math.ceil(totalItems / pageSize);
-  
-  // Reset to page 1 when search or filter changes
-  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [debouncedSearch, statusFilter]);
+
+  // Since we now filter on the backend, we can just use the requirements directly
+  const requirements = requirementsResponse?.data || [];
+  const pagination = requirementsResponse?.pagination || {
+    page: currentPage,
+    limit: pageSize,
+    total: 0,
+    totalPages: 0,
+  };
+
+  const filteredRequirements = requirements;
+  const statusOptions = ['All', 'New', 'In Progress', 'Submitted', 'Closed'];
 
   // Create requirement mutation
   const createMutation = useMutation({
@@ -191,11 +191,6 @@ export default function RequirementsSection() {
       toast.error(error.message || 'Failed to delete requirement');
     },
   });
-
-  // Since we now filter on the backend, we can just use the requirements directly
-  const filteredRequirements = requirements;
-
-  const statusOptions = ['All', 'New', 'In Progress', 'Submitted', 'Closed'];
 
   // Stabilize form props to prevent unnecessary re-renders
   const formInitialData = useMemo(() => {
@@ -284,9 +279,40 @@ export default function RequirementsSection() {
   // Loading state
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        <span className="ml-3 text-slate-600">Loading requirements...</span>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">Requirements</h2>
+            <p className="text-sm text-slate-600 mt-1">Manage job requirements and assignments</p>
+          </div>
+          <Button disabled className="bg-blue-600 hover:bg-blue-700">
+            <Plus size={16} className="mr-2" />
+            New Requirement
+          </Button>
+        </div>
+
+        {/* Filters */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[240px] max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder="Search by title, company, or tech stack..."
+              disabled
+              className="pl-10"
+            />
+          </div>
+          <select disabled className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white hover:bg-slate-50 focus:ring-2 focus:ring-blue-500">
+            <option>All</option>
+          </select>
+        </div>
+
+        {/* Skeleton Cards */}
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <RequirementCardSkeleton key={i} />
+          ))}
+        </div>
       </div>
     );
   }
@@ -314,7 +340,8 @@ export default function RequirementsSection() {
   }
 
   return (
-    <div className="space-y-6">
+    <ErrorBoundaryWrapper>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -440,13 +467,13 @@ export default function RequirementsSection() {
       </div>
 
       {/* Pagination Controls */}
-      {totalItems > 0 && (
+      {pagination.total > 0 && (
         <Pagination
           page={currentPage}
           pageSize={pageSize}
-          totalItems={totalItems}
-          totalPages={totalPages}
-          hasNextPage={currentPage < totalPages}
+          totalItems={pagination.total}
+          totalPages={pagination.totalPages}
+          hasNextPage={currentPage < pagination.totalPages}
           hasPreviousPage={currentPage > 1}
           onPageChange={setCurrentPage}
           onPageSizeChange={(newSize) => {
@@ -459,7 +486,7 @@ export default function RequirementsSection() {
       )}
 
       {/* Empty States */}
-      {filteredRequirements.length === 0 && totalItems > 0 && (
+      {filteredRequirements.length === 0 && pagination.total > 0 && (
         <Card className="border-slate-200">
           <CardContent className="p-12 text-center">
             <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">
@@ -482,7 +509,7 @@ export default function RequirementsSection() {
         </Card>
       )}
 
-      {totalItems === 0 && (
+      {pagination.total === 0 && (
         <Card className="border-slate-200">
           <CardContent className="p-12 text-center">
             <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-blue-100 flex items-center justify-center">
@@ -497,6 +524,7 @@ export default function RequirementsSection() {
           </CardContent>
         </Card>
       )}
+      </div>
 
       {/* Add/Edit Requirements Form */}
       <AdvancedRequirementsForm
@@ -651,6 +679,6 @@ export default function RequirementsSection() {
           </DialogContent>
         </Dialog>
       )}
-    </div>
+    </ErrorBoundaryWrapper>
   );
 }
