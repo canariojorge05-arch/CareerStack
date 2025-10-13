@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
@@ -8,6 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { EnhancedField } from '@/components/ui/enhanced-field';
+import { BackupRecoveryDialog } from '@/components/ui/backup-recovery-dialog';
+import { useFormPersistence } from '@/hooks/useFormPersistence';
+import { useKeyboardShortcuts, getFormNavigationShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useFocusTrap, useAriaAnnouncer } from '@/hooks/useAccessibility';
+import { useFormBackup } from '@/hooks/useFormBackup';
 import {
   Select,
   SelectContent,
@@ -35,6 +41,7 @@ import {
   CheckCircle,
   Copy,
   Trash2,
+  History,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RequirementStatus } from '@shared/schema';
@@ -168,7 +175,9 @@ export default function AdvancedRequirementsForm({
   
   const [activeTab, setActiveTab] = useState('requirement');
   const [showPreview, setShowPreview] = useState(false);
-
+  const [showBackupDialog, setShowBackupDialog] = useState(false);
+  
+  // Form setup - must be first
   const {
     control,
     handleSubmit,
@@ -178,6 +187,7 @@ export default function AdvancedRequirementsForm({
     reset,
     trigger,
   } = useForm<RequirementFormData>({
+    shouldUnregister: false, // Preserve field values when unmounting
     resolver: yupResolver(requirementSchema),
     mode: 'onChange',
     defaultValues: {
@@ -203,10 +213,56 @@ export default function AdvancedRequirementsForm({
       ...initialData,
     },
   });
-  // Debug effect to log form validation state
+
+  // Accessibility features
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const focusTrapRef = useFocusTrap({ 
+    enabled: open,
+    onEscape: onClose 
+  });
+  const { announce } = useAriaAnnouncer();
+  
+  // Setup keyboard shortcuts
+  const keyboardShortcuts = getFormNavigationShortcuts(setActiveTab);
+  const handleKeyDown = useKeyboardShortcuts(keyboardShortcuts);
+
+  // Performance optimizations (removed unused optimizations)
+  // Form persistence and backup
+  const { clearSavedData } = useFormPersistence('requirements', watch, reset, isDirty);
+  const {
+    createBackup,
+    getBackups,
+    recoverBackup,
+    recoverLastBackup,
+    clearBackups
+  } = useFormBackup('requirements', watch, reset, { autoBackupInterval: 2 * 60 * 1000 }); // 2 minutes
+
+  // Announce form state changes
   useEffect(() => {
-    console.log('Form validation state:', { isValid, errors: Object.keys(errors) });
-  }, [isValid, errors]);
+    if (!isValid && Object.keys(errors).length > 0) {
+      announce(`Form has ${Object.keys(errors).length} validation errors`, 'polite');
+    }
+  }, [isValid, errors, announce]);
+
+  // Debug and monitoring
+  useEffect(() => {
+    const formState = { isValid, errors: Object.keys(errors) };
+    console.log('Form validation state:', formState);
+    
+    // Create backup on significant changes
+    if (isDirty) {
+      createBackup(watch());
+    }
+  }, [isValid, errors, isDirty, watch, createBackup]);
+
+  // Focus management
+  useEffect(() => {
+    if (open && dialogRef.current) {
+      dialogRef.current.focus();
+    }
+  }, [open]);
+
+  // Form persistence
 
   // Effect to populate form with initialData when in edit mode
   useEffect(() => {
@@ -278,6 +334,19 @@ export default function AdvancedRequirementsForm({
     console.log('Form submitting with data:', data);
     try {
       await onSubmit([data]);
+      clearSavedData();
+      clearBackups();
+      announce('Form submitted successfully', 'assertive');
+      toast.success('Form submitted successfully');
+    } catch (error) {
+      console.error('Form submission error:', error);
+      toast.error('Failed to submit form');
+      announce('Error submitting form. Your progress has been saved.', 'assertive');
+      // Create emergency backup on error
+      createBackup(data);
+    }
+    try {
+      await onSubmit([data]);
       console.log('Form submission successful');
       // Don't reset here - let the parent component handle dialog closing
     } catch (error: any) {
@@ -304,9 +373,7 @@ export default function AdvancedRequirementsForm({
 
   const copyTemplate = () => {
     const formValues = watch();
-    setValue(
-      'completeJobDescription',
-      `
+    const templateContent = `
 Job Title: ${formValues.jobTitle || '[Job Title]'}
 Company: ${formValues.clientCompany || '[Company Name]'}
 Tech Stack: ${formValues.primaryTechStack || '[Tech Stack]'}
@@ -330,13 +397,16 @@ Additional Information:
 • Rate: ${formValues.rate || '[Rate]'}
 • Duration: ${formValues.duration || '[Duration]'}
 • Remote: ${formValues.remote || '[Remote Policy]'}
-    `.trim()
-    );
+    `.trim();
+    
+    setValue('completeJobDescription', templateContent);
     toast.success('Template copied to job description');
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <>
+      <Dialog open={open} onOpenChange={onClose}>
+        <div ref={dialogRef} onKeyDown={handleKeyDown} tabIndex={-1}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
@@ -350,6 +420,9 @@ Additional Information:
                   ? 'Update the requirement details below'
                   : 'Fill out the form sections to create a comprehensive job requirement'
                 }
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Keyboard shortcuts: Ctrl+1-4 to switch tabs, Esc to close
+                </div>
               </DialogDescription>
             </div>
             <div className="flex items-center space-x-2">
@@ -415,23 +488,21 @@ Additional Information:
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="jobTitle">Job Title *</Label>
-                      <FieldWrapper
-                        error={getFieldError('jobTitle')}
-                        status={getFieldStatus('jobTitle')}
-                      >
-                        <Controller
-                          name="jobTitle"
-                          control={control}
-                          render={({ field }) => (
-                            <Input
-                              {...field}
-                              placeholder="e.g., Senior React Developer"
-                              className={errors.jobTitle ? 'border-red-500' : ''}
-                            />
-                          )}
-                        />
-                      </FieldWrapper>
+                      <Controller
+                        name="jobTitle"
+                        control={control}
+                        render={({ field }) => (
+                          <EnhancedField
+                            {...field}
+                            id="jobTitle"
+                            label="Job Title *"
+                            placeholder="e.g., Senior React Developer"
+                            error={getFieldError('jobTitle')}
+                            tooltip="Enter the full title of the position"
+                            copyable
+                          />
+                        )}
+                      />
                     </div>
 
                     <div>
@@ -749,23 +820,21 @@ Additional Information:
                     </div>
 
                     <div>
-                      <Label htmlFor="vendorPhone">Vendor Phone</Label>
-                      <FieldWrapper
-                        error={getFieldError('vendorPhone')}
-                        status={getFieldStatus('vendorPhone')}
-                      >
-                        <Controller
-                          name="vendorPhone"
-                          control={control}
-                          render={({ field }) => (
-                            <Input
-                              {...field}
-                              value={field.value || ''}
-                              placeholder="+1234567890 or +1234567890 ext. 123"
-                            />
-                          )}
-                        />
-                      </FieldWrapper>
+                      <Controller
+                        name="vendorPhone"
+                        control={control}
+                        render={({ field }) => (
+                          <EnhancedField
+                            {...field}
+                            id="vendorPhone"
+                            label="Vendor Phone"
+                            placeholder="(555) 123-4567"
+                            error={getFieldError('vendorPhone')}
+                            tooltip="Enter the vendor's contact phone number"
+                            mask="phone"
+                          />
+                        )}
+                      />
                     </div>
 
                     <div className="col-span-2">
@@ -840,6 +909,16 @@ Additional Information:
             <Button type="button" variant="outline" size="sm" onClick={() => setShowPreview(!showPreview)}>
               {showPreview ? 'Hide Preview' : 'Show Preview'}
             </Button>
+            <Button 
+              type="button" 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setShowBackupDialog(true)}
+              className="flex items-center space-x-1"
+            >
+              <History className="w-4 h-4" />
+              <span>Backups</span>
+            </Button>
             <Button type="button" variant="outline" size="sm" onClick={() => reset()}>
               Reset Form
             </Button>
@@ -894,6 +973,26 @@ Additional Information:
           </div>
         </DialogFooter>
       </DialogContent>
+      </div>
     </Dialog>
+    
+    <BackupRecoveryDialog
+      open={showBackupDialog}
+      onClose={() => setShowBackupDialog(false)}
+      backups={getBackups()}
+      onRecover={(timestamp) => {
+        recoverBackup(timestamp);
+        setShowBackupDialog(false);
+        announce('Form restored from backup', 'assertive');
+        toast.success('Form restored from backup');
+      }}
+      onClearAll={() => {
+        clearBackups();
+        setShowBackupDialog(false);
+        announce('All backups cleared', 'assertive');
+        toast.success('All backups cleared');
+      }}
+    />
+    </>
   );
 }

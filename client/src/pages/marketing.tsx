@@ -6,7 +6,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Calendar, Users, Download, Plus, Filter, BarChart3 } from 'lucide-react';
+import { FileText, Calendar, Users, Download, Plus, Filter, BarChart3, type LucideIcon } from 'lucide-react';
 import { AppHeader } from '@/components/shared/app-header';
 import { BreadcrumbNavigation } from '@/components/shared/breadcrumb-navigation';
 import { EnhancedHeader } from '@/components/shared/enhanced-header';
@@ -16,12 +16,18 @@ import { MetricCard, StatusDistribution } from '@/components/ui/data-visualizati
 import RequirementsSection from '@/components/marketing/requirements-section';
 import InterviewsSection from '@/components/marketing/interviews-section';
 import ConsultantsSection from '@/components/marketing/consultants-section';
+import AdvancedRequirementsForm from '@/components/marketing/advanced-requirements-form';
+import InterviewForm from '@/components/marketing/interview-form';
+import AdvancedConsultantForm from '@/components/marketing/advanced-consultant-form';
 // import DebugConsultants from '../../debug-consultants';
 
 export default function MarketingPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [activeSection, setActiveSection] = useState('requirements');
+  const [showRequirementForm, setShowRequirementForm] = useState(false);
+  const [showInterviewForm, setShowInterviewForm] = useState(false);
+  const [showConsultantForm, setShowConsultantForm] = useState(false);
 
   // Initialize CSRF token on page load
   useEffect(() => {
@@ -49,7 +55,15 @@ export default function MarketingPage() {
     initializeCSRF();
   }, []);
 
-  const navigationItems = [
+  // Define interface for navigation items
+  interface NavigationItem {
+    id: string;
+    label: string;
+    icon: LucideIcon;
+    description: string;
+  }
+
+  const navigationItems: NavigationItem[] = [
     {
       id: 'requirements',
       label: 'Requirements',
@@ -133,8 +147,13 @@ export default function MarketingPage() {
       label: 'Quick Add',
       icon: Plus,
       onClick: () => {
-        // TODO: Implement quick add functionality
-        console.log('Quick add');
+        const options = {
+          requirements: () => setShowRequirementForm(true),
+          interviews: () => setShowInterviewForm(true),
+          consultants: () => setShowConsultantForm(true),
+        };
+        // Call the appropriate function based on active section
+        options[activeSection as keyof typeof options]?.();
       },
     },
     {
@@ -237,7 +256,7 @@ export default function MarketingPage() {
               title="Active Requirements"
               value={stats.activeRequirements?.total || 0}
               previousValue={stats.activeRequirements?.total - (stats.activeRequirements?.weeklyChange || 0)}
-              icon={FileText}
+              icon={FileText as any} // Type assertion needed for Lucide icon compatibility
               trendValue={stats.activeRequirements?.weeklyChange > 0 
                 ? `+${stats.activeRequirements.weeklyChange} this week`
                 : 'No new this week'}
@@ -247,7 +266,7 @@ export default function MarketingPage() {
             <MetricCard
               title="Upcoming Interviews"
               value={stats.upcomingInterviews?.total || 0}
-              icon={Calendar}
+              icon={Calendar as any} // Type assertion needed for Lucide icon compatibility
               description={`Next: ${stats.upcomingInterviews?.nextInterview || 'No upcoming'}`}
             />
 
@@ -255,7 +274,7 @@ export default function MarketingPage() {
               title="Active Consultants"
               value={stats.activeConsultants?.total || 0}
               previousValue={stats.activeConsultants?.total - (stats.activeConsultants?.monthlyChange || 0)}
-              icon={Users}
+              icon={Users as any} // Type assertion needed for Lucide icon compatibility
               trendValue={stats.activeConsultants?.monthlyChange > 0
                 ? `+${stats.activeConsultants.monthlyChange} this month`
                 : 'No new this month'}
@@ -327,6 +346,52 @@ export default function MarketingPage() {
           <div className="p-6">{activeComponent}</div>
         </div>
       </div>
+
+      {/* Quick Add Forms */}
+      {showRequirementForm && (
+        <AdvancedRequirementsForm
+          open={showRequirementForm}
+          onClose={() => setShowRequirementForm(false)}
+          onSubmit={async (requirements) => {
+            // Handle form submission
+            try {
+              // You would typically make an API call here
+              console.log('Submitting requirements:', requirements);
+              setShowRequirementForm(false);
+            } catch (error) {
+              console.error('Error submitting requirements:', error);
+            }
+          }}
+        />
+      )}
+      {showInterviewForm && (
+        <InterviewForm
+          open={showInterviewForm}
+          onClose={() => setShowInterviewForm(false)}
+          onSubmit={async (interview) => {
+            try {
+              console.log('Scheduling interview:', interview);
+              setShowInterviewForm(false);
+            } catch (error) {
+              console.error('Error scheduling interview:', error);
+            }
+          }}
+        />
+      )}
+      {showConsultantForm && (
+        <AdvancedConsultantForm
+          open={showConsultantForm}
+          onClose={() => setShowConsultantForm(false)}
+          onSubmit={async (consultant) => {
+            try {
+              console.log('Adding consultant:', consultant);
+              setShowConsultantForm(false);
+            } catch (error) {
+              console.error('Error adding consultant:', error);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

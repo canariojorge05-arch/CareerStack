@@ -31,6 +31,8 @@ import {
 } from '@/components/ui/dialog';
 import { ErrorBoundaryWrapper } from '@/components/ui/error-boundary';
 import { RequirementCardSkeleton } from '@/components/ui/card-skeleton';
+import { AuditLogDialog } from '@/components/audit-log-dialog';
+import { History } from 'lucide-react';
 
 export default function RequirementsSection() {
   const queryClient = useQueryClient();
@@ -41,6 +43,7 @@ export default function RequirementsSection() {
   const [showEditForm, setShowEditForm] = useState(false);
   const [viewRequirement, setViewRequirement] = useState<any>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [showAuditLog, setShowAuditLog] = useState(false);
   
   // Debounce search query to reduce API calls
   const debouncedSearch = useDebounce(searchQuery, 300);
@@ -605,13 +608,6 @@ export default function RequirementsSection() {
                 </div>
               )}
 
-              <div>
-                <label className="text-sm font-semibold text-slate-700">Job Description</label>
-                <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200 whitespace-pre-wrap text-sm text-slate-600">
-                  {viewRequirement.completeJobDescription}
-                </div>
-              </div>
-
               {viewRequirement.nextStep && (
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Legacy Next Step</label>
@@ -623,22 +619,44 @@ export default function RequirementsSection() {
 
               {/* Next Step Comments Thread */}
               <NextStepComments requirementId={viewRequirement.id} />
+
+              <div>
+                <label className="text-sm font-semibold text-slate-700">Job Description</label>
+                <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200 whitespace-pre-wrap text-sm text-slate-600">
+                  {viewRequirement.completeJobDescription}
+                </div>
+              </div>
             </div>
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setViewRequirement(null)}>
-                Close
-              </Button>
+            <DialogFooter className="flex justify-between">
               <Button
-                onClick={() => {
-                  setViewRequirement(null);
-                  handleEditRequirement(viewRequirement);
-                }}
+                variant="ghost"
+                onClick={() => setShowAuditLog(true)}
               >
-                <Edit size={16} className="mr-2" />
-                Edit
+                <History size={16} className="mr-2" />
+                View History
               </Button>
+              <div>
+                <Button variant="outline" onClick={() => setViewRequirement(null)} className="mr-2">
+                  Close
+                </Button>
+                <Button
+                  onClick={() => {
+                    setViewRequirement(null);
+                    handleEditRequirement(viewRequirement);
+                  }}
+                >
+                  <Edit size={16} className="mr-2" />
+                  Edit
+                </Button>
+              </div>
             </DialogFooter>
+            
+            <AuditLogDialog 
+              isOpen={showAuditLog}
+              onClose={() => setShowAuditLog(false)}
+              requirementId={viewRequirement.id}
+            />
           </DialogContent>
         </Dialog>
       )}
