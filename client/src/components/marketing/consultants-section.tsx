@@ -1,6 +1,6 @@
 import { useState, useMemo, memo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, refreshCSRFToken } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -66,6 +66,7 @@ interface Consultant {
   createdAt: Date;
   updatedAt: Date;
   projects: ConsultantProject[];
+  displayId?: string;
   _count?: {
     requirements: number;
     interviews: number;
@@ -131,7 +132,7 @@ function ConsultantsSection() {
     },
     retry: 1,
     staleTime: 60000, // 1 minute - data stays fresh longer
-    keepPreviousData: true,
+    placeholderData: (previousData) => previousData,
   });
 
   const consultants = consultantsResponse?.data || [];
@@ -179,9 +180,11 @@ function ConsultantsSection() {
       }
       toast.error(error.message || 'Failed to create consultant');
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success('Consultant created successfully!');
       handleFormClose();
+      // Refresh CSRF token for future operations
+      await refreshCSRFToken();
     },
     onSettled: () => {
       // Refetch to get actual data from server
@@ -226,9 +229,11 @@ function ConsultantsSection() {
       }
       toast.error(error.message || 'Failed to update consultant');
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success('Consultant updated successfully!');
       handleFormClose();
+      // Refresh CSRF token for future operations
+      await refreshCSRFToken();
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
@@ -501,7 +506,9 @@ function ConsultantsSection() {
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <h3 className="font-semibold text-base text-slate-900">{consultant.name}</h3>
+                        <h3 className="font-semibold text-base text-slate-900">
+                          {consultant.displayId ? `${consultant.displayId} - ` : ''}{consultant.name}
+                        </h3>
                         <Badge className={`${getStatusColor(consultant.status)} shrink-0`}>
                           {consultant.status}
                         </Badge>

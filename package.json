@@ -33,6 +33,9 @@
     "check:env": "node scripts/check-env.js",
     "generate:token-key": "npx tsx scripts/generate-token-key.ts",
     "test:email": "npx tsx scripts/test-send-email.ts",
+    "generate:test-requirements": "npx tsx scripts/generate-test-requirements.ts",
+    "generate:quick-requirements": "npx tsx scripts/quick-requirements-generator.ts",
+    "generate:quick-consultants": "npx tsx scripts/quick-consultants-generator.ts",
     "docker:logs": "docker-compose logs -f",
     "docker:down": "docker-compose down",
     "docker:clean": "docker-compose down -v --remove-orphans"
@@ -169,7 +172,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.21",
     "cross-env": "^7.0.3",
-    "drizzle-kit": "^0.18.1",
+    "drizzle-kit": "^0.31.5",
     "esbuild": "^0.25.0",
     "pm2": "^6.0.13",
     "postcss": "^8.4.47",

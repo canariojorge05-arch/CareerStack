@@ -245,6 +245,7 @@ export const insertProcessingHistorySchema = createInsertSchema(processingHistor
 // Consultants table
 export const consultants = pgTable("consultants", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  displayId: varchar("display_id"), // CONST ID - 1, CONST ID - 2, etc.
   
   // Consultant Info
   status: varchar("status").notNull().default("Active"), // Active, Not Active
@@ -298,6 +299,7 @@ export const consultantProjects = pgTable("consultant_projects", {
 // Requirements table
 export const requirements = pgTable("requirements", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  displayId: varchar("display_id"), // REQ ID - 1, REQ ID - 2, etc.
   // Requirement & Communication
   status: varchar("status").notNull().default("New"), // New, Working, Applied, Submitted, Interviewed, Cancelled
   consultantId: varchar("consultant_id").references(() => consultants.id, { onDelete: 'set null' }), // Reference to consultant
@@ -341,6 +343,7 @@ export const requirements = pgTable("requirements", {
 // Interviews table
 export const interviews = pgTable("interviews", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  displayId: varchar("display_id"), // INT ID - 1, INT ID - 2, etc.
   requirementId: varchar("requirement_id").notNull().references(() => requirements.id, { onDelete: 'cascade' }),
   
   // Interview Details

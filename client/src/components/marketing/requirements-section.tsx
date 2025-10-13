@@ -1,13 +1,12 @@
-import { useState, useMemo, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import React, { useState, useMemo, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { apiRequest, refreshCSRFToken } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
 import { useDebounce } from '@/hooks/useDebounce';
-import { usePagination } from '@/hooks/usePagination';
 import {
   FileText,
   Plus,
@@ -44,21 +43,24 @@ export default function RequirementsSection() {
   const debouncedSearch = useDebounce(searchQuery, 300);
   
   // Pagination state
-  const pagination = usePagination(0, {
-    initialPageSize: 25,
-    pageSizeOptions: [10, 25, 50, 100],
-  });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   // Fetch consultants for assignment
   const { data: consultants = [] } = useQuery({
-    queryKey: ['/api/marketing/consultants'],
+    queryKey: ['/api/marketing/consultants', 'all'],
+    staleTime: 0, // Always fetch fresh data
     queryFn: async () => {
       try {
-        const response = await apiRequest('GET', '/api/marketing/consultants?status=Active');
+        const response = await apiRequest('GET', '/api/marketing/consultants');
         if (!response.ok) return [];
-        const data = await response.json();
+        
+        const result = await response.json();
+        // API returns { data: consultants[], pagination: {...} }
+        const data = result.data || result;
         return Array.isArray(data) ? data : [];
-      } catch {
+      } catch (error) {
+        console.error('Error fetching consultants:', error);
         return [] as any[];
       }
     },
@@ -74,15 +76,15 @@ export default function RequirementsSection() {
   } = useQuery({
     queryKey: [
       '/api/marketing/requirements',
-      pagination.page,
-      pagination.pageSize,
+      currentPage,
+      pageSize,
       statusFilter,
       debouncedSearch,
     ],
     queryFn: async () => {
       const params = new URLSearchParams({
-        page: String(pagination.page),
-        limit: String(pagination.pageSize),
+        page: String(currentPage),
+        limit: String(pageSize),
       });
       
       if (statusFilter && statusFilter !== 'All') {
@@ -100,7 +102,7 @@ export default function RequirementsSection() {
       return response.json();
     },
     retry: 1,
-    keepPreviousData: true, // Keep showing old data while fetching new
+    placeholderData: keepPreviousData, // Keep showing old data while fetching new
   });
   
   // Handle both paginated and non-paginated responses
@@ -108,24 +110,39 @@ export default function RequirementsSection() {
     ? requirementsResponse 
     : requirementsResponse?.data || [];
   const totalItems = requirementsResponse?.pagination?.total || requirements.length;
+  
+  // Calculate pagination values
+  const totalPages = requirementsResponse?.pagination?.totalPages || Math.ceil(totalItems / pageSize);
+  
+  // Reset to page 1 when search or filter changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, statusFilter]);
 
   // Create requirement mutation
   const createMutation = useMutation({
     mutationFn: async (requirementData: any) => {
+      console.log('API call starting with data:', requirementData);
       const response = await apiRequest('POST', '/api/marketing/requirements', {
         ...requirementData,
         single: true,
       });
+      console.log('API response status:', response.status, response.ok);
       if (!response.ok) {
         const error = await response.json();
+        console.error('API error response:', error);
         throw new Error(error.message || 'Failed to create requirement');
       }
-      return response.json();
+      const result = await response.json();
+      console.log('API success response:', result);
+      return result;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['/api/marketing/requirements'] });
       toast.success('Requirement created successfully!');
       handleFormClose();
+      // Refresh CSRF token for future operations
+      await refreshCSRFToken();
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to create requirement');
@@ -142,10 +159,12 @@ export default function RequirementsSection() {
       }
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['/api/marketing/requirements'] });
       toast.success('Requirement updated successfully!');
       handleFormClose();
+      // Refresh CSRF token for future operations
+      await refreshCSRFToken();
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update requirement');
@@ -184,14 +203,19 @@ export default function RequirementsSection() {
 
   const handleFormSubmit = useCallback(
     async (requirementData: any[]) => {
+      console.log('Parent handleFormSubmit called with:', requirementData);
+      console.log('showEditForm:', showEditForm, 'selectedRequirement:', selectedRequirement);
+      
       if (showEditForm && selectedRequirement) {
         // Update existing requirement
+        console.log('Updating requirement with ID:', selectedRequirement.id);
         await updateMutation.mutateAsync({
           id: selectedRequirement.id,
           data: requirementData[0],
         });
       } else {
         // Create new requirement
+        console.log('Creating new requirement');
         await createMutation.mutateAsync(requirementData[0]);
       }
     },
@@ -339,7 +363,7 @@ export default function RequirementsSection() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-3">
                     <h3 className="font-semibold text-base text-slate-900 truncate">
-                      {requirement.jobTitle}
+                      {requirement.displayId ? `${requirement.displayId} - ` : ''}{requirement.jobTitle}
                     </h3>
                     <Badge className={`${getStatusColor(requirement.status)} shrink-0`}>
                       {requirement.status}
@@ -417,14 +441,17 @@ export default function RequirementsSection() {
       {/* Pagination Controls */}
       {totalItems > 0 && (
         <Pagination
-          page={pagination.page}
-          pageSize={pagination.pageSize}
+          page={currentPage}
+          pageSize={pageSize}
           totalItems={totalItems}
-          totalPages={pagination.totalPages}
-          hasNextPage={pagination.hasNextPage}
-          hasPreviousPage={pagination.hasPreviousPage}
-          onPageChange={pagination.goToPage}
-          onPageSizeChange={pagination.setPageSize}
+          totalPages={totalPages}
+          hasNextPage={currentPage < totalPages}
+          hasPreviousPage={currentPage > 1}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(newSize) => {
+            setPageSize(newSize);
+            setCurrentPage(1);
+          }}
           showPageSize={true}
           showPageInfo={true}
         />
@@ -443,7 +470,7 @@ export default function RequirementsSection() {
               onClick={() => {
                 setSearchQuery('');
                 setStatusFilter('All');
-                pagination.reset();
+                setCurrentPage(1);
               }}
               variant="outline"
               size="sm"
@@ -497,11 +524,11 @@ export default function RequirementsSection() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Status</label>
-                  <p className="text-slate-600">
+                  <div className="text-slate-600">
                     <Badge className={getStatusColor(viewRequirement.status)}>
                       {viewRequirement.status}
                     </Badge>
-                  </p>
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Client Company</label>

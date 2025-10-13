@@ -60,7 +60,7 @@ export async function generateCSRFToken(req: Request): Promise<string> {
         'csrf_get_token'
       );
       
-      if (existingToken) {
+      if (existingToken && typeof existingToken === 'string') {
         return existingToken;
       }
       
@@ -102,7 +102,15 @@ export async function generateCSRFToken(req: Request): Promise<string> {
 export async function validateCSRFToken(req: Request, token: string): Promise<boolean> {
   const sessionId = req.session?.id || req.sessionID;
   
+  logger.debug({ sessionId, tokenProvided: !!token, tokenLength: token?.length }, 'Starting CSRF validation');
+  
   if (!sessionId) {
+    logger.warn('No session ID found for CSRF validation');
+    return false;
+  }
+  
+  if (!token) {
+    logger.warn({ sessionId }, 'No token provided for CSRF validation');
     return false;
   }
   
@@ -110,25 +118,40 @@ export async function validateCSRFToken(req: Request, token: string): Promise<bo
   
   try {
     if (useRedis) {
+      logger.debug({ sessionId, redisKey }, 'Attempting Redis CSRF validation');
+      
       // Get token from Redis
       const storedToken = await redisService.executeCommand(
         () => redisService.getClient().get(redisKey),
         'csrf_validate_token'
       );
       
-      if (!storedToken) {
+      logger.debug({ sessionId, hasStoredToken: !!storedToken, storedTokenType: typeof storedToken }, 'Redis token lookup result');
+      
+      if (!storedToken || typeof storedToken !== 'string') {
         logger.debug({ sessionId }, 'CSRF token not found in Redis');
         return false;
       }
       
       // Constant-time comparison to prevent timing attacks
-      const isValid = crypto.timingSafeEqual(
-        Buffer.from(token),
-        Buffer.from(storedToken)
-      );
+      // Ensure both tokens are the same length to avoid crypto.timingSafeEqual errors
+      if (token.length !== storedToken.length) {
+        logger.debug({ sessionId, tokenLength: token.length, storedLength: storedToken.length }, 'CSRF token length mismatch');
+        return false;
+      }
       
-      logger.debug({ sessionId, isValid }, 'CSRF token validated from Redis');
-      return isValid;
+      try {
+        const isValid = crypto.timingSafeEqual(
+          Buffer.from(token),
+          Buffer.from(storedToken)
+        );
+        
+        logger.debug({ sessionId, isValid }, 'CSRF token validated from Redis');
+        return isValid;
+      } catch (compareError) {
+        logger.error({ error: compareError, sessionId }, 'Error in crypto.timingSafeEqual');
+        return false;
+      }
     }
   } catch (error) {
     logger.warn({ error, sessionId }, 'Redis validation failed for CSRF token, using memory fallback');
@@ -136,23 +159,41 @@ export async function validateCSRFToken(req: Request, token: string): Promise<bo
   }
   
   // Fallback to in-memory storage
+  logger.debug({ sessionId }, 'Using memory fallback for CSRF validation');
+  
   const stored = csrfTokens.get(sessionId);
   
   if (!stored) {
+    logger.debug({ sessionId, availableKeys: Array.from(csrfTokens.keys()) }, 'CSRF token not found in memory');
     return false;
   }
   
   // Check if token is expired
   if (stored.expiresAt < Date.now()) {
+    logger.debug({ sessionId }, 'CSRF token expired in memory');
     csrfTokens.delete(sessionId);
     return false;
   }
   
   // Constant-time comparison to prevent timing attacks
-  return crypto.timingSafeEqual(
-    Buffer.from(token),
-    Buffer.from(stored.token)
-  );
+  // Ensure both tokens are the same length to avoid crypto.timingSafeEqual errors
+  if (token.length !== stored.token.length) {
+    logger.debug({ sessionId, tokenLength: token.length, storedLength: stored.token.length }, 'CSRF token length mismatch (memory)');
+    return false;
+  }
+  
+  try {
+    const isValid = crypto.timingSafeEqual(
+      Buffer.from(token),
+      Buffer.from(stored.token)
+    );
+    
+    logger.debug({ sessionId, isValid }, 'CSRF token validated from memory');
+    return isValid;
+  } catch (compareError) {
+    logger.error({ error: compareError, sessionId }, 'Error in crypto.timingSafeEqual (memory)');
+    return false;
+  }
 }
 
 /**
@@ -200,6 +241,16 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
     req.headers['csrf-token'] as string ||
     req.body?._csrf ||
     req.query._csrf as string;
+  
+  // Debug logging
+  logger.debug({ 
+    path: req.path, 
+    method: req.method,
+    hasXCSRFToken: !!req.headers['x-csrf-token'],
+    hasCSRFToken: !!req.headers['csrf-token'],
+    tokenLength: token?.length,
+    sessionId: req.session?.id || req.sessionID
+  }, 'CSRF validation attempt');
   
   if (!token) {
     logger.warn({ path: req.path }, 'CSRF token missing');

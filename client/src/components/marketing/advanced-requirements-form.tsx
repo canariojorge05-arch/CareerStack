@@ -110,11 +110,19 @@ const requirementSchema = yup.object({
 
 type RequirementFormData = yup.InferType<typeof requirementSchema>;
 
-interface AdvancedRequirementsFormProps {
+export interface Consultant {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  displayId?: string;
+}
+
+export interface AdvancedRequirementsFormProps {
   open: boolean;
   onClose: () => void;
   onSubmit: (requirements: RequirementFormData[]) => Promise<void>;
-  consultants?: Array<{ id: string; name: string; email: string; status: string }>;
+  consultants?: Consultant[];
   initialData?: Partial<RequirementFormData>;
   editMode?: boolean;
   isSubmitting?: boolean;
@@ -157,6 +165,7 @@ export default function AdvancedRequirementsForm({
   editMode = false,
   isSubmitting = false,
 }: AdvancedRequirementsFormProps) {
+  
   const [activeTab, setActiveTab] = useState('requirement');
   const [showPreview, setShowPreview] = useState(false);
 
@@ -170,6 +179,7 @@ export default function AdvancedRequirementsForm({
     trigger,
   } = useForm<RequirementFormData>({
     resolver: yupResolver(requirementSchema),
+    mode: 'onChange',
     defaultValues: {
       status: RequirementStatus.NEW,
       appliedFor: 'Rahul',
@@ -192,9 +202,66 @@ export default function AdvancedRequirementsForm({
       duration: '',
       ...initialData,
     },
-    mode: 'onBlur',
   });
-  // Removed useFieldArray as multipleRequirements is not part of the schema
+  // Debug effect to log form validation state
+  useEffect(() => {
+    console.log('Form validation state:', { isValid, errors: Object.keys(errors) });
+  }, [isValid, errors]);
+
+  // Effect to populate form with initialData when in edit mode
+  useEffect(() => {
+    if (editMode && initialData && open) {
+      console.log('🔄 Populating form with edit data:', initialData);
+      
+      // Reset form with the initial data
+      reset({
+        status: RequirementStatus.NEW,
+        appliedFor: 'Rahul',
+        jobTitle: '',
+        consultantId: null,
+        rate: '',
+        primaryTechStack: '',
+        clientCompany: '',
+        impName: '',
+        clientWebsite: '',
+        impWebsite: '',
+        vendorCompany: '',
+        vendorWebsite: '',
+        vendorPersonName: '',
+        vendorPhone: '',
+        vendorEmail: '',
+        completeJobDescription: '',
+        nextStep: '',
+        remote: '',
+        duration: '',
+        ...initialData,
+      });
+    } else if (!editMode && open) {
+      // Reset to empty form for create mode
+      console.log('🆕 Resetting form for create mode');
+      reset({
+        status: RequirementStatus.NEW,
+        appliedFor: 'Rahul',
+        jobTitle: '',
+        consultantId: null,
+        rate: '',
+        primaryTechStack: '',
+        clientCompany: '',
+        impName: '',
+        clientWebsite: '',
+        impWebsite: '',
+        vendorCompany: '',
+        vendorWebsite: '',
+        vendorPersonName: '',
+        vendorPhone: '',
+        vendorEmail: '',
+        completeJobDescription: '',
+        nextStep: '',
+        remote: '',
+        duration: '',
+      });
+    }
+  }, [editMode, initialData, open, reset]);
 
   // Note: Removed watch() calls to prevent re-renders on every keystroke that cause focus loss
 
@@ -208,12 +275,15 @@ export default function AdvancedRequirementsForm({
   };
 
   const handleFormSubmit = async (data: RequirementFormData) => {
+    console.log('Form submitting with data:', data);
     try {
       await onSubmit([data]);
+      console.log('Form submission successful');
       // Don't reset here - let the parent component handle dialog closing
     } catch (error: any) {
       // Error handling is done in the parent component
       console.error('Form submission error:', error);
+      toast.error(`Submission failed: ${error.message}`);
     }
   };
 
@@ -276,13 +346,32 @@ Additional Information:
                 <span>{editMode ? 'Edit Requirement' : 'Create New Requirement'}</span>
               </DialogTitle>
               <DialogDescription>
-                Fill out the form sections to create a comprehensive job requirement
+                {editMode 
+                  ? 'Update the requirement details below'
+                  : 'Fill out the form sections to create a comprehensive job requirement'
+                }
               </DialogDescription>
             </div>
             <div className="flex items-center space-x-2">
               <Badge variant={isValid ? 'default' : 'secondary'}>
                 {isValid ? 'Valid' : 'Incomplete'}
               </Badge>
+              <div className="text-xs text-slate-500">
+                Step {['requirement', 'client', 'vendor', 'job'].indexOf(activeTab) + 1} of 4
+              </div>
+            </div>
+          </div>
+          {/* Progress Bar */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+              <span>Progress</span>
+              <span>{Math.round(((['requirement', 'client', 'vendor', 'job'].indexOf(activeTab) + 1) / 4) * 100)}%</span>
+            </div>
+            <div className="w-full bg-slate-200 rounded-full h-2">
+              <div 
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-in-out"
+                style={{ width: `${((['requirement', 'client', 'vendor', 'job'].indexOf(activeTab) + 1) / 4) * 100}%` }}
+              ></div>
             </div>
           </div>
         </DialogHeader>
@@ -393,7 +482,7 @@ Additional Information:
                                   .filter((c) => c.status === 'Active')
                                   .map((consultant) => (
                                     <SelectItem key={consultant.id} value={consultant.id}>
-                                      {consultant.name} ({consultant.email})
+                                      {consultant.displayId ? `${consultant.displayId} - ` : ''}{consultant.name} ({consultant.email})
                                     </SelectItem>
                                   ))}
                               </SelectContent>
@@ -748,13 +837,8 @@ Additional Information:
 
         <DialogFooter className="flex-shrink-0 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowPreview(!showPreview)}
-            >
-              Preview
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowPreview(!showPreview)}>
+              {showPreview ? 'Hide Preview' : 'Show Preview'}
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={() => reset()}>
               Reset Form
@@ -762,23 +846,54 @@ Additional Information:
           </div>
 
           <div className="flex items-center space-x-2">
+            {/* Navigation buttons */}
+            {activeTab !== 'requirement' && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  const tabs = ['requirement', 'client', 'vendor', 'job'];
+                  const currentIndex = tabs.indexOf(activeTab);
+                  if (currentIndex > 0) setActiveTab(tabs[currentIndex - 1]);
+                }}
+              >
+                Previous
+              </Button>
+            )}
+            {activeTab !== 'job' && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  const tabs = ['requirement', 'client', 'vendor', 'job'];
+                  const currentIndex = tabs.indexOf(activeTab);
+                  if (currentIndex < tabs.length - 1) setActiveTab(tabs[currentIndex + 1]);
+                }}
+              >
+                Next
+              </Button>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-2">
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || !isValid}>
+            <Button type="submit" form="requirement-form" disabled={isSubmitting || !isValid}>
               {isSubmitting
                 ? 'Creating...'
                 : editMode
                 ? 'Update Requirement'
                 : 'Create Requirement'}
             </Button>
+            {!isValid && Object.keys(errors).length > 0 && (
+              <div className="text-xs text-red-500 mt-1">
+                Missing: {Object.keys(errors).join(', ')}
+              </div>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
-  );
-}
-ent>
     </Dialog>
   );
 }

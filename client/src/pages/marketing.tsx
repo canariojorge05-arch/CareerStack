@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
@@ -13,11 +13,38 @@ import { AppHeader } from '@/components/shared/app-header';
 import RequirementsSection from '@/components/marketing/requirements-section';
 import InterviewsSection from '@/components/marketing/interviews-section';
 import ConsultantsSection from '@/components/marketing/consultants-section';
+// import DebugConsultants from '../../debug-consultants';
 
 export default function MarketingPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [activeSection, setActiveSection] = useState('requirements');
+
+  // Initialize CSRF token on page load
+  useEffect(() => {
+    const initializeCSRF = async () => {
+      try {
+        // Check if CSRF token exists
+        const existingToken = document.cookie
+          .split('; ')
+          .find(row => row.startsWith('csrf_token='))
+          ?.split('=')[1];
+        
+        if (!existingToken) {
+          console.log('🔒 Initializing CSRF token for marketing page...');
+          // Make a simple GET request to initialize CSRF token
+          await apiRequest('GET', '/api/auth/user');
+          console.log('🔒 CSRF token initialized successfully');
+        } else {
+          console.log('🔒 CSRF token already exists');
+        }
+      } catch (error) {
+        console.warn('🔒 Failed to initialize CSRF token:', error);
+      }
+    };
+
+    initializeCSRF();
+  }, []);
 
   const navigationItems = [
     {

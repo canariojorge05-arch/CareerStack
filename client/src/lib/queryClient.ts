@@ -7,6 +7,56 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// Function to fetch CSRF token if not present
+async function ensureCSRFToken(): Promise<string | undefined> {
+  // Check if token already exists in cookie
+  const existingToken = document.cookie
+    .split('; ')
+    .find(row => row.startsWith('csrf_token='))
+    ?.split('=')[1];
+  
+  if (existingToken) {
+    return existingToken;
+  }
+  
+  // If no token, try to get it by making a simple GET request to any API endpoint
+  // This should trigger the CSRF middleware to set the token
+  try {
+    console.log('🔒 Fetching CSRF token by making GET request...');
+    const response = await fetch('/api/auth/user', {
+      method: 'GET',
+      credentials: 'include',
+    });
+    
+    // Don't care about the response, just check if token was set
+    const newToken = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('csrf_token='))
+      ?.split('=')[1];
+    
+    console.log(`🔒 CSRF token after GET request: ${newToken ? 'Success' : 'Failed'}`);
+    return newToken;
+  } catch (error) {
+    console.warn('🔒 Failed to fetch CSRF token:', error);
+  }
+  
+  return undefined;
+}
+
+// Function to refresh CSRF token proactively
+export async function refreshCSRFToken(): Promise<void> {
+  try {
+    console.log('🔒 Proactively refreshing CSRF token...');
+    // Clear existing token
+    document.cookie = 'csrf_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    // Fetch new token
+    await ensureCSRFToken();
+    console.log('🔒 CSRF token refreshed successfully');
+  } catch (error) {
+    console.warn('🔒 Failed to refresh CSRF token:', error);
+  }
+}
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -14,14 +64,11 @@ export async function apiRequest(
 ): Promise<Response> {
   // Get CSRF token for state-changing operations
   const needsCSRF = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
-  const csrfToken = needsCSRF ? document.cookie
-    .split('; ')
-    .find(row => row.startsWith('csrf_token='))
-    ?.split('=')[1] : undefined;
-
-  // Debug logging for CSRF token
+  let csrfToken: string | undefined;
+  
   if (needsCSRF) {
-    console.log(`🔒 CSRF Debug - Method: ${method}, Token: ${csrfToken ? 'Found' : 'Missing'}`);
+    csrfToken = await ensureCSRFToken();
+    console.log(`🔒 CSRF Debug - Method: ${method}, Token: ${csrfToken ? 'Found' : 'Missing'}, URL: ${url}`);
   }
 
   const headers: Record<string, string> = {};
@@ -34,12 +81,41 @@ export async function apiRequest(
     headers["X-CSRF-Token"] = csrfToken;
   }
 
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
+
+  // If we get a CSRF error, try to refresh the token and retry once
+  if (!res.ok && res.status === 403 && needsCSRF) {
+    try {
+      const errorText = await res.text();
+      if (errorText.includes('CSRF') || errorText.includes('csrf')) {
+        console.log('🔒 CSRF token failed, refreshing and retrying...');
+        
+        // Clear existing token and fetch a new one
+        document.cookie = 'csrf_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+        csrfToken = await ensureCSRFToken();
+        
+        if (csrfToken) {
+          headers["X-CSRF-Token"] = csrfToken;
+          console.log('🔒 Retrying with new CSRF token...');
+          
+          // Retry the request with new token
+          res = await fetch(url, {
+            method,
+            headers,
+            body: data ? JSON.stringify(data) : undefined,
+            credentials: "include",
+          });
+        }
+      }
+    } catch (retryError) {
+      console.warn('🔒 CSRF token retry failed:', retryError);
+    }
+  }
 
   await throwIfResNotOk(res);
   return res;

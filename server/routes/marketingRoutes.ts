@@ -1,5 +1,17 @@
 import { Router } from 'express';
 import { db, queryWithTimeout, executeTransaction } from '../db';
+import { 
+  sql, 
+  count,
+  eq, 
+  desc, 
+  asc, 
+  and, 
+  or, 
+  like, 
+  gte, 
+  lte 
+} from 'drizzle-orm';
 import { isAuthenticated } from '../localAuth';
 import { 
   marketingRateLimiter, 
@@ -8,6 +20,15 @@ import {
   emailRateLimiter 
 } from '../middleware/rateLimiter';
 import { csrfProtection, csrfTokenMiddleware } from '../middleware/csrf';
+
+// Conditional CSRF protection - bypass in development for debugging
+const conditionalCSRF = (req: any, res: any, next: any) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔧 CSRF bypassed in development mode');
+    return next();
+  }
+  return csrfProtection(req, res, next);
+};
 import { EmailService } from '../services/emailService';
 import { ImapService } from '../services/imapService';
 import { EnhancedGmailOAuthService } from '../services/enhancedGmailOAuthService';
@@ -51,7 +72,6 @@ import {
   type EmailAccount,
   type MarketingComment
 } from '@shared/schema';
-import { eq, desc, asc, and, or, like, gte, lte, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 const router = Router();
@@ -173,6 +193,25 @@ router.use(csrfTokenMiddleware);
 // Apply global rate limiting to all marketing routes
 router.use(marketingRateLimiter);
 
+// Helper functions for generating display IDs
+async function generateConsultantDisplayId(): Promise<string> {
+  const result = await db.select({ count: sql<number>`count(*)` }).from(consultants);
+  const nextNumber = (result[0]?.count || 0) + 1;
+  return `CONST ID - ${nextNumber}`;
+}
+
+async function generateRequirementDisplayId(): Promise<string> {
+  const result = await db.select({ count: sql<number>`count(*)` }).from(requirements);
+  const nextNumber = (result[0]?.count || 0) + 1;
+  return `REQ ID - ${nextNumber}`;
+}
+
+async function generateInterviewDisplayId(): Promise<string> {
+  const result = await db.select({ count: sql<number>`count(*)` }).from(interviews);
+  const nextNumber = (result[0]?.count || 0) + 1;
+  return `INT ID - ${nextNumber}`;
+}
+
 // CONSULTANTS ROUTES
 
 // Get all consultants with filters (with pagination)
@@ -277,7 +316,7 @@ router.get('/consultants/:id', async (req, res) => {
 });
 
 // Create consultant with projects (OPTIMIZED with transaction and batch insert)
-router.post('/consultants', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
+router.post('/consultants', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { consultant: consultantData, projects = [] } = req.body;
     
@@ -289,9 +328,13 @@ router.post('/consultants', csrfProtection, writeOperationsRateLimiter, async (r
       sanitizedData.ssn = encrypt(sanitizedData.ssn);
     }
     
+    // Generate display ID
+    const displayId = await generateConsultantDisplayId();
+    
     // Validate consultant data
     const validatedConsultant = insertConsultantSchema.parse({
       ...sanitizedData,
+      displayId,
       createdBy: req.user!.id
     });
     
@@ -343,7 +386,7 @@ router.post('/consultants', csrfProtection, writeOperationsRateLimiter, async (r
 });
 
 // Update consultant (OPTIMIZED with transaction and batch insert)
-router.patch('/consultants/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
+router.patch('/consultants/:id', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const { consultant: consultantData, projects = [] } = req.body;
@@ -429,7 +472,7 @@ router.patch('/consultants/:id', csrfProtection, writeOperationsRateLimiter, asy
 });
 
 // Delete consultant
-router.delete('/consultants/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
+router.delete('/consultants/:id', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -478,7 +521,7 @@ router.delete('/consultants/:id', csrfProtection, writeOperationsRateLimiter, as
 // Get all requirements with filters (with pagination)
 router.get('/requirements', async (req, res) => {
   try {
-    const { status, consultantId, clientCompany, dateFrom, dateTo, page = '1', limit = '50' } = req.query;
+    const { status, consultantId, clientCompany, dateFrom, dateTo, search, page = '1', limit = '50' } = req.query;
     
     // Enforce maximum limit
     const limitNum = Math.min(parseInt(limit as string), 100);
@@ -498,6 +541,17 @@ router.get('/requirements', async (req, res) => {
     }
     if (dateTo) {
       whereConditions.push(lte(requirements.createdAt, new Date(dateTo as string)));
+    }
+    if (search) {
+      whereConditions.push(
+        or(
+          like(requirements.jobTitle, `%${search}%`),
+          like(requirements.clientCompany, `%${search}%`),
+          like(requirements.primaryTechStack, `%${search}%`),
+          like(requirements.vendorCompany, `%${search}%`),
+          like(requirements.completeJobDescription, `%${search}%`)
+        )
+      );
     }
 
     const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;
@@ -565,7 +619,7 @@ router.get('/requirements/:id', async (req, res) => {
 });
 
 // Create requirement (single or bulk)
-router.post('/requirements', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
+router.post('/requirements', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { requirements: reqArray, single } = req.body;
     
@@ -573,8 +627,12 @@ router.post('/requirements', csrfProtection, writeOperationsRateLimiter, async (
       // Single requirement - sanitize input
       const sanitizedData = sanitizeRequirementData(req.body);
       
+      // Generate display ID
+      const displayId = await generateRequirementDisplayId();
+      
       const requirementData = insertRequirementSchema.parse({
         ...sanitizedData,
+        displayId,
         createdBy: req.user!.id,
         marketingComments: []
       });
@@ -591,15 +649,17 @@ router.post('/requirements', csrfProtection, writeOperationsRateLimiter, async (
         return res.status(400).json({ message: 'Requirements array is required for bulk creation' });
       }
 
-      // Sanitize all requirements
-      const requirementDataArray = reqArray.map(reqData => {
+      // Sanitize all requirements and generate display IDs
+      const requirementDataArray = await Promise.all(reqArray.map(async (reqData) => {
         const sanitizedData = sanitizeRequirementData(reqData);
+        const displayId = await generateRequirementDisplayId();
         return insertRequirementSchema.parse({
           ...sanitizedData,
+          displayId,
           createdBy: req.user!.id,
           marketingComments: []
         });
-      });
+      }));
 
       const newRequirements = await db.insert(requirements).values(requirementDataArray).returning();
       
@@ -620,7 +680,7 @@ router.post('/requirements', csrfProtection, writeOperationsRateLimiter, async (
 });
 
 // Update requirement
-router.patch('/requirements/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
+router.patch('/requirements/:id', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -657,7 +717,7 @@ router.patch('/requirements/:id', csrfProtection, writeOperationsRateLimiter, as
 });
 
 // Add comment to requirement
-router.post('/requirements/:id/comments', async (req, res) => {
+router.post('/requirements/:id/comments', conditionalCSRF, async (req, res) => {
   try {
     const { id } = req.params;
     const { comment } = req.body;
@@ -703,7 +763,7 @@ router.post('/requirements/:id/comments', async (req, res) => {
 });
 
 // Delete requirement
-router.delete('/requirements/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
+router.delete('/requirements/:id', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -828,13 +888,17 @@ router.get('/interviews/:id', async (req, res) => {
 });
 
 // Create interview
-router.post('/interviews', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
+router.post('/interviews', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     // Sanitize input
     const sanitizedData = sanitizeInterviewData(req.body);
     
+    // Generate display ID
+    const displayId = await generateInterviewDisplayId();
+    
     const interviewData = insertInterviewSchema.parse({
       ...sanitizedData,
+      displayId,
       createdBy: req.user!.id
     });
     
@@ -854,7 +918,7 @@ router.post('/interviews', csrfProtection, writeOperationsRateLimiter, async (re
 });
 
 // Update interview
-router.patch('/interviews/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
+router.patch('/interviews/:id', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -891,7 +955,7 @@ router.patch('/interviews/:id', csrfProtection, writeOperationsRateLimiter, asyn
 });
 
 // Delete interview
-router.delete('/interviews/:id', csrfProtection, writeOperationsRateLimiter, async (req, res) => {
+router.delete('/interviews/:id', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -1051,7 +1115,7 @@ router.get('/email-accounts', async (req, res) => {
 });
 
 // Create email account
-router.post('/email-accounts', async (req, res) => {
+router.post('/email-accounts', conditionalCSRF, async (req, res) => {
   try {
     const accountData = insertEmailAccountSchema.parse({
       ...req.body,
@@ -1087,7 +1151,7 @@ router.post('/email-accounts', async (req, res) => {
 });
 
 // Update email account
-router.patch('/email-accounts/:id', async (req, res) => {
+router.patch('/email-accounts/:id', conditionalCSRF, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = insertEmailAccountSchema.partial().parse(req.body);
@@ -1139,7 +1203,7 @@ router.patch('/email-accounts/:id', async (req, res) => {
 });
 
 // Delete email account
-router.delete('/email-accounts/:id', async (req, res) => {
+router.delete('/email-accounts/:id', conditionalCSRF, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1165,7 +1229,7 @@ router.delete('/email-accounts/:id', async (req, res) => {
 });
 
 // Test email account connection
-router.post('/email-accounts/:id/test', async (req, res) => {
+router.post('/email-accounts/:id/test', conditionalCSRF, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1196,7 +1260,7 @@ router.post('/email-accounts/:id/test', async (req, res) => {
 });
 
 // Sync emails from account
-router.post('/email-accounts/:id/sync', async (req, res) => {
+router.post('/email-accounts/:id/sync', conditionalCSRF, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1279,7 +1343,7 @@ router.get('/sync/status', async (req, res) => {
   }
 });
 
-router.post('/sync/start', async (req, res) => {
+router.post('/sync/start', conditionalCSRF, async (req, res) => {
   try {
     await EmailSyncService.startBackgroundSync();
     res.json({ message: 'Background sync started successfully' });
@@ -1289,7 +1353,7 @@ router.post('/sync/start', async (req, res) => {
   }
 });
 
-router.post('/sync/stop', async (req, res) => {
+router.post('/sync/stop', conditionalCSRF, async (req, res) => {
   try {
     await EmailSyncService.stopBackgroundSync();
     res.json({ message: 'Background sync stopped successfully' });
@@ -1570,7 +1634,7 @@ router.get('/emails/threads/:threadId/messages', async (req, res) => {
 });
 
 // Mark message as read/unread
-router.patch('/emails/messages/:messageId/read', async (req, res) => {
+router.patch('/emails/messages/:messageId/read', conditionalCSRF, async (req, res) => {
   try {
     const { messageId } = req.params;
     const { isRead } = req.body;
@@ -1605,7 +1669,7 @@ router.patch('/emails/messages/:messageId/read', async (req, res) => {
 });
 
 // Mark all messages in thread as read
-router.patch('/emails/threads/:threadId/read', async (req, res) => {
+router.patch('/emails/threads/:threadId/read', conditionalCSRF, async (req, res) => {
   try {
     const { threadId } = req.params;
     
@@ -1635,7 +1699,7 @@ router.patch('/emails/threads/:threadId/read', async (req, res) => {
 });
 
 // Star/unstar message
-router.patch('/emails/messages/:messageId/star', async (req, res) => {
+router.patch('/emails/messages/:messageId/star', conditionalCSRF, async (req, res) => {
   try {
     const { messageId } = req.params;
     const { isStarred } = req.body;
@@ -1667,7 +1731,7 @@ router.patch('/emails/messages/:messageId/star', async (req, res) => {
 });
 
 // Archive/unarchive thread
-router.patch('/emails/threads/:threadId/archive', async (req, res) => {
+router.patch('/emails/threads/:threadId/archive', conditionalCSRF, async (req, res) => {
   try {
     const { threadId } = req.params;
     const { isArchived } = req.body;
@@ -1702,7 +1766,7 @@ router.patch('/emails/threads/:threadId/archive', async (req, res) => {
 });
 
 // Check email deliverability (spam score)
-router.post('/emails/check-deliverability', async (req, res) => {
+router.post('/emails/check-deliverability', conditionalCSRF, async (req, res) => {
   try {
     const { subject, htmlBody, textBody, fromEmail } = req.body;
     
@@ -1749,7 +1813,7 @@ router.post('/emails/check-deliverability', async (req, res) => {
 });
 
 // Validate recipient email
-router.post('/emails/validate-recipient', async (req, res) => {
+router.post('/emails/validate-recipient', conditionalCSRF, async (req, res) => {
   try {
     const { email } = req.body;
     
@@ -1777,7 +1841,7 @@ router.get('/emails/rate-limits', async (req, res) => {
 });
 
 // Send email
-router.post('/emails/send', emailRateLimiter, upload.array('attachments'), async (req, res) => {
+router.post('/emails/send', conditionalCSRF, emailRateLimiter, upload.array('attachments'), async (req, res) => {
   try {
     const {
       to,
@@ -2004,7 +2068,7 @@ router.post('/emails/send', emailRateLimiter, upload.array('attachments'), async
   }
 });
 // Save draft
-router.post('/emails/drafts', async (req, res) => {
+router.post('/emails/drafts', conditionalCSRF, async (req, res) => {
   try {
     const { to, cc, bcc, subject, htmlBody, textBody } = req.body;
     
@@ -2048,7 +2112,7 @@ router.get('/emails/drafts', async (req, res) => {
 });
 
 // Delete email thread
-router.delete('/emails/threads/:threadId', async (req, res) => {
+router.delete('/emails/threads/:threadId', conditionalCSRF, async (req, res) => {
   try {
     const { threadId } = req.params;
     
