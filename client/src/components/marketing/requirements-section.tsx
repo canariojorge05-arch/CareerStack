@@ -19,6 +19,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import AdvancedRequirementsForm from './advanced-requirements-form';
+import NextStepComments from './next-step-comments';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -511,7 +512,7 @@ export default function RequirementsSection() {
       {/* View Requirement Dialog */}
       {viewRequirement && (
         <Dialog open={!!viewRequirement} onOpenChange={() => setViewRequirement(null)}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center space-x-2">
                 <FileText size={20} />
@@ -585,10 +586,15 @@ export default function RequirementsSection() {
 
               {viewRequirement.nextStep && (
                 <div>
-                  <label className="text-sm font-semibold text-slate-700">Next Step</label>
-                  <p className="text-slate-600 mt-2">{viewRequirement.nextStep}</p>
+                  <label className="text-sm font-semibold text-slate-700">Legacy Next Step</label>
+                  <p className="text-slate-600 mt-2 text-xs italic">
+                    {viewRequirement.nextStep}
+                  </p>
                 </div>
               )}
+
+              {/* Next Step Comments Thread */}
+              <NextStepComments requirementId={viewRequirement.id} />
             </div>
 
             <DialogFooter>

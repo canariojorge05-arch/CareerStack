@@ -383,6 +383,20 @@ export const interviews = pgTable("interviews", {
   index("idx_interviews_date").on(table.interviewDate),
 ]);
 
+// Next Step Comments table
+export const nextStepComments = pgTable("next_step_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  requirementId: varchar("requirement_id").notNull().references(() => requirements.id, { onDelete: 'cascade' }),
+  comment: text("comment").notNull(),
+  createdBy: varchar("created_by").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_next_step_comments_requirement_id").on(table.requirementId),
+  index("idx_next_step_comments_created_by").on(table.createdBy),
+  index("idx_next_step_comments_created_at").on(table.createdAt),
+]);
+
 // Email threads table
 export const emailThreads = pgTable("email_threads", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -537,6 +551,7 @@ export const requirementsRelations = relations(requirements, ({ one, many }) => 
     references: [consultants.id],
   }),
   interviews: many(interviews),
+  nextStepComments: many(nextStepComments),
 }));
 
 export const interviewsRelations = relations(interviews, ({ one }) => ({
@@ -554,6 +569,17 @@ export const interviewsRelations = relations(interviews, ({ one }) => ({
   }),
   createdByUser: one(users, {
     fields: [interviews.createdBy],
+    references: [users.id],
+  }),
+}));
+
+export const nextStepCommentsRelations = relations(nextStepComments, ({ one }) => ({
+  requirement: one(requirements, {
+    fields: [nextStepComments.requirementId],
+    references: [requirements.id],
+  }),
+  createdByUser: one(users, {
+    fields: [nextStepComments.createdBy],
     references: [users.id],
   }),
 }));
@@ -625,6 +651,12 @@ export const insertRequirementSchema = createInsertSchema(requirements).omit({
 });
 
 export const insertInterviewSchema = createInsertSchema(interviews).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertNextStepCommentSchema = createInsertSchema(nextStepComments).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -712,6 +744,8 @@ export type Requirement = typeof requirements.$inferSelect;
 export type InsertRequirement = z.infer<typeof insertRequirementSchema>;
 export type Interview = typeof interviews.$inferSelect;
 export type InsertInterview = z.infer<typeof insertInterviewSchema>;
+export type NextStepComment = typeof nextStepComments.$inferSelect;
+export type InsertNextStepComment = z.infer<typeof insertNextStepCommentSchema>;
 export type EmailThread = typeof emailThreads.$inferSelect;
 export type InsertEmailThread = z.infer<typeof insertEmailThreadSchema>;
 export type EmailMessage = typeof emailMessages.$inferSelect;
