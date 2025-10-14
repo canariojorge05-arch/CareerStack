@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import AdvancedRequirementsForm from './advanced-requirements-form';
 import NextStepComments from './next-step-comments';
+import { AdminDeleteButton } from './admin-delete-button';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -264,13 +265,14 @@ export default function RequirementsSection() {
     setViewRequirement(requirement);
   };
 
-  const handleDeleteRequirement = (id: string) => {
+  const handleDeleteRequirement = async (id: string): Promise<void> => {
     setDeleteConfirm(id);
+    return Promise.resolve();
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (deleteConfirm) {
-      deleteMutation.mutate(deleteConfirm);
+      await deleteMutation.mutateAsync(deleteConfirm);
     }
   };
 
@@ -448,20 +450,16 @@ export default function RequirementsSection() {
                   >
                     <Edit size={16} />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeleteRequirement(requirement.id)}
+                  <AdminDeleteButton
+                    onDelete={() => handleDeleteRequirement(requirement.id)}
                     className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                    disabled={deleteMutation.isPending}
-                    title="Delete"
                   >
                     {deleteMutation.isPending && deleteConfirm === requirement.id ? (
                       <Loader2 size={16} className="animate-spin" />
                     ) : (
                       <Trash2 size={16} />
                     )}
-                  </Button>
+                  </AdminDeleteButton>
                 </div>
               </div>
             </CardContent>

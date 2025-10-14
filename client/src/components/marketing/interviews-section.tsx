@@ -1,6 +1,54 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, refreshCSRFToken } from '@/lib/queryClient';
+
+interface Interview {
+  id: string;
+  displayId?: string;
+  jobTitle?: string;
+  status: string;
+  round?: string;
+  consultantName?: string;
+  vendorCompany?: string;
+  interviewDate?: string;
+  interviewTime?: string;
+  mode?: string;
+  timezone?: string;
+  interviewerName?: string;
+  meetingLink?: string;
+  notes?: string;
+}
+
+interface InterviewFormData {
+  requirementId?: string;
+  interviewDate?: string;
+  interviewTime?: string;
+  timezone: string;
+  interviewType?: string;
+  status: string;
+  consultantId?: string;
+  vendorCompany?: string;
+  interviewWith?: string;
+  result?: string;
+  round?: string;
+  mode?: string;
+  meetingType?: string;
+  duration?: string;
+  subjectLine?: string;
+  interviewer?: string;
+  interviewLink?: string;
+  interviewFocus?: string;
+  specialNote?: string;
+  jobDescription?: string;
+  feedbackNotes?: string;
+}
+
+interface PaginatedResponse {
+  data: Interview[];
+  pagination: {
+    total: number;
+  };
+}
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -24,6 +72,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import InterviewForm from './interview-form';
+import { AdminDeleteButton } from './admin-delete-button';
 import {
   Dialog,
   DialogContent,
@@ -38,9 +87,9 @@ export default function InterviewsSection() {
   const [activeTab, setActiveTab] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [showInterviewForm, setShowInterviewForm] = useState(false);
-  const [selectedInterview, setSelectedInterview] = useState<any>(null);
+  const [selectedInterview, setSelectedInterview] = useState<InterviewFormData | null>(null);
   const [showEditForm, setShowEditForm] = useState(false);
-  const [viewInterview, setViewInterview] = useState<any>(null);
+  const [viewInterview, setViewInterview] = useState<Interview | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   
   // Debounce search query
@@ -60,7 +109,7 @@ export default function InterviewsSection() {
     isLoading,
     isError,
     error,
-  } = useQuery({
+  } = useQuery<PaginatedResponse>({
     queryKey: [
       '/api/marketing/interviews',
       pagination.page,
@@ -85,7 +134,7 @@ export default function InterviewsSection() {
       return response.json();
     },
     retry: 1,
-    keepPreviousData: true,
+    placeholderData: (previousData) => previousData,
   });
   
   // Handle both paginated and non-paginated responses
@@ -139,7 +188,7 @@ export default function InterviewsSection() {
   });
 
   // Delete interview mutation
-  const deleteMutation = useMutation({
+  const deleteMutation = useMutation<void, Error, string>({
     mutationFn: async (id: string) => {
       const response = await apiRequest('DELETE', `/api/marketing/interviews/${id}`);
       if (!response.ok) {
@@ -161,11 +210,11 @@ export default function InterviewsSection() {
   // Filter interviews by tab
   const filteredInterviews = useMemo(() => {
     // Ensure interviews is an array
-    const interviewsArray = Array.isArray(interviews) ? interviews : [];
+    const interviewsArray = Array.isArray(interviewsResponse?.data) ? interviewsResponse.data : [];
 
     if (activeTab === 'All') return interviewsArray;
-    return interviewsArray.filter((interview: any) => interview.status === activeTab);
-  }, [interviews, activeTab]);
+    return interviewsArray.filter((interview: Interview) => interview.status === activeTab);
+  }, [interviewsResponse?.data, activeTab]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -187,12 +236,18 @@ export default function InterviewsSection() {
     setShowInterviewForm(true);
   };
 
-  const handleEditInterview = (interview: any) => {
-    setSelectedInterview(interview);
+  const handleEditInterview = (interview: Interview) => {
+    // Convert Interview to InterviewFormData
+    const formData: InterviewFormData = {
+      ...interview,
+      timezone: interview.timezone || 'UTC', // Provide default value
+      status: interview.status || 'Scheduled', // Provide default value
+    };
+    setSelectedInterview(formData);
     setShowEditForm(true);
   };
 
-  const handleViewInterview = (interview: any) => {
+  const handleViewInterview = (interview: Interview) => {
     setViewInterview(interview);
   };
 
@@ -212,9 +267,11 @@ export default function InterviewsSection() {
     setSelectedInterview(null);
   };
 
-  const handleFormSubmit = async (interviewData: any) => {
+  const handleFormSubmit = async (interviewData: InterviewFormData) => {
     if (showEditForm && selectedInterview) {
-      await updateMutation.mutateAsync({ id: selectedInterview.id, data: interviewData });
+      // Store the ID separately since it's not part of the form data
+      const interviewId = (selectedInterview as Interview & { id: string }).id;
+      await updateMutation.mutateAsync({ id: interviewId, data: interviewData });
     } else {
       await createMutation.mutateAsync(interviewData);
     }
@@ -358,20 +415,16 @@ export default function InterviewsSection() {
                         >
                           <EditIcon size={16} />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteInterview(interview.id)}
+                        <AdminDeleteButton
+                          onDelete={async () => handleDeleteInterview(interview.id)}
                           className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                          disabled={deleteMutation.isPending}
-                          title="Delete"
                         >
                           {deleteMutation.isPending && deleteConfirm === interview.id ? (
                             <Loader2 size={16} className="animate-spin" />
                           ) : (
                             <Trash2 size={16} />
                           )}
-                        </Button>
+                        </AdminDeleteButton>
                       </div>
                     </div>
                   </CardContent>
@@ -430,7 +483,7 @@ export default function InterviewsSection() {
         open={showInterviewForm || showEditForm}
         onClose={handleFormClose}
         onSubmit={handleFormSubmit}
-        initialData={showEditForm ? selectedInterview : undefined}
+        initialData={showEditForm && selectedInterview ? { ...selectedInterview } : undefined}
         editMode={showEditForm}
         isSubmitting={createMutation.isPending || updateMutation.isPending}
       />

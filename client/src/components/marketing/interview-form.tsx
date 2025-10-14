@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
-import { yupResolver } from '@hookform/resolvers/yup';
-import * as yup from 'yup';
 import { useQuery } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
@@ -41,85 +39,30 @@ import {
 import { toast } from 'sonner';
 import { InterviewStatus } from '@shared/schema';
 
-// Form validation schema
-const interviewSchema = yup.object({
-  requirementId: yup.string().required('Requirement is required'),
-
-  interviewDate: yup
-    .date()
-    .required('Interview date is required')
-    .min(new Date(), 'Interview date cannot be in the past'),
-
-  interviewTime: yup
-    .string()
-    .required('Interview time is required')
-    .matches(/^(0?[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i, 'Time must be in format HH:MM AM/PM'),
-
-  timezone: yup
-    .string()
-    .required('Timezone is required')
-    .oneOf(['EST', 'CST', 'MST', 'PST'], 'Invalid timezone'),
-
-  interviewType: yup.string().required('Interview type is required'),
-
-  status: yup
-    .string()
-    .required('Status is required')
-    .oneOf(Object.values(InterviewStatus), 'Invalid status'),
-
-  consultantId: yup.string().nullable(),
-
-  vendorCompany: yup
-    .string()
-    .required('Vendor company is required')
-    .min(2, 'Vendor company must be at least 2 characters'),
-
-  interviewWith: yup
-    .string()
-    .required('Interview with is required')
-    .oneOf(['Client', 'IMP', 'Vendor'], 'Invalid interview with option'),
-
-  result: yup.string().nullable(),
-
-  round: yup
-    .string()
-    .required('Round is required')
-    .oneOf(['1', '2', '3', 'Final'], 'Invalid round'),
-
-  mode: yup
-    .string()
-    .required('Mode is required')
-    .oneOf(['Phone', 'Video', 'Video+Coding'], 'Invalid mode'),
-
-  meetingType: yup.string().nullable(),
-
-  duration: yup
-    .string()
-    .required('Duration is required')
-    .matches(
-      /^\d+\s?(min|mins|hour|hours|hr|hrs)$/i,
-      'Duration must be in format like "30 mins" or "1 hour"'
-    ),
-
-  subjectLine: yup.string().nullable(),
-
-  interviewer: yup
-    .string()
-    .required('Interviewer is required')
-    .min(2, 'Interviewer name must be at least 2 characters'),
-
-  interviewLink: yup.string().url('Interview link must be a valid URL').nullable(),
-
-  interviewFocus: yup.string().nullable(),
-
-  specialNote: yup.string().nullable(),
-
-  jobDescription: yup.string().nullable(),
-
-  feedbackNotes: yup.string().nullable(),
-});
-
-type InterviewFormData = yup.InferType<typeof interviewSchema>;
+// Form interface
+interface InterviewFormData {
+  requirementId?: string;
+  interviewDate?: string;
+  interviewTime?: string;
+  timezone: string;
+  interviewType?: string;
+  status: string;
+  consultantId?: string;
+  vendorCompany?: string;
+  interviewWith?: string;
+  result?: string;
+  round?: string;
+  mode?: string;
+  meetingType?: string;
+  duration?: string;
+  subjectLine?: string;
+  interviewer?: string;
+  interviewLink?: string;
+  interviewFocus?: string;
+  specialNote?: string;
+  jobDescription?: string;
+  feedbackNotes?: string;
+}
 
 interface InterviewFormProps {
   open: boolean;
@@ -205,8 +148,7 @@ export default function InterviewForm({
     setValue,
     reset,
     trigger,
-  } = useForm<InterviewFormData>({
-    resolver: yupResolver(interviewSchema),
+  } = useForm({
     defaultValues: {
       status: InterviewStatus.CONFIRMED,
       timezone: 'EST',
@@ -221,14 +163,8 @@ export default function InterviewForm({
 
   // Note: Removed watch() calls to prevent re-renders on every keystroke that cause focus loss
 
-  const getFieldError = (fieldName: keyof InterviewFormData) => {
-    return errors[fieldName]?.message;
-  };
-
-  const getFieldStatus = (fieldName: keyof InterviewFormData) => {
-    if (errors[fieldName]) return 'error';
-    return 'default';
-  };
+  const getFieldError = (fieldName: string) => undefined;
+  const getFieldStatus = (fieldName: string) => 'default' as const;
 
   const handleFormSubmit = async (data: InterviewFormData) => {
     try {

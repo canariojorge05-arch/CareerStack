@@ -568,13 +568,15 @@ export function isAuthenticated(req: Request, res: Response, next: NextFunction)
   if (req.path.startsWith('/api/')) {
     // Debug logging to aid diagnosing repeated 401s from clients
     try {
-      logger.warn({ context: {
-        path: req.path,
-        method: req.method,
-        sessionID: req.sessionID,
-        cookies: req.headers.cookie,
-        isAuthenticated: req.isAuthenticated( }, '[auth] Rejecting API request - unauthenticated'),
-      });
+      logger.warn({
+        context: {
+          path: req.path,
+          method: req.method,
+          sessionID: req.sessionID,
+          cookies: req.headers.cookie,
+          isAuthenticated: req.isAuthenticated()
+        }
+      }, '[auth] Rejecting API request - unauthenticated');
     } catch (e) {
       logger.error({ error: e }, 'Failed to record auth rejection details:');
     }

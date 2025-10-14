@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { AdminDeleteButton } from './admin-delete-button';
 
 interface NextStepComment {
   id: string;
@@ -157,10 +158,8 @@ export default function NextStepComments({ requirementId, className = '' }: Next
     setEditingText('');
   };
 
-  const handleDeleteComment = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this comment?')) {
-      deleteCommentMutation.mutate(id);
-    }
+  const handleDeleteComment = async (id: string) => {
+    await deleteCommentMutation.mutateAsync(id);
   };
 
   const formatDateTime = (dateString: string) => {
@@ -343,19 +342,18 @@ export default function NextStepComments({ requirementId, className = '' }: Next
                         >
                           <Edit size={14} />
                         </Button>
-                        <Button
-                          onClick={() => handleDeleteComment(comment.id)}
-                          variant="ghost"
-                          size="sm"
+                        <AdminDeleteButton
+                          onDelete={async () => {
+                            await deleteCommentMutation.mutateAsync(comment.id);
+                          }}
                           className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                          disabled={deleteCommentMutation.isPending}
                         >
                           {deleteCommentMutation.isPending ? (
                             <Loader2 size={14} className="animate-spin" />
                           ) : (
                             <Trash2 size={14} />
                           )}
-                        </Button>
+                        </AdminDeleteButton>
                       </div>
                     )}
                   </div>

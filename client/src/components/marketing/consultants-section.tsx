@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import AdvancedConsultantForm from './advanced-consultant-form';
+import { AdminDeleteButton } from './admin-delete-button';
 import {
   Dialog,
   DialogContent,
@@ -320,13 +321,20 @@ function ConsultantsSection() {
     setViewConsultant(consultant);
   };
 
-  const handleDeleteConsultant = (id: string) => {
+  const handleDeleteConsultant = async (id: string) => {
     setDeleteConfirm(id);
+    try {
+      await deleteMutation.mutateAsync(id);
+      setDeleteConfirm(null);
+    } catch (error) {
+      // Error handling is done in the mutation
+      setDeleteConfirm(null);
+    }
   };
 
   const confirmDelete = () => {
     if (deleteConfirm) {
-      deleteMutation.mutate(deleteConfirm);
+      handleDeleteConsultant(deleteConfirm);
     }
   };
 
@@ -583,20 +591,16 @@ function ConsultantsSection() {
                     >
                       <Edit size={16} />
                     </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => handleDeleteConsultant(consultant.id)}
+                    <AdminDeleteButton
+                      onDelete={() => handleDeleteConsultant(consultant.id)}
                       className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                      disabled={deleteMutation.isPending}
-                      title="Delete"
                     >
                       {deleteMutation.isPending && deleteConfirm === consultant.id ? (
                         <Loader2 size={16} className="animate-spin" />
                       ) : (
                         <Trash2 size={16} />
                       )}
-                    </Button>
+                    </AdminDeleteButton>
                   </div>
                 </div>
               </CardContent>

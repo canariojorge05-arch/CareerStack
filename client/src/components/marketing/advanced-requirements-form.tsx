@@ -1,7 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useForm, Controller } from 'react-hook-form';
-import { yupResolver } from '@hookform/resolvers/yup';
-import * as yup from 'yup';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -46,76 +44,51 @@ import {
 import { toast } from 'sonner';
 import { RequirementStatus } from '@shared/schema';
 
-// Form validation schema
-const requirementSchema = yup.object({
-  jobTitle: yup
-    .string()
-    .required('Job title is required')
-    .min(3, 'Job title must be at least 3 characters')
-    .max(100, 'Job title must not exceed 100 characters'),
+// Form interfaces
+interface RequirementFormData {
+  jobTitle: string;
+  status: string;
+  consultantId: string | null;  // Remove optional to match expected type
+  appliedFor: string;
+  rate: string;
+  primaryTechStack: string;
+  clientCompany: string;
+  impName: string;        // Remove optional to match expected type
+  clientWebsite: string;  // Remove optional to match expected type
+  impWebsite: string;     // Remove optional to match expected type
+  vendorCompany: string;  // Remove optional to match expected type
+  vendorWebsite: string;  // Remove optional to match expected type
+  vendorPersonName: string; // Remove optional to match expected type
+  vendorPhone: string;    // Remove optional to match expected type
+  vendorEmail: string;    // Remove optional to match expected type
+  completeJobDescription: string;
+  nextStep: string;      // Remove optional to match expected type
+  remote: string;        // Remove optional to match expected type
+  duration: string;      // Remove optional to match expected type
+}
 
-  status: yup
-    .string()
-    .required('Status is required')
-    .oneOf(Object.values(RequirementStatus), 'Invalid status'),
-
-  consultantId: yup.string().nullable(),
-
-  appliedFor: yup
-    .string()
-    .required('Applied for field is required')
-    .min(2, 'Applied for must be at least 2 characters'),
-
-  rate: yup
-    .string()
-    .matches(/^[\d$,.\s-]+$/, 'Rate must be a valid format (e.g., $100/hr, $80k-90k)')
-    .nullable(),
-
-  primaryTechStack: yup
-    .string()
-    .required('Primary tech stack is required')
-    .min(2, 'Tech stack must be at least 2 characters'),
-
-  clientCompany: yup
-    .string()
-    .required('Client company is required')
-    .min(2, 'Company name must be at least 2 characters'),
-
-  impName: yup.string().nullable(),
-
-  clientWebsite: yup.string().url('Client website must be a valid URL').nullable(),
-
-  impWebsite: yup.string().url('IMP website must be a valid URL').nullable(),
-
-  vendorCompany: yup.string().nullable(),
-
-  vendorWebsite: yup.string().url('Vendor website must be a valid URL').nullable(),
-
-  vendorPersonName: yup.string().nullable(),
-
-  vendorPhone: yup
-    .string()
-    .matches(
-      /^[\+]?[1-9][\d]{0,15}(\s*(ext|x|extension)\.?\s*\d{1,6})?$/i,
-      'Phone number must be valid (e.g., +1234567890 ext. 123)'
-    )
-    .nullable(),
-
-  vendorEmail: yup.string().email('Vendor email must be valid').nullable(),
-
-  completeJobDescription: yup
-    .string()
-    .required('Job description is required')
-    .min(50, 'Job description must be at least 50 characters'),
-
-  nextStep: yup.string().nullable(),
-
-  remote: yup.string().nullable(),
-
-  duration: yup.string().nullable(),
-});
-
-type RequirementFormData = yup.InferType<typeof requirementSchema>;
+// Default form values
+const defaultValues: RequirementFormData = {
+  jobTitle: '',
+  status: RequirementStatus.NEW,
+  consultantId: null,
+  appliedFor: '',
+  rate: '',
+  primaryTechStack: '',
+  clientCompany: '',
+  impName: '',
+  clientWebsite: '',
+  impWebsite: '',
+  vendorCompany: '',
+  vendorWebsite: '',
+  vendorPersonName: '',
+  vendorPhone: '',
+  vendorEmail: '',
+  completeJobDescription: '',
+  nextStep: '',
+  remote: '',
+  duration: ''
+};
 
 export interface Consultant {
   id: string;
@@ -185,9 +158,8 @@ export default function AdvancedRequirementsForm({
     setValue,
     reset,
     trigger,
-  } = useForm<RequirementFormData>({
+  } = useForm({
     shouldUnregister: false, // Preserve field values when unmounting
-    resolver: yupResolver(requirementSchema),
     mode: 'onChange',
     defaultValues: {
       status: RequirementStatus.NEW,
@@ -316,7 +288,9 @@ export default function AdvancedRequirementsForm({
   // Note: Removed watch() calls to prevent re-renders on every keystroke that cause focus loss
 
   const getFieldError = (fieldName: keyof RequirementFormData) => {
-    return errors[fieldName]?.message;
+    const error = errors[fieldName];
+    if (!error) return undefined;
+    return typeof error.message === 'string' ? error.message : undefined;
   };
 
   const getFieldStatus = (fieldName: keyof RequirementFormData) => {
@@ -844,10 +818,17 @@ Additional Information:
                                 {...field}
                                 id="vendorPhone"
                                 label="Vendor Phone"
-                                placeholder="(555) 123-4567"
+                                placeholder="Any phone format accepted"
                                 error={getFieldError('vendorPhone')}
-                                tooltip="Enter the vendor's contact phone number"
-                                mask="phone"
+                                tooltip="Enter the vendor's contact phone number in any format"
+                                // Removed phone mask to allow flexible input
+                                onChange={(e) => {
+                                  // Clean up the input but keep it flexible
+                                  const value = e.target.value
+                                    .replace(/[^\d\s+()-.,ext]/gi, '') // Allow digits, spaces, +()-., and 'ext'
+                                    .trim();
+                                  field.onChange(value);
+                                }}
                               />
                             )}
                           />

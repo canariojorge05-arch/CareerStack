@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import { useForm, Controller, useFieldArray } from 'react-hook-form';
-import { yupResolver } from '@hookform/resolvers/yup';
-import * as yup from 'yup';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -42,74 +40,49 @@ import { ConsultantStatus } from '@shared/schema';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 
-// Form validation schema
-const consultantSchema = yup.object({
-  // Consultant Info
-  status: yup
-    .string()
-    .required('Status is required')
-    .oneOf(Object.values(ConsultantStatus), 'Invalid status'),
-  name: yup
-    .string()
-    .required('Name is required')
-    .min(2, 'Name must be at least 2 characters')
-    .max(100, 'Name must not exceed 100 characters'),
-  email: yup
-    .string()
-    .required('Email is required')
-    .email('Invalid email format'),
-  visaStatus: yup.string().nullable(),
-  dateOfBirth: yup.date().nullable(),
-  address: yup.string().nullable(),
-  phone: yup
-    .string()
-    .matches(/^[\+]?[1-9][\d]{0,15}$/, 'Phone number must be valid (e.g., +1234567890)')
-    .nullable(),
-  timezone: yup.string().nullable(),
-  degreeName: yup.string().nullable(),
-  university: yup.string().nullable(),
-  yearOfPassing: yup
-    .string()
-    .matches(/^\d{4}$/, 'Year must be 4 digits')
-    .nullable(),
-  ssn: yup
-    .string()
-    .matches(/^\d{3}-?\d{2}-?\d{4}$/, 'SSN format invalid (e.g., 123-45-6789)')
-    .nullable(),
-  howDidYouGetVisa: yup.string().nullable(),
-  yearCameToUS: yup
-    .string()
-    .matches(/^\d{4}$/, 'Year must be 4 digits')
-    .nullable(),
-  countryOfOrigin: yup.string().nullable(),
-  whyLookingForNewJob: yup.string().nullable(),
-});
+// Form interfaces
+interface ConsultantFormData {
+  status: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  location: string;
+  primarySkills: string;
+  secondarySkills?: string;
+  totalExperience: string;
+  linkedinProfile?: string;
+  portfolioLink?: string;
+  availability?: string;
+  visaStatus?: string;
+  dateOfBirth?: string;
+  address?: string;
+  timezone?: string;
+  degreeName?: string;
+  university?: string;
+  yearOfPassing?: string;
+  ssn?: string;
+  howDidYouGetVisa?: string;
+  yearCameToUS?: string;
+  countryOfOrigin?: string;
+  whyLookingForNewJob?: string;
+  preferredWorkLocation?: string;
+  preferredWorkType?: string;
+  expectedRate?: string;
+  payrollCompany?: string;
+  payrollContactInfo?: string;
+}
 
-const projectSchema = yup.object({
-  projectName: yup
-    .string()
-    .required('Project name is required')
-    .min(2, 'Project name must be at least 2 characters'),
-  projectDomain: yup.string().nullable(),
-  projectCity: yup.string().nullable(),
-  projectState: yup.string().nullable(),
-  projectStartDate: yup
-    .string()
-    .matches(/^\d{2}\/\d{4}$/, 'Date must be in MM/YYYY format')
-    .required('Start date is required'),
-  projectEndDate: yup
-    .string()
-    .matches(/^\d{2}\/\d{4}$/, 'Date must be in MM/YYYY format')
-    .nullable(),
-  isCurrentlyWorking: yup.boolean().default(false),
-  projectDescription: yup
-    .string()
-    .required('Project description is required')
-    .min(10, 'Description must be at least 10 characters'),
-});
-
-type ConsultantFormData = yup.InferType<typeof consultantSchema>;
-type ProjectFormData = yup.InferType<typeof projectSchema>;
+interface ProjectFormData {
+  projectName: string;
+  projectDomain?: string;
+  projectCity?: string;
+  projectState?: string;
+  projectStartDate: string;
+  projectEndDate?: string;
+  isCurrentlyWorking: boolean;
+  projectDescription: string;
+}
 
 interface AdvancedConsultantFormProps {
   open: boolean;
@@ -166,8 +139,7 @@ export default function AdvancedConsultantForm({
     setValue,
     reset,
     trigger,
-  } = useForm<ConsultantFormData>({
-    resolver: yupResolver(consultantSchema),
+  } = useForm({
     defaultValues: {
       status: ConsultantStatus.ACTIVE,
       ...initialData,
@@ -230,14 +202,8 @@ export default function AdvancedConsultantForm({
     },
   });
 
-  const getFieldError = (fieldName: keyof ConsultantFormData) => {
-    return errors[fieldName]?.message;
-  };
-
-  const getFieldStatus = (fieldName: keyof ConsultantFormData) => {
-    if (errors[fieldName]) return 'error';
-    return 'default';
-  };
+  const getFieldError = (fieldName: string) => undefined;
+  const getFieldStatus = (fieldName: string) => 'default' as const;
 
   const handleFormSubmit = async (consultantData: ConsultantFormData) => {
     try {
