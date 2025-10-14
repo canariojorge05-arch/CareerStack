@@ -4,6 +4,7 @@ import { EmailSpamFilter } from '../services/emailSpamFilter';
 import { EmailExportService } from '../services/emailExportService';
 import { EmailSignatureService } from '../services/emailSignatureService';
 import { isAuthenticated } from '../localAuth';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -21,7 +22,7 @@ router.get('/storage/stats', async (req, res) => {
     const stats = await EmailStorageOptimizer.getStorageStats(userId);
     res.json(stats);
   } catch (error) {
-    console.error('Error getting storage stats:', error);
+    logger.error({ error: error }, 'Error getting storage stats:');
     res.status(500).json({ error: 'Failed to get storage statistics' });
   }
 });
@@ -41,7 +42,7 @@ router.post('/storage/validate', async (req, res) => {
     
     res.json(validation);
   } catch (error) {
-    console.error('Error validating email size:', error);
+    logger.error({ error: error }, 'Error validating email size:');
     res.status(500).json({ error: 'Failed to validate email size' });
   }
 });
@@ -60,7 +61,7 @@ router.post('/storage/cleanup', async (req, res) => {
       message: `Cleaned up ${cleanedCount} old emails`
     });
   } catch (error) {
-    console.error('Error cleaning up emails:', error);
+    logger.error({ error: error }, 'Error cleaning up emails:');
     res.status(500).json({ error: 'Failed to cleanup emails' });
   }
 });
@@ -84,7 +85,7 @@ router.post('/spam/analyze', async (req, res) => {
     
     res.json(analysis);
   } catch (error) {
-    console.error('Error analyzing spam:', error);
+    logger.error({ error: error }, 'Error analyzing spam:');
     res.status(500).json({ error: 'Failed to analyze email for spam' });
   }
 });
@@ -97,7 +98,7 @@ router.get('/spam/stats', async (req, res) => {
     const stats = EmailSpamFilter.getFilterStats();
     res.json(stats);
   } catch (error) {
-    console.error('Error getting spam stats:', error);
+    logger.error({ error: error }, 'Error getting spam stats:');
     res.status(500).json({ error: 'Failed to get spam statistics' });
   }
 });
@@ -116,7 +117,7 @@ router.post('/spam/feedback', async (req, res) => {
       message: 'Spam filter updated with your feedback'
     });
   } catch (error) {
-    console.error('Error updating spam filter:', error);
+    logger.error({ error: error }, 'Error updating spam filter:');
     res.status(500).json({ error: 'Failed to update spam filter' });
   }
 });
@@ -154,7 +155,7 @@ router.post('/export', async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error exporting emails:', error);
+    logger.error({ error: error }, 'Error exporting emails:');
     res.status(500).json({ error: 'Failed to export emails' });
   }
 });
@@ -174,7 +175,7 @@ router.get('/export/download/:exportId', async (req, res) => {
     
     res.status(501).json({ error: 'Download functionality not yet implemented' });
   } catch (error) {
-    console.error('Error downloading export:', error);
+    logger.error({ error: error }, 'Error downloading export:');
     res.status(500).json({ error: 'Failed to download export' });
   }
 });
@@ -188,7 +189,7 @@ router.get('/export/history', async (req, res) => {
     const history = await EmailExportService.getExportHistory(userId);
     res.json(history);
   } catch (error) {
-    console.error('Error getting export history:', error);
+    logger.error({ error: error }, 'Error getting export history:');
     res.status(500).json({ error: 'Failed to get export history' });
   }
 });
@@ -207,7 +208,7 @@ router.post('/export/cleanup', async (req, res) => {
       message: `Cleaned up ${deletedCount} old export files`
     });
   } catch (error) {
-    console.error('Error cleaning up exports:', error);
+    logger.error({ error: error }, 'Error cleaning up exports:');
     res.status(500).json({ error: 'Failed to cleanup export files' });
   }
 });
@@ -223,7 +224,7 @@ router.get('/signatures/templates', async (req, res) => {
     const templates = EmailSignatureService.getSignatureTemplates(category as string);
     res.json(templates);
   } catch (error) {
-    console.error('Error getting signature templates:', error);
+    logger.error({ error: error }, 'Error getting signature templates:');
     res.status(500).json({ error: 'Failed to get signature templates' });
   }
 });
@@ -250,7 +251,7 @@ router.post('/signatures/generate', async (req, res) => {
       textContent: result.textContent
     });
   } catch (error) {
-    console.error('Error generating signature:', error);
+    logger.error({ error: error }, 'Error generating signature:');
     res.status(500).json({ error: 'Failed to generate signature' });
   }
 });
@@ -264,7 +265,7 @@ router.get('/signatures', async (req, res) => {
     const signatures = await EmailSignatureService.getUserSignatures(userId);
     res.json(signatures);
   } catch (error) {
-    console.error('Error getting signatures:', error);
+    logger.error({ error: error }, 'Error getting signatures:');
     res.status(500).json({ error: 'Failed to get signatures' });
   }
 });
@@ -303,7 +304,7 @@ router.post('/signatures', async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error creating signature:', error);
+    logger.error({ error: error }, 'Error creating signature:');
     res.status(500).json({ error: 'Failed to create signature' });
   }
 });
@@ -325,7 +326,7 @@ router.put('/signatures/:signatureId', async (req, res) => {
       res.status(400).json({ error: result.error });
     }
   } catch (error) {
-    console.error('Error updating signature:', error);
+    logger.error({ error: error }, 'Error updating signature:');
     res.status(500).json({ error: 'Failed to update signature' });
   }
 });
@@ -346,7 +347,7 @@ router.delete('/signatures/:signatureId', async (req, res) => {
       res.status(400).json({ error: result.error });
     }
   } catch (error) {
-    console.error('Error deleting signature:', error);
+    logger.error({ error: error }, 'Error deleting signature:');
     res.status(500).json({ error: 'Failed to delete signature' });
   }
 });
@@ -360,7 +361,7 @@ router.get('/signatures/default', async (req, res) => {
     const signature = await EmailSignatureService.getDefaultSignature(userId);
     res.json(signature);
   } catch (error) {
-    console.error('Error getting default signature:', error);
+    logger.error({ error: error }, 'Error getting default signature:');
     res.status(500).json({ error: 'Failed to get default signature' });
   }
 });
@@ -374,7 +375,7 @@ router.get('/signatures/auto-variables', async (req, res) => {
     const variables = await EmailSignatureService.autoDetectVariables(userId);
     res.json(variables);
   } catch (error) {
-    console.error('Error auto-detecting variables:', error);
+    logger.error({ error: error }, 'Error auto-detecting variables:');
     res.status(500).json({ error: 'Failed to auto-detect variables' });
   }
 });
@@ -398,7 +399,7 @@ router.post('/signatures/preview', async (req, res) => {
     
     res.json(preview);
   } catch (error) {
-    console.error('Error previewing signature:', error);
+    logger.error({ error: error }, 'Error previewing signature:');
     res.status(500).json({ error: 'Failed to preview signature' });
   }
 });
@@ -412,7 +413,7 @@ router.get('/signatures/stats', async (req, res) => {
     const stats = await EmailSignatureService.getSignatureStats(userId);
     res.json(stats);
   } catch (error) {
-    console.error('Error getting signature stats:', error);
+    logger.error({ error: error }, 'Error getting signature stats:');
     res.status(500).json({ error: 'Failed to get signature statistics' });
   }
 });

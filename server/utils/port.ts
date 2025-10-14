@@ -1,4 +1,5 @@
 import { createServer } from 'http';
+import { logger } from './logger';
 
 export async function findAvailablePort(startPort: number, maxAttempts: number = 10): Promise<number> {
   let port = startPort;
@@ -24,7 +25,7 @@ export async function findAvailablePort(startPort: number, maxAttempts: number =
       });
 
       if (port !== startPort) {
-        console.log(`Port ${startPort} was in use, using port ${port} instead`);
+        logger.info(`Port ${startPort} was in use, using port ${port} instead`);
       }
       return port;
     } catch (err) {

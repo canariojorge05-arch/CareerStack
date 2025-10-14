@@ -1,5 +1,6 @@
 import { sendEmail } from '../utils/email';
 import { EmailValidator } from '../utils/emailValidator';
+import { logger } from '../utils/logger';
 
 export interface EmailOptions {
   to: string;
@@ -43,9 +44,9 @@ export class EmailService {
       const normalizedTo = EmailValidator.normalizeEmail(options.to);
 
       // Log email attempt
-      console.log(`📧 Attempting to send email to: ${normalizedTo}`);
-      console.log(`📧 Category: ${options.category || 'general'}`);
-      console.log(`📧 Priority: ${options.priority || 'normal'}`);
+      logger.info(`📧 Attempting to send email to: ${normalizedTo}`);
+      logger.info(`📧 Category: ${options.category || 'general'}`);
+      logger.info(`📧 Priority: ${options.priority || 'normal'}`);
 
       // Send email with enhanced options
       const success = await sendEmail(
@@ -61,20 +62,20 @@ export class EmailService {
       );
 
       if (success) {
-        console.log(`✅ Email sent successfully to: ${normalizedTo}`);
+        logger.info(`✅ Email sent successfully to: ${normalizedTo}`);
         return {
           success: true,
           messageId: `email-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         };
       } else {
-        console.error(`❌ Failed to send email to: ${normalizedTo}`);
+        logger.error(`❌ Failed to send email to: ${normalizedTo}`);
         return {
           success: false,
           error: 'Failed to send email'
         };
       }
     } catch (error) {
-      console.error('EmailService error:', error);
+      logger.error({ error: error }, 'EmailService error:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'

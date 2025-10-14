@@ -3,6 +3,7 @@ import { db } from '../db';
 import { users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { compare } from 'bcryptjs';
+import { logger } from '../utils/logger';
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
@@ -75,7 +76,7 @@ export function configurePassport(passport: any) {
           const { password: _, ...userWithoutPassword } = user;
           return done(null, userWithoutPassword);
         } catch (error) {
-          console.error('Passport error:', error);
+          logger.error({ error: error }, 'Passport error:');
           return done(error);
         }
       }
@@ -106,7 +107,7 @@ export function configurePassport(passport: any) {
 
       done(null, user || false);
     } catch (error) {
-      console.error('Deserialize user error:', error);
+      logger.error({ error: error }, 'Deserialize user error:');
       done(error);
     }
   });

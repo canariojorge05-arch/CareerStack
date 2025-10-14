@@ -1,6 +1,7 @@
 import { db } from '../db';
 import { emailMessages, emailThreads, emailAccounts } from '@shared/schema';
 import { and, or, like, eq, desc, sql, inArray } from 'drizzle-orm';
+import { logger } from '../utils/logger';
 
 export interface EmailSearchOptions {
   query?: string;
@@ -153,7 +154,7 @@ export class EmailSearchService {
       };
 
     } catch (error) {
-      console.error('Email search error:', error);
+      logger.error({ error: error }, 'Email search error:');
       throw new Error('Search failed');
     }
   }
@@ -208,7 +209,7 @@ export class EmailSearchService {
 
       return suggestions.slice(0, 3);
     } catch (error) {
-      console.error('Error generating search suggestions:', error);
+      logger.error({ error: error }, 'Error generating search suggestions:');
       return [];
     }
   }
@@ -261,7 +262,7 @@ export class EmailSearchService {
         readVsUnread: readStats
       };
     } catch (error) {
-      console.error('Error getting search analytics:', error);
+      logger.error({ error: error }, 'Error getting search analytics:');
       throw new Error('Failed to get analytics');
     }
   }

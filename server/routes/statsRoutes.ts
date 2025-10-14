@@ -3,6 +3,7 @@ import { db, queryWithTimeout } from '../db';
 import { isAuthenticated } from '../localAuth';
 import { requirements, interviews, consultants } from '@shared/schema';
 import { sql, and, gte, eq } from 'drizzle-orm';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -105,7 +106,7 @@ router.get('/marketing/stats', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching marketing stats:', error);
+    logger.error({ error: error }, 'Error fetching marketing stats:');
     res.status(500).json({ 
       message: 'Failed to fetch statistics',
       // Return fallback data so UI doesn't break

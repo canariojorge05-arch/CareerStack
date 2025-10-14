@@ -4,6 +4,7 @@ import { eq, and, gte, lte, inArray } from 'drizzle-orm';
 import { createWriteStream, promises as fs } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
+import { logger } from '../utils/logger';
 
 export interface ExportOptions {
   format: 'json' | 'csv' | 'mbox' | 'eml';
@@ -82,7 +83,7 @@ export class EmailExportService {
       };
 
     } catch (error) {
-      console.error('Email export error:', error);
+      logger.error({ error: error }, 'Email export error:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Export failed',
@@ -453,7 +454,7 @@ export class EmailExportService {
 
       return deletedCount;
     } catch (error) {
-      console.error('Error cleaning up export files:', error);
+      logger.error({ error: error }, 'Error cleaning up export files:');
       return 0;
     }
   }

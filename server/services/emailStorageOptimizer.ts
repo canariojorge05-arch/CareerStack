@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import { gzip, gunzip } from 'zlib';
 import { promisify } from 'util';
+import { logger } from '../utils/logger';
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -52,7 +53,7 @@ export class EmailStorageOptimizer {
           isCompressed = true;
         }
       } catch (error) {
-        console.warn('Email compression failed:', error);
+        logger.warn({ context: error }, 'Email compression failed:');
       }
     }
 
@@ -85,7 +86,7 @@ export class EmailStorageOptimizer {
         textBody: decompressedText.toString('utf8')
       };
     } catch (error) {
-      console.error('Email decompression failed:', error);
+      logger.error({ error: error }, 'Email decompression failed:');
       return { htmlBody, textBody }; // Return as-is if decompression fails
     }
   }
@@ -239,7 +240,7 @@ export class EmailStorageOptimizer {
 
       return mockStats;
     } catch (error) {
-      console.error('Error getting storage stats:', error);
+      logger.error({ error: error }, 'Error getting storage stats:');
       throw new Error('Failed to get storage statistics');
     }
   }

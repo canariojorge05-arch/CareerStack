@@ -1,5 +1,6 @@
 import dns from 'dns';
 import { promisify } from 'util';
+import { logger } from './logger';
 
 const resolveMx = promisify(dns.resolveMx);
 
@@ -71,7 +72,7 @@ export class EmailValidator {
       }
     } catch (error) {
       // If DNS check fails, we'll still allow the email
-      console.warn(`DNS check failed for ${domain}:`, error);
+      logger.warn(`DNS check failed for ${domain}:`, error);
     }
 
     return { isValid: true };

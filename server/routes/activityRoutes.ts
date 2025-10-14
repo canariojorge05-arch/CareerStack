@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { isAuthenticated } from '../localAuth';
 import { ActivityTracker } from '../utils/activityTracker';
 import { sql } from '../db';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ router.get('/activities', isAuthenticated, async (req: any, res: any) => {
     
     res.json(activities);
   } catch (error) {
-    console.error('Error fetching user activities:', error);
+    logger.error({ error: error }, 'Error fetching user activities:');
     res.status(500).json({ 
       message: 'Failed to fetch activity history',
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -54,7 +55,7 @@ router.get('/login-stats', isAuthenticated, async (req: any, res: any) => {
       os_stats: {}
     });
   } catch (error) {
-    console.error('Error fetching login stats:', error);
+    logger.error({ error: error }, 'Error fetching login stats:');
     res.status(500).json({ 
       message: 'Failed to fetch login statistics',
       error: error instanceof Error ? error.message : 'Unknown error'

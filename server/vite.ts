@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 type Express = express.Express;
 import { type Server } from "http";
 import { nanoid } from "nanoid";
+import { logger } from './utils/logger';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +23,7 @@ export function log(message: string, source = "express") {
     hour12: true,
   });
 
-  console.log(`${formattedTime} [${source}] ${message}`);
+  logger.info(`${formattedTime} [${source}] ${message}`);
 }
 
 export async function setupVite(app: Express, server: Server) {
@@ -41,11 +42,11 @@ export async function setupVite(app: Express, server: Server) {
       const configModule = await import('../vite.config.ts');
       viteConfig = configModule;
     } catch (configErr) {
-      console.warn('Could not load vite.config.ts, using default config:', configErr);
+      logger.warn({ context: configErr }, 'Could not load vite.config.ts, using default config:');
       viteConfig = { default: {} };
     }
   } catch (err) {
-    console.error('Error importing Vite:', err);
+    logger.error({ error: err }, 'Error importing Vite:');
     throw err;
   }
 
@@ -73,14 +74,14 @@ export async function setupVite(app: Express, server: Server) {
       error: (msg: any, options: any) => {
         viteLogger.error(msg, options);
         // Don't exit on Vite errors in development
-        console.error('Vite error (non-fatal):', msg);
+        logger.error({ error: msg }, 'Vite error (non-fatal):');
       },
     },
     appType: "custom",
   });
 
   // HMR will use its own port (24678) to avoid conflicts with WebSocket services
-  console.log(`[vite-dev] HMR configured on separate port: 24678`);
+  logger.info(`[vite-dev] HMR configured on separate port: 24678`);
 
   // Development-time diagnostic: log server address and HMR config so we
   // can verify the WebSocket URL generation and detect misconfiguration
@@ -89,7 +90,7 @@ export async function setupVite(app: Express, server: Server) {
     const boundPort = serverAddress && serverAddress.port ? serverAddress.port : process.env.PORT || vite?.config?.server?.port || 'unknown';
     const hmrCfg: any = vite?.config?.server?.hmr;
     const hmrStatus = hmrCfg?.server ? 'parent-server' : (hmrCfg?.port ?? 'auto');
-    console.log(`[vite-dev] HTTP server bound port: ${boundPort}, vite.hmr: ${hmrStatus}`);
+    logger.info(`[vite-dev] HTTP server bound port: ${boundPort}, vite.hmr: ${hmrStatus}`);
   } catch (e) {
     // non-fatal; continue silently if introspection fails
   }

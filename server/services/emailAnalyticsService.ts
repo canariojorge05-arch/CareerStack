@@ -1,6 +1,7 @@
 import { db } from '../db';
 import { emailMessages, emailThreads } from '@shared/schema';
 import { eq, and, gte, lte, sql, desc } from 'drizzle-orm';
+import { logger } from '../utils/logger';
 
 export interface EmailAnalytics {
   totalEmails: number;
@@ -78,7 +79,7 @@ export class EmailAnalyticsService {
         insights
       };
     } catch (error) {
-      console.error('Error generating email analytics:', error);
+      logger.error({ error: error }, 'Error generating email analytics:');
       throw new Error('Failed to generate analytics');
     }
   }
@@ -122,7 +123,7 @@ export class EmailAnalyticsService {
 
       return (threadsWithResponses.length / sentEmails.length) * 100;
     } catch (error) {
-      console.error('Error calculating response rate:', error);
+      logger.error({ error: error }, 'Error calculating response rate:');
       return 0;
     }
   }
@@ -149,7 +150,7 @@ export class EmailAnalyticsService {
       const totalTime = responseTimes.reduce((sum, rt) => sum + rt.responseTime, 0);
       return totalTime / responseTimes.length;
     } catch (error) {
-      console.error('Error calculating average response time:', error);
+      logger.error({ error: error }, 'Error calculating average response time:');
       return 0;
     }
   }
@@ -193,7 +194,7 @@ export class EmailAnalyticsService {
 
       return contacts;
     } catch (error) {
-      console.error('Error getting top contacts:', error);
+      logger.error({ error: error }, 'Error getting top contacts:');
       return [];
     }
   }
@@ -226,7 +227,7 @@ export class EmailAnalyticsService {
 
       return emailsByDay;
     } catch (error) {
-      console.error('Error getting emails by day:', error);
+      logger.error({ error: error }, 'Error getting emails by day:');
       return [];
     }
   }

@@ -4,6 +4,7 @@ import { isAuthenticated } from '../localAuth';
 import { db } from '../db';
 import { userActivities } from '@shared/activity';
 import { sql } from 'drizzle-orm';
+import { logger } from '../utils/logger';
 
 const router = Router();
 // Role-based access control removed for now - using basic authentication only
@@ -55,7 +56,7 @@ router.get('/activities', isAuthenticated, async (req: Request, res: Response) =
 
     res.json(rows);
   } catch (e) {
-    console.error('Admin overview error:', e);
+    logger.error({ error: e }, 'Admin overview error:');
     res.status(500).json({ message: 'Failed to load overview' });
   }
 });
@@ -109,7 +110,7 @@ router.get('/devices', isAuthenticated, async (req: Request, res: Response) => {
 
     res.json({ browsers, os });
   } catch (e) {
-    console.error('Admin devices error:', e);
+    logger.error({ error: e }, 'Admin devices error:');
     res.status(500).json({ message: 'Failed to load device stats' });
   }
 });
@@ -153,7 +154,7 @@ router.get('/geo', isAuthenticated, async (req: Request, res: Response) => {
 
     res.json({ countries });
   } catch (e) {
-    console.error('Admin geo error:', e);
+    logger.error({ error: e }, 'Admin geo error:');
     res.status(500).json({ message: 'Failed to load geo stats' });
   }
 });

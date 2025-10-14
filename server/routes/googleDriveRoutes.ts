@@ -7,6 +7,7 @@ import { logAccountActivity } from '../utils/activityLogger';
 import { encryptToken, decryptToken } from '../utils/tokenEncryption';
 import { insertResumeSchema } from '@shared/schema';
 import { isAuthenticated } from '../localAuth';
+import { logger } from '../utils/logger';
 
 const router = Router();
 const googleDriveService = new GoogleDriveService();
@@ -34,7 +35,7 @@ const listFilesSchema = z.object({
  */
 router.get('/auth-url', isAuthenticated, async (req: any, res) => {
   try {
-    console.log('🔐 Generating Google Drive auth URL for user:', req.user.id);
+    logger.info('🔐 Generating Google Drive auth URL for user:', req.user.id);
     // Create a per-request state value to mitigate CSRF
     const state = crypto.randomBytes(16).toString('hex');
     req.session.googleOAuthState = state;
@@ -46,7 +47,7 @@ router.get('/auth-url', isAuthenticated, async (req: any, res) => {
       message: 'Redirect user to this URL for Google Drive authorization'
     });
   } catch (error) {
-    console.error('💥 Failed to generate auth URL:', error);
+    logger.error({ error: error }, '💥 Failed to generate auth URL:');
     res.status(500).json({
       message: 'Failed to generate authorization URL',
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -63,31 +64,31 @@ router.post('/auth-callback', isAuthenticated, async (req: any, res) => {
     const state = req.body.state as string | undefined;
     // Validate state
     if (!req.session || !req.session.googleOAuthState || req.session.googleOAuthState !== state) {
-      console.warn('Google Drive auth callback state mismatch', { expected: req.session?.googleOAuthState, received: state });
+      logger.warn({ context: { expected: req.session?.googleOAuthState, received: state } }, 'Google Drive auth callback state mismatch');
       return res.status(400).json({ message: 'Invalid OAuth state' });
     }
     const userId = req.user.id;
     
-    console.log('🔑 Processing Google Drive auth callback for user:', userId);
+    logger.info('🔑 Processing Google Drive auth callback for user:', userId);
     
     // Exchange code for tokens
       const tokens = await googleDriveService.getTokens(code);
 
-      // Persist tokens to the user's record (encrypt in production)
+      // Persist tokens to the user's record (encrypt for security)
       try {
         await storage.upsertUser({
           id: userId,
-          googleAccessToken: tokens.accessToken,
+          googleAccessToken: encryptToken(tokens.accessToken),
           googleRefreshToken: encryptToken(tokens.refreshToken ?? null),
           googleTokenExpiresAt: tokens.expiryDate ? new Date(tokens.expiryDate) : null,
           googleDriveConnected: true,
           googleDriveEmail: (tokens as any).email ?? null,
         } as any);
       } catch (e) {
-        console.warn('Failed to persist Google tokens to user record:', e);
+        logger.warn({ error: e }, 'Failed to persist Google tokens to user record');
       }
     
-    console.log('✅ Google Drive authentication successful for user:', userId);
+    logger.info('✅ Google Drive authentication successful for user:', userId);
     // Audit log
     try {
       await logAccountActivity(userId, 'google_drive_connect', 'success', { googleDriveEmail: (tokens as any).email ?? null });
@@ -99,7 +100,7 @@ router.post('/auth-callback', isAuthenticated, async (req: any, res) => {
       expiresAt: tokens.expiryDate
     });
   } catch (error) {
-    console.error('💥 Google Drive auth callback failed:', error);
+    logger.error({ error: error }, '💥 Google Drive auth callback failed:');
     res.status(400).json({
       message: 'Authentication failed',
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -128,7 +129,7 @@ router.get('/auth-status', isAuthenticated, async (req: any, res) => {
       googleDriveEmail: user.googleDriveEmail ?? null,
     });
   } catch (error) {
-    console.error('💥 Failed to check auth status:', error);
+    logger.error({ error: error }, '💥 Failed to check auth status:');
     res.status(500).json({
       message: 'Failed to check authentication status',
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -151,7 +152,7 @@ router.get('/files', isAuthenticated, async (req: any, res) => {
     }
 
     let tokens = {
-      accessToken: user.googleAccessToken,
+      accessToken: decryptToken(user.googleAccessToken as any),
       refreshToken: decryptToken(user.googleRefreshToken as any),
       expiryDate: user.googleTokenExpiresAt ? new Date(user.googleTokenExpiresAt).getTime() : undefined,
     } as any;
@@ -168,15 +169,15 @@ router.get('/files', isAuthenticated, async (req: any, res) => {
           refreshToken: creds.refresh_token || tokens.refreshToken,
           expiryDate: creds.expiry_date,
         };
-        // Persist refreshed access token and expiry
+        // Persist refreshed access token and expiry (encrypted)
         await storage.upsertUser({
           id: userId,
-          googleAccessToken: tokens.accessToken,
+          googleAccessToken: encryptToken(tokens.accessToken),
           googleTokenExpiresAt: tokens.expiryDate ? new Date(tokens.expiryDate) : null,
           googleDriveConnected: true,
         } as any);
       } catch (err) {
-        console.warn('Failed to refresh Google access token for user', userId, err);
+        logger.warn({ context: userId, err }, 'Failed to refresh Google access token for user');
         return res.status(401).json({ message: 'Authentication expired. Please reconnect to Google Drive.', needsAuth: true });
       }
     } else {
@@ -184,12 +185,12 @@ router.get('/files', isAuthenticated, async (req: any, res) => {
       googleDriveService.setCredentials(tokens);
     }
     
-    console.log(`📁 Listing Google Drive files for user: ${userId}`);
+    logger.info(`📁 Listing Google Drive files for user: ${userId}`);
     
     // List DOCX files
     const result = await googleDriveService.listDocxFiles(pageSize, pageToken);
     
-    console.log(`📄 Found ${result.files.length} DOCX files in Google Drive`);
+    logger.info(`📄 Found ${result.files.length} DOCX files in Google Drive`);
     
     res.json({
       files: result.files,
@@ -197,7 +198,7 @@ router.get('/files', isAuthenticated, async (req: any, res) => {
       totalFound: result.files.length
     });
   } catch (error) {
-    console.error('💥 Failed to list Google Drive files:', error);
+    logger.error({ error: error }, '💥 Failed to list Google Drive files:');
     res.status(500).json({
       message: 'Failed to fetch files from Google Drive',
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -213,7 +214,7 @@ router.post('/download-and-process', isAuthenticated, async (req: any, res) => {
     const userId = req.user.id;
     const { fileId, fileName } = downloadFileSchema.parse(req.body);
     
-    console.log(`🚀 Starting Google Drive file processing: ${fileName} (${fileId})`);
+    logger.info(`🚀 Starting Google Drive file processing: ${fileName} (${fileId})`);
     
     // Get user tokens from DB
     const user = await storage.getUser(userId);
@@ -222,7 +223,7 @@ router.post('/download-and-process', isAuthenticated, async (req: any, res) => {
     }
 
     let tokens = {
-      accessToken: user.googleAccessToken,
+      accessToken: decryptToken(user.googleAccessToken as any),
       refreshToken: decryptToken(user.googleRefreshToken as any),
       expiryDate: user.googleTokenExpiresAt ? new Date(user.googleTokenExpiresAt).getTime() : undefined,
     } as any;
@@ -239,12 +240,12 @@ router.post('/download-and-process', isAuthenticated, async (req: any, res) => {
         };
         await storage.upsertUser({
           id: userId,
-          googleAccessToken: tokens.accessToken,
+          googleAccessToken: encryptToken(tokens.accessToken),
           googleTokenExpiresAt: tokens.expiryDate ? new Date(tokens.expiryDate) : null,
           googleDriveConnected: true,
         } as any);
       } catch (err) {
-        console.warn('Failed to refresh Google access token for user', userId, err);
+        logger.warn({ context: userId, err }, 'Failed to refresh Google access token for user');
         return res.status(401).json({ message: 'Authentication expired. Please reconnect to Google Drive.', needsAuth: true });
       }
     } else {
@@ -261,7 +262,7 @@ router.post('/download-and-process', isAuthenticated, async (req: any, res) => {
     
     // Get file metadata
     const metadata = await googleDriveService.getFileMetadata(fileId);
-    console.log(`📊 File metadata:`, {
+    logger.info(`📊 File metadata:`, {
       name: metadata.name,
       size: metadata.size,
       mimeType: metadata.mimeType
@@ -282,10 +283,10 @@ router.post('/download-and-process', isAuthenticated, async (req: any, res) => {
         throw new Error(`Invalid DOCX file signature: ${fileName}`);
       }
       
-      console.log(`📄 Validated DOCX file from Google Drive: ${fileName}`);
+      logger.info(`📄 Validated DOCX file from Google Drive: ${fileName}`);
       
     } catch (error) {
-      console.error('Failed to validate DOCX from Google Drive:', error);
+      logger.error({ error: error }, 'Failed to validate DOCX from Google Drive:');
       return res.status(500).json({
         message: 'Failed to validate DOCX file',
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -305,7 +306,7 @@ router.post('/download-and-process', isAuthenticated, async (req: any, res) => {
 
     const resume = await storage.createResume(resumeData);
     
-    console.log(`✅ Google Drive file processed successfully: ${fileName}`);
+    logger.info(`✅ Google Drive file processed successfully: ${fileName}`);
     
     res.json({
       success: true,
@@ -319,7 +320,7 @@ router.post('/download-and-process', isAuthenticated, async (req: any, res) => {
     });
     
   } catch (error) {
-    console.error('💥 Google Drive file processing failed:', error);
+    logger.error({ error: error }, '💥 Google Drive file processing failed:');
     res.status(500).json({
       message: 'Failed to process file from Google Drive',
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -343,7 +344,7 @@ router.post('/revoke-access', isAuthenticated, async (req: any, res) => {
       googleDriveConnected: false,
     } as any);
     
-    console.log('🔓 Google Drive access revoked for user:', userId);
+    logger.info('🔓 Google Drive access revoked for user:', userId);
     try {
       await logAccountActivity(userId, 'google_drive_revoke', 'success', {});
     } catch (e) {}
@@ -353,7 +354,7 @@ router.post('/revoke-access', isAuthenticated, async (req: any, res) => {
       message: 'Google Drive access revoked successfully'
     });
   } catch (error) {
-    console.error('💥 Failed to revoke Google Drive access:', error);
+    logger.error({ error: error }, '💥 Failed to revoke Google Drive access:');
     res.status(500).json({
       message: 'Failed to revoke access',
       error: error instanceof Error ? error.message : 'Unknown error'

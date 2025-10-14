@@ -1,5 +1,6 @@
 import { db } from '../db';
 import { sql } from 'drizzle-orm';
+import { logger } from './logger';
 
 /**
  * Audit Log System
@@ -27,7 +28,7 @@ export async function logAudit(entry: AuditLogEntry): Promise<void> {
     // Note: This requires the audit_logs table to exist
     // For now, we'll log to console and database if table exists
     
-    console.log('📋 Audit Log:', {
+    logger.info('📋 Audit Log:', {
       timestamp: new Date().toISOString(),
       userId: entry.userId,
       action: entry.action,
@@ -65,12 +66,12 @@ export async function logAudit(entry: AuditLogEntry): Promise<void> {
     } catch (dbError: any) {
       // If table doesn't exist, log to file/console only
       if (!dbError.message?.includes('does not exist')) {
-        console.error('Failed to write audit log to database:', dbError.message);
+        logger.error({ error: dbError.message }, 'Failed to write audit log to database:');
       }
     }
   } catch (error) {
     // Never fail the main operation due to audit logging
-    console.error('Audit logging error:', error);
+    logger.error({ error: error }, 'Audit logging error:');
   }
 }
 
@@ -227,7 +228,7 @@ export async function getAuditTrail(
     
     return result.rows || [];
   } catch (error) {
-    console.error('Failed to fetch audit trail:', error);
+    logger.error({ error: error }, 'Failed to fetch audit trail:');
     return [];
   }
 }

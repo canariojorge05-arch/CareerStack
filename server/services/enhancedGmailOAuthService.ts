@@ -4,6 +4,7 @@ import { db } from '../db';
 import { emailAccounts } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
 import { encryptToken, decryptToken } from '../utils/tokenEncryption';
+import { logger } from '../utils/logger';
 
 export interface GmailOAuthConfig {
   clientId: string;
@@ -63,7 +64,7 @@ export class EnhancedGmailOAuthService {
       config.clientSecret,
       config.redirectUri
     );
-    console.log('✅ Enhanced Gmail OAuth Service initialized');
+    logger.info('✅ Enhanced Gmail OAuth Service initialized');
   }
 
   /**
@@ -142,7 +143,7 @@ export class EnhancedGmailOAuthService {
           .where(eq(emailAccounts.id, existingAccount.id))
           .returning();
 
-        console.log(`✅ Updated Gmail account: ${userInfo.email}`);
+        logger.info(`✅ Updated Gmail account: ${userInfo.email}`);
         
         return {
           success: true,
@@ -167,7 +168,7 @@ export class EnhancedGmailOAuthService {
           syncEnabled: true,
         }).returning();
 
-        console.log(`✅ Created new Gmail account: ${userInfo.email}`);
+        logger.info(`✅ Created new Gmail account: ${userInfo.email}`);
 
         return {
           success: true,
@@ -179,7 +180,7 @@ export class EnhancedGmailOAuthService {
         };
       }
     } catch (error) {
-      console.error('Gmail OAuth callback error:', error);
+      logger.error({ error: error }, 'Gmail OAuth callback error:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'OAuth callback failed'
@@ -226,11 +227,11 @@ export class EnhancedGmailOAuthService {
         })
         .where(eq(emailAccounts.id, account.id));
 
-      console.log(`✅ Refreshed access token for account: ${account.emailAddress}`);
+      logger.info(`✅ Refreshed access token for account: ${account.emailAddress}`);
 
       return credentials.access_token;
     } catch (error) {
-      console.error('Error refreshing Gmail access token:', error);
+      logger.error({ error: error }, 'Error refreshing Gmail access token:');
       return null;
     }
   }
@@ -245,7 +246,7 @@ export class EnhancedGmailOAuthService {
 
       // Check if token is expired
       if (account.tokenExpiresAt && new Date() >= new Date(account.tokenExpiresAt)) {
-        console.log('Access token expired, refreshing...');
+        logger.info('Access token expired, refreshing...');
         accessToken = await this.refreshAccessToken(account);
         
         if (!accessToken) {
@@ -263,7 +264,7 @@ export class EnhancedGmailOAuthService {
       // Create Gmail client
       return google.gmail({ version: 'v1', auth: oauth2Client });
     } catch (error) {
-      console.error('Error creating Gmail client:', error);
+      logger.error({ error: error }, 'Error creating Gmail client:');
       return null;
     }
   }
@@ -287,7 +288,7 @@ export class EnhancedGmailOAuthService {
             this.rateLimitConfig.maxDelay
           );
           
-          console.log(`⏳ Rate limit hit, retrying in ${delay}ms (attempt ${retryCount + 1}/${this.rateLimitConfig.maxRetries})`);
+          logger.info(`⏳ Rate limit hit, retrying in ${delay}ms (attempt ${retryCount + 1}/${this.rateLimitConfig.maxRetries})`);
           
           await new Promise(resolve => setTimeout(resolve, delay));
           return this.executeWithRetry(operation, retryCount + 1);
@@ -315,7 +316,7 @@ export class EnhancedGmailOAuthService {
         gmail.users.getProfile({ userId: 'me' })
       );
       
-      console.log(`✅ Gmail connection successful for ${account.emailAddress}. Messages: ${profile.data.messagesTotal}`);
+      logger.info(`✅ Gmail connection successful for ${account.emailAddress}. Messages: ${profile.data.messagesTotal}`);
       
       return { 
         success: true,
@@ -327,7 +328,7 @@ export class EnhancedGmailOAuthService {
         }
       };
     } catch (error) {
-      console.error(`❌ Gmail connection failed for ${account.emailAddress}:`, error);
+      logger.error(`❌ Gmail connection failed for ${account.emailAddress}:`, error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
@@ -431,7 +432,7 @@ export class EnhancedGmailOAuthService {
             snippet: msg.snippet || undefined
           });
         } catch (error) {
-          console.warn(`Failed to fetch message ${message.id}:`, error);
+          logger.warn(`Failed to fetch message ${message.id}:`, error);
         }
       }
 
@@ -440,7 +441,7 @@ export class EnhancedGmailOAuthService {
         nextPageToken: messageList.data.nextPageToken || undefined
       };
     } catch (error) {
-      console.error('Error fetching Gmail messages:', error);
+      logger.error({ error: error }, 'Error fetching Gmail messages:');
       throw error;
     }
   }
@@ -479,7 +480,7 @@ export class EnhancedGmailOAuthService {
         fileName: undefined // Filename is in the message part, not the attachment response
       };
     } catch (error) {
-      console.error('Error getting attachment:', error);
+      logger.error({ error: error }, 'Error getting attachment:');
       return null;
     }
   }
@@ -575,14 +576,14 @@ export class EnhancedGmailOAuthService {
         })
       );
 
-      console.log(`✅ Email sent successfully from ${account.emailAddress}`);
+      logger.info(`✅ Email sent successfully from ${account.emailAddress}`);
 
       return {
         success: true,
         messageId: result.data.id || undefined,
       };
     } catch (error) {
-      console.error('Error sending Gmail message:', error);
+      logger.error({ error: error }, 'Error sending Gmail message:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to send message'
@@ -613,7 +614,7 @@ export class EnhancedGmailOAuthService {
         labelListVisibility: label.labelListVisibility || undefined
       }));
     } catch (error) {
-      console.error('Error getting labels:', error);
+      logger.error({ error: error }, 'Error getting labels:');
       throw error;
     }
   }
@@ -656,7 +657,7 @@ export class EnhancedGmailOAuthService {
         labelListVisibility: label.labelListVisibility || undefined
       };
     } catch (error) {
-      console.error('Error creating label:', error);
+      logger.error({ error: error }, 'Error creating label:');
       return null;
     }
   }
@@ -690,7 +691,7 @@ export class EnhancedGmailOAuthService {
 
       return { success: true };
     } catch (error) {
-      console.error('Error modifying message labels:', error);
+      logger.error({ error: error }, 'Error modifying message labels:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to modify labels'
@@ -726,7 +727,7 @@ export class EnhancedGmailOAuthService {
         historyId: response.data.historyId!
       };
     } catch (error) {
-      console.error('Error getting history:', error);
+      logger.error({ error: error }, 'Error getting history:');
       return null;
     }
   }
@@ -786,7 +787,7 @@ export class EnhancedGmailOAuthService {
 
       return { success: true };
     } catch (error) {
-      console.error('Error trashing message:', error);
+      logger.error({ error: error }, 'Error trashing message:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to trash message'
@@ -816,10 +817,10 @@ export class EnhancedGmailOAuthService {
         const accessToken = decryptToken(account.accessToken);
         if (accessToken) {
           await this.oauth2Client.revokeToken(accessToken);
-          console.log(`✅ Revoked access token for ${account.emailAddress}`);
+          logger.info(`✅ Revoked access token for ${account.emailAddress}`);
         }
       } catch (error) {
-        console.warn('Failed to revoke token (continuing with deletion):', error);
+        logger.warn({ context: error }, 'Failed to revoke token (continuing with deletion):');
       }
 
       // Delete from database
@@ -829,11 +830,11 @@ export class EnhancedGmailOAuthService {
           eq(emailAccounts.userId, userId)
         ));
 
-      console.log(`✅ Deleted Gmail account: ${account.emailAddress}`);
+      logger.info(`✅ Deleted Gmail account: ${account.emailAddress}`);
 
       return { success: true };
     } catch (error) {
-      console.error('Error deleting account:', error);
+      logger.error({ error: error }, 'Error deleting account:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to delete account'

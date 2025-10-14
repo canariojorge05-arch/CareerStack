@@ -5,6 +5,7 @@ import { users } from '@shared/schema';
 import UAParser from 'ua-parser-js';
 import { randomUUID } from 'crypto';
 import { eq, desc, count } from 'drizzle-orm';
+import { logger } from './logger';
 
 interface ActivityDetails {
   method?: string;
@@ -46,7 +47,7 @@ export class ActivityTracker {
             geolocation = await geoResponse.json();
           }
         } catch (error) {
-          console.error('Failed to fetch geolocation:', error);
+          logger.error({ error: error }, 'Failed to fetch geolocation:');
         }
       }
 
@@ -78,7 +79,7 @@ export class ActivityTracker {
           .where(eq(users.id, userId));
       }
     } catch (error) {
-      console.error('Failed to log activity:', error);
+      logger.error({ error: error }, 'Failed to log activity:');
       // Don't throw - we don't want to disrupt the main flow if logging fails
     }
   }
@@ -108,7 +109,7 @@ export class ActivityTracker {
         totalPages: Math.ceil(total[0].count / limit),
       };
     } catch (error) {
-      console.error('Failed to fetch user activities:', error);
+      logger.error({ error: error }, 'Failed to fetch user activities:');
       throw error;
     }
   }

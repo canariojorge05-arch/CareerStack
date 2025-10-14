@@ -2,6 +2,7 @@ import { db } from '../db';
 import { emailAccounts } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { MultiAccountEmailService } from './multiAccountEmailService';
+import { logger } from '../utils/logger';
 
 export class EmailSyncService {
   private static syncIntervals: Map<string, NodeJS.Timeout> = new Map();
@@ -9,12 +10,12 @@ export class EmailSyncService {
 
   static async startBackgroundSync(): Promise<void> {
     if (this.isRunning) {
-      console.log('📧 Email sync service already running');
+      logger.info('📧 Email sync service already running');
       return;
     }
 
     this.isRunning = true;
-    console.log('🚀 Starting email background sync service');
+    logger.info('🚀 Starting email background sync service');
 
     // Initial sync for all active accounts
     await this.syncAllAccounts();
@@ -27,22 +28,22 @@ export class EmailSyncService {
     // Store the global interval
     this.syncIntervals.set('global', globalSyncInterval);
 
-    console.log('✅ Email background sync service started');
+    logger.info('✅ Email background sync service started');
   }
 
   static async stopBackgroundSync(): Promise<void> {
-    console.log('🛑 Stopping email background sync service');
+    logger.info('🛑 Stopping email background sync service');
 
     // Clear all intervals
     for (const [key, interval] of this.syncIntervals) {
       clearInterval(interval);
-      console.log(`Cleared sync interval for ${key}`);
+      logger.info(`Cleared sync interval for ${key}`);
     }
 
     this.syncIntervals.clear();
     this.isRunning = false;
 
-    console.log('✅ Email background sync service stopped');
+    logger.info('✅ Email background sync service stopped');
   }
 
   static async syncAllAccounts(): Promise<void> {
@@ -54,8 +55,8 @@ export class EmailSyncService {
           where: eq(emailAccounts.isActive, true),
         });
       } catch (dbError: any) {
-        console.error('❌ Database connection failed during email sync:', dbError?.message || dbError);
-        console.log('⚠️ Skipping email sync due to database connectivity issues');
+        logger.error({ error: dbError?.message || dbError }, '❌ Database connection failed during email sync:');
+        logger.info('⚠️ Skipping email sync due to database connectivity issues');
         return;
       }
 
@@ -64,11 +65,11 @@ export class EmailSyncService {
       );
 
       if (activeAccounts.length === 0) {
-        console.log('📧 No accounts need syncing');
+        logger.info('📧 No accounts need syncing');
         return;
       }
 
-      console.log(`🔄 Syncing ${activeAccounts.length} email accounts`);
+      logger.info(`🔄 Syncing ${activeAccounts.length} email accounts`);
 
       // Sync accounts in parallel (but limit concurrency)
       const syncPromises = activeAccounts.map(account => 
@@ -85,16 +86,16 @@ export class EmailSyncService {
         const account = activeAccounts[index];
         if (result.status === 'fulfilled') {
           successCount++;
-          console.log(`✅ Synced ${account.emailAddress}: ${result.value.syncedCount} new messages`);
+          logger.info(`✅ Synced ${account.emailAddress}: ${result.value.syncedCount} new messages`);
         } else {
           errorCount++;
-          console.error(`❌ Failed to sync ${account.emailAddress}:`, result.reason);
+          logger.error(`❌ Failed to sync ${account.emailAddress}:`, result.reason);
         }
       });
 
-      console.log(`📊 Sync completed: ${successCount} successful, ${errorCount} failed`);
+      logger.info(`📊 Sync completed: ${successCount} successful, ${errorCount} failed`);
     } catch (error) {
-      console.error('Error in syncAllAccounts:', error);
+      logger.error({ error: error }, 'Error in syncAllAccounts:');
     }
   }
 
@@ -120,7 +121,7 @@ export class EmailSyncService {
 
       return { syncedCount: result.syncedCount || 0 };
     } catch (error) {
-      console.error(`Error syncing account ${account.emailAddress}:`, error);
+      logger.error(`Error syncing account ${account.emailAddress}:`, error);
       throw error;
     }
   }
@@ -131,17 +132,17 @@ export class EmailSyncService {
     error?: string;
   }> {
     try {
-      console.log(`🔄 On-demand sync requested for account ${accountId}`);
+      logger.info(`🔄 On-demand sync requested for account ${accountId}`);
       
       const result = await MultiAccountEmailService.syncAccount(accountId, userId);
       
       if (result.success) {
-        console.log(`✅ On-demand sync completed: ${result.syncedCount} new messages`);
+        logger.info(`✅ On-demand sync completed: ${result.syncedCount} new messages`);
       }
 
       return result;
     } catch (error) {
-      console.error('Error in on-demand sync:', error);
+      logger.error({ error: error }, 'Error in on-demand sync:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Sync failed'
@@ -160,9 +161,9 @@ export class EmailSyncService {
         })
         .where(eq(emailAccounts.id, accountId));
 
-      console.log(`✅ Enabled sync for account ${accountId}`);
+      logger.info(`✅ Enabled sync for account ${accountId}`);
     } catch (error) {
-      console.error('Error enabling account sync:', error);
+      logger.error({ error: error }, 'Error enabling account sync:');
       throw error;
     }
   }
@@ -184,9 +185,9 @@ export class EmailSyncService {
         this.syncIntervals.delete(accountId);
       }
 
-      console.log(`✅ Disabled sync for account ${accountId}`);
+      logger.info(`✅ Disabled sync for account ${accountId}`);
     } catch (error) {
-      console.error('Error disabling account sync:', error);
+      logger.error({ error: error }, 'Error disabling account sync:');
       throw error;
     }
   }
@@ -201,9 +202,9 @@ export class EmailSyncService {
         })
         .where(eq(emailAccounts.id, accountId));
 
-      console.log(`✅ Updated sync frequency for account ${accountId} to ${syncFrequency} seconds`);
+      logger.info(`✅ Updated sync frequency for account ${accountId} to ${syncFrequency} seconds`);
     } catch (error) {
-      console.error('Error updating sync frequency:', error);
+      logger.error({ error: error }, 'Error updating sync frequency:');
       throw error;
     }
   }
@@ -253,7 +254,7 @@ export class EmailSyncService {
         nextSyncIn,
       };
     } catch (error) {
-      console.error('Error getting account sync stats:', error);
+      logger.error({ error: error }, 'Error getting account sync stats:');
       return null;
     }
   }

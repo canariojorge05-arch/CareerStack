@@ -1,5 +1,6 @@
 import { db } from '../db';
 import { accountActivityLogs } from '@shared/schema';
+import { logger } from './logger';
 
 export async function logAccountActivity(userId: string, activityType: string, status: string, metadata?: any) {
   try {
@@ -14,6 +15,6 @@ export async function logAccountActivity(userId: string, activityType: string, s
       createdAt: new Date(),
     }).returning();
   } catch (e) {
-    console.warn('Failed to write account activity log', e);
+    logger.warn({ context: e }, 'Failed to write account activity log');
   }
 }

@@ -8,6 +8,7 @@ import { TwoFactorAuth } from '../utils/twoFactor';
 import { ActivityTracker } from '../utils/activityTracker';
 import { EmailValidator } from '../utils/emailValidator';
 import { createHash } from 'crypto';
+import { logger } from '../utils/logger';
 
 function parseCookies(header?: string) {
   const result: Record<string, string> = {};
@@ -114,7 +115,7 @@ export class AuthController {
         userId: user.id,
       });
     } catch (error) {
-      console.error('Registration error:', error);
+      logger.error({ error: error }, 'Registration error:');
       res.status(500).json({ message: 'Registration failed. Please try again.' });
     }
   }
@@ -124,12 +125,12 @@ export class AuthController {
     passport.authenticate('local', async (err: any, user: any, info: any) => {
       try {
         if (err) {
-          console.error('Passport authentication error:', err);
+          logger.error({ error: err }, 'Passport authentication error:');
           return next(err);
         }
 
         if (!user) {
-          console.log('Login failed - no user:', info);
+          logger.info('Login failed - no user:', info);
           return res.status(401).json({ 
             success: false,
             message: info.message || 'Invalid email or password' 
@@ -201,7 +202,7 @@ export class AuthController {
         // If no 2FA required, proceed with login
         req.login(user, async (err) => {
           if (err) {
-            console.error('Login error:', err);
+            logger.error({ error: err }, 'Login error:');
             return next(err);
           }
           
@@ -341,7 +342,7 @@ export class AuthController {
           }
         });
       } catch (error) {
-        console.error('Login error:', error);
+        logger.error({ error: error }, 'Login error:');
         next(error);
       }
     })(req, res, next);
@@ -426,7 +427,7 @@ export class AuthController {
         refreshToken,
       });
     } catch (error) {
-      console.error('2FA verification error:', error);
+      logger.error({ error: error }, '2FA verification error:');
       res.status(500).json({ message: 'Two-factor authentication failed' });
     }
   }
@@ -479,7 +480,7 @@ export class AuthController {
         message: 'If an account with that email exists, a password reset link has been sent.' 
       });
     } catch (error) {
-      console.error('Password reset request error:', error);
+      logger.error({ error: error }, 'Password reset request error:');
       res.status(500).json({ message: 'Failed to process password reset request' });
     }
   }
@@ -521,7 +522,7 @@ export class AuthController {
 
       res.json({ message: 'Password has been reset successfully' });
     } catch (error) {
-      console.error('Password reset error:', error);
+      logger.error({ error: error }, 'Password reset error:');
       res.status(400).json({ message: 'Invalid or expired password reset token' });
     }
   }
@@ -545,7 +546,7 @@ export class AuthController {
       const { password, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error) {
-      console.error('Get current user error:', error);
+      logger.error({ error: error }, 'Get current user error:');
       res.status(500).json({ message: 'Failed to fetch user data' });
     }
   }
@@ -570,7 +571,7 @@ export class AuthController {
               const { storage } = await import('../storage');
               await storage.deleteEphemeralResumesByUser(currentUserId);
             } catch (cleanupErr) {
-              console.warn('Failed to cleanup ephemeral resumes during logout:', cleanupErr);
+              logger.warn({ context: cleanupErr }, 'Failed to cleanup ephemeral resumes during logout:');
             }
 
             await db
@@ -598,11 +599,11 @@ export class AuthController {
                 );
               }
             } catch (logErr) {
-              console.warn('Failed to log device revocation during logout:', logErr);
+              logger.warn({ context: logErr }, 'Failed to log device revocation during logout:');
             }
           } catch (dbErr) {
             // Non-fatal: proceed with logout even if we couldn't revoke device record
-            console.warn('Failed to revoke device record during logout:', dbErr);
+            logger.warn({ context: dbErr }, 'Failed to revoke device record during logout:');
           }
         }
 
@@ -611,7 +612,7 @@ export class AuthController {
           req.logout(() => {
             req.session!.destroy((err) => {
               if (err) {
-                console.error('Session destruction error during logout:', err);
+                logger.error({ error: err }, 'Session destruction error during logout:');
                 return res.status(500).json({ message: 'Failed to complete logout' });
               }
               // Clear the session cookie with the same options used when setting it
@@ -628,7 +629,7 @@ export class AuthController {
           return res.json({ message: 'Already logged out' });
         }
       } catch (error) {
-        console.error('Logout (session) error:', error);
+        logger.error({ error: error }, 'Logout (session) error:');
         return res.status(500).json({ message: 'Failed to log out' });
       }
       return;
@@ -667,7 +668,7 @@ export class AuthController {
 
       res.json({ message: 'Successfully logged out' });
     } catch (error) {
-      console.error('Logout (token) error:', error);
+      logger.error({ error: error }, 'Logout (token) error:');
       res.status(500).json({ message: 'Failed to log out' });
     }
   }
@@ -686,7 +687,7 @@ export class AuthController {
 
       res.json(devices);
     } catch (error) {
-      console.error('Get user devices error:', error);
+      logger.error({ error: error }, 'Get user devices error:');
       res.status(500).json({ message: 'Failed to fetch user devices' });
     }
   }
@@ -724,7 +725,7 @@ export class AuthController {
 
       res.json({ message: 'Device access revoked' });
     } catch (error) {
-      console.error('Revoke device error:', error);
+      logger.error({ error: error }, 'Revoke device error:');
       res.status(500).json({ message: 'Failed to revoke device' });
     }
   }
@@ -760,7 +761,7 @@ export class AuthController {
       // Always return success to avoid email enumeration
       res.json({ message: 'If an account exists, a verification email has been sent.' });
     } catch (error: any) {
-      console.error('Resend verification error:', error);
+      logger.error({ error: error }, 'Resend verification error:');
       res.status(500).json({ message: 'Failed to resend verification email' });
     }
   }

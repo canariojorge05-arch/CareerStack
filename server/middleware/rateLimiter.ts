@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit';
+import { logger } from '../utils/logger';
 
 // Global rate limiter for all marketing routes
 export const marketingRateLimiter = rateLimit({
@@ -19,7 +20,7 @@ export const marketingRateLimiter = rateLimit({
     return process.env.NODE_ENV === 'test';
   },
   handler: (req, res) => {
-    console.warn(`⚠️ Rate limit exceeded for user: ${req.user?.id || req.ip}`);
+    logger.warn(`⚠️ Rate limit exceeded for user: ${req.user?.id || req.ip}`);
     res.status(429).json({
       message: 'Too many requests. Please try again later.',
       retryAfter: Math.ceil(15 * 60), // seconds
@@ -40,7 +41,7 @@ export const writeOperationsRateLimiter = rateLimit({
   keyGenerator: (req: any) => req.user?.id || req.ip,
   skip: (req) => process.env.NODE_ENV === 'test',
   handler: (req, res) => {
-    console.warn(`⚠️ Write rate limit exceeded for user: ${req.user?.id || req.ip}`);
+    logger.warn(`⚠️ Write rate limit exceeded for user: ${req.user?.id || req.ip}`);
     res.status(429).json({
       message: 'Too many write operations. Please wait before creating more records.',
       retryAfter: Math.ceil(5 * 60),
@@ -61,7 +62,7 @@ export const bulkOperationsRateLimiter = rateLimit({
   keyGenerator: (req: any) => req.user?.id || req.ip,
   skip: (req) => process.env.NODE_ENV === 'test',
   handler: (req, res) => {
-    console.warn(`⚠️ Bulk operations rate limit exceeded for user: ${req.user?.id || req.ip}`);
+    logger.warn(`⚠️ Bulk operations rate limit exceeded for user: ${req.user?.id || req.ip}`);
     res.status(429).json({
       message: 'Too many bulk operations. Please wait before performing more bulk actions.',
       retryAfter: Math.ceil(10 * 60),
@@ -82,7 +83,7 @@ export const emailRateLimiter = rateLimit({
   keyGenerator: (req: any) => req.user?.id || req.ip,
   skip: (req) => process.env.NODE_ENV === 'test',
   handler: (req, res) => {
-    console.warn(`⚠️ Email rate limit exceeded for user: ${req.user?.id || req.ip}`);
+    logger.warn(`⚠️ Email rate limit exceeded for user: ${req.user?.id || req.ip}`);
     res.status(429).json({
       message: 'Email sending limit exceeded. Please try again later.',
       retryAfter: Math.ceil(60 * 60),

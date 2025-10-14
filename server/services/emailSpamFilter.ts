@@ -1,4 +1,5 @@
 import { EmailSecurityService } from './emailSecurityService';
+import { logger } from '../utils/logger';
 
 export interface SpamFilterResult {
   isSpam: boolean;
@@ -343,9 +344,9 @@ export class EmailSpamFilter {
    */
   static updateFilter(emailId: string, isSpam: boolean, userFeedback?: string): void {
     // This would update the filter's machine learning model or rules
-    console.log(`Updating spam filter: Email ${emailId} marked as ${isSpam ? 'spam' : 'not spam'}`);
+    logger.info(`Updating spam filter: Email ${emailId} marked as ${isSpam ? 'spam' : 'not spam'}`);
     if (userFeedback) {
-      console.log(`User feedback: ${userFeedback}`);
+      logger.info(`User feedback: ${userFeedback}`);
     }
   }
 }
