@@ -564,6 +564,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Stats routes (for dashboard metrics)
   app.use('/api/stats', (await import('./routes/statsRoutes')).default);
 
+  // Admin routes (for user management - requires admin role)
+  app.use('/api/admin', (await import('./routes/adminUserRoutes')).default);
+
   // Email enhancements routes
   app.use('/api/email-enhancements', emailEnhancementsRoutes);
 

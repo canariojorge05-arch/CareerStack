@@ -62,6 +62,8 @@ export const users = pgTable("users", {
   googleTokenExpiresAt: timestamp("google_token_expires_at"),
   googleDriveConnected: boolean("google_drive_connected").default(false),
   googleDriveEmail: varchar("google_drive_email"),
+  // Role-based access control
+  role: varchar("role").notNull().default("user"), // 'user' | 'marketing' | 'admin'
 });
 
 // User devices/sessions table
@@ -797,3 +799,70 @@ export const Timezones = {
   MST: 'MST',
   PST: 'PST'
 } as const;
+
+// RBAC - User Roles
+export const UserRole = {
+  USER: 'user',
+  MARKETING: 'marketing',
+  ADMIN: 'admin'
+} as const;
+
+export type UserRoleType = typeof UserRole[keyof typeof UserRole];
+
+// RBAC - Permission definitions
+export const Permissions = {
+  // User permissions
+  MANAGE_OWN_RESUMES: 'manage_own_resumes',
+  PROCESS_TECH_STACKS: 'process_tech_stacks',
+  UPLOAD_DOCUMENTS: 'upload_documents',
+  
+  // Marketing permissions
+  ACCESS_MARKETING: 'access_marketing',
+  MANAGE_CONSULTANTS: 'manage_consultants',
+  MANAGE_REQUIREMENTS: 'manage_requirements',
+  MANAGE_INTERVIEWS: 'manage_interviews',
+  SEND_EMAILS: 'send_emails',
+  
+  // Admin permissions
+  MANAGE_USERS: 'manage_users',
+  ASSIGN_ROLES: 'assign_roles',
+  VIEW_AUDIT_LOGS: 'view_audit_logs',
+  SYSTEM_CONFIG: 'system_config',
+  ACCESS_ALL_DATA: 'access_all_data'
+} as const;
+
+export type PermissionType = typeof Permissions[keyof typeof Permissions];
+
+// Role to permissions mapping
+export const RolePermissions: Record<UserRoleType, PermissionType[]> = {
+  [UserRole.USER]: [
+    Permissions.MANAGE_OWN_RESUMES,
+    Permissions.PROCESS_TECH_STACKS,
+    Permissions.UPLOAD_DOCUMENTS
+  ],
+  [UserRole.MARKETING]: [
+    Permissions.MANAGE_OWN_RESUMES,
+    Permissions.PROCESS_TECH_STACKS,
+    Permissions.UPLOAD_DOCUMENTS,
+    Permissions.ACCESS_MARKETING,
+    Permissions.MANAGE_CONSULTANTS,
+    Permissions.MANAGE_REQUIREMENTS,
+    Permissions.MANAGE_INTERVIEWS,
+    Permissions.SEND_EMAILS
+  ],
+  [UserRole.ADMIN]: [
+    Permissions.MANAGE_OWN_RESUMES,
+    Permissions.PROCESS_TECH_STACKS,
+    Permissions.UPLOAD_DOCUMENTS,
+    Permissions.ACCESS_MARKETING,
+    Permissions.MANAGE_CONSULTANTS,
+    Permissions.MANAGE_REQUIREMENTS,
+    Permissions.MANAGE_INTERVIEWS,
+    Permissions.SEND_EMAILS,
+    Permissions.MANAGE_USERS,
+    Permissions.ASSIGN_ROLES,
+    Permissions.VIEW_AUDIT_LOGS,
+    Permissions.SYSTEM_CONFIG,
+    Permissions.ACCESS_ALL_DATA
+  ]
+};

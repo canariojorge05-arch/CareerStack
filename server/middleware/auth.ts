@@ -97,11 +97,73 @@ export const authenticateJWT = async (req: Request, res: Response, next: NextFun
 };
 
 // Role-based access control middleware
-export const requireRole = (_roles: string | string[]) => {
-  return async (_req: Request, _res: Response, next: NextFunction) => {
-    // Role-based checks are not active because the users table has no role column.
-    // Proceed to next middleware.
-    next();
+export const requireRole = (allowedRoles: string | string[]) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      // Check if user is authenticated
+      if (!req.user?.id) {
+        logger.warn({ path: req.path }, 'Unauthorized access attempt - no user');
+        return res.status(401).json({ 
+          message: 'Authentication required',
+          code: 'UNAUTHORIZED'
+        });
+      }
+
+      // Get user with role from database
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, req.user.id),
+        columns: {
+          id: true,
+          email: true,
+          role: true
+        }
+      });
+
+      if (!user) {
+        logger.warn({ userId: req.user.id }, 'User not found for role check');
+        return res.status(401).json({ 
+          message: 'User not found',
+          code: 'USER_NOT_FOUND'
+        });
+      }
+
+      // Normalize allowed roles to array
+      const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
+
+      // Check if user's role is in allowed roles
+      if (!user.role || !roles.includes(user.role)) {
+        logger.warn({ 
+          userId: user.id, 
+          userRole: user.role, 
+          allowedRoles: roles,
+          path: req.path 
+        }, 'Access denied - insufficient permissions');
+        
+        return res.status(403).json({ 
+          message: 'Insufficient permissions',
+          code: 'FORBIDDEN',
+          requiredRole: roles,
+          currentRole: user.role || 'none'
+        });
+      }
+
+      // Attach role to request for use in handlers
+      (req.user as any).role = user.role;
+
+      logger.debug({ 
+        userId: user.id, 
+        role: user.role, 
+        path: req.path 
+      }, 'Role check passed');
+
+      next();
+    } catch (error) {
+      logger.error({ error, path: req.path }, 'Role check error');
+      res.status(500).json({ 
+        message: 'Authorization check failed',
+        code: 'INTERNAL_ERROR'
+      });
+    }
   };
 };
 

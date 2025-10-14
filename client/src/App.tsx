@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { lazy, Suspense, memo, useEffect, useState } from 'react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { PrivateRoute } from '@/components/auth/private-route';
+import { AdminRoute, MarketingRoute } from '@/components/auth/role-based-route';
 import { resetAllAuthState } from '@/lib/resetAuthState';
 
 // Lazy load all pages for optimal bundle splitting
@@ -17,6 +18,8 @@ const Dashboard = lazy(() => import('@/pages/dashboard'));
 const MultiResumeEditorPage = lazy(() => import('@/pages/multi-resume-editor-page'));
 const MarketingPage = lazy(() => import('@/pages/marketing'));
 const EmailPage = lazy(() => import('@/pages/email'));
+const AdminPage = lazy(() => import('@/pages/admin'));
+const UnauthorizedPage = lazy(() => import('@/pages/unauthorized'));
 const VerifyEmail = lazy(() => import('@/pages/verify-email'));
 const ResetPassword = lazy(() => import('@/pages/reset-password'));
 const Privacy = lazy(() => import('@/pages/privacy'));
@@ -84,8 +87,35 @@ const Router = memo(() => {
         {/* Protected Routes */}
         <PrivateRoute path="/dashboard" component={Dashboard} />
         <PrivateRoute path="/editor" component={MultiResumeEditorPage} />
-        <PrivateRoute path="/marketing" component={MarketingPage} />
-        <PrivateRoute path="/email" component={EmailPage} />
+        
+        {/* Marketing Routes - Require marketing or admin role */}
+        <Route path="/marketing">
+          {() => (
+            <MarketingRoute>
+              <MarketingPage />
+            </MarketingRoute>
+          )}
+        </Route>
+        
+        <Route path="/email">
+          {() => (
+            <MarketingRoute>
+              <EmailPage />
+            </MarketingRoute>
+          )}
+        </Route>
+
+        {/* Admin Routes - Require admin role */}
+        <Route path="/admin">
+          {() => (
+            <AdminRoute>
+              <AdminPage />
+            </AdminRoute>
+          )}
+        </Route>
+
+        {/* Unauthorized page */}
+        <Route path="/unauthorized" component={UnauthorizedPage} />
 
         {/* Catch-all route */}
         <Route component={NotFound} />

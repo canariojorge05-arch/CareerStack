@@ -529,7 +529,8 @@ export async function setupAuth(app: Express) {
         email: user.email,
         emailVerified: user.emailVerified,
         firstName: user.firstName,
-        lastName: user.lastName
+        lastName: user.lastName,
+        role: user.role || 'user' // Include role in session
       };
 
       return done(null, safeUser);
