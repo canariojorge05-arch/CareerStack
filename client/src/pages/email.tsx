@@ -2,7 +2,7 @@ import React from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Redirect } from 'wouter';
 import { Mail } from 'lucide-react';
-import UltraModernGmailClient from '@/components/email/ultra-modern-gmail';
+import ModernEmailClient from '@/components/email/modern-email-client';
 import { AppHeader } from '@/components/shared/app-header';
 
 export default function EmailPage() {
@@ -10,7 +10,7 @@ export default function EmailPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-50">
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-gray-50">
         <div className="text-center">
           <div className="relative inline-block">
             <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full" />
@@ -27,12 +27,11 @@ export default function EmailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Shared Header with Auto-hide */}
+    <div className="min-h-screen bg-gray-50">
       <AppHeader currentPage="email" />
-      
+
       <div className="h-[calc(100vh-4rem)] overflow-hidden">
-        <UltraModernGmailClient />
+        <ModernEmailClient />
       </div>
     </div>
   );

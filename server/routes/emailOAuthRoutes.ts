@@ -5,6 +5,8 @@ import { EnhancedGmailOAuthService } from '../services/enhancedGmailOAuthService
 import { OutlookOAuthService } from '../services/outlookOAuthService';
 import { MultiAccountEmailService } from '../services/multiAccountEmailService';
 import { EmailSyncService } from '../services/emailSyncService';
+import { ParallelEmailFetcher } from '../services/parallelEmailFetcher';
+import { emailAccountRateLimiter } from '../middleware/emailAccountRateLimiter';
 import { db } from '../db';
 import { emailAccounts } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
@@ -971,11 +973,74 @@ router.post('/gmail/:accountId/messages/:messageId/trash', isAuthenticated, asyn
     const userId = req.user.id;
     const verification = await verifyAccountOwnership(accountId, userId);
     if (verification.error) return res.status(verification.status).json({ success: false, error: verification.error });
-    
+
     const result = await EnhancedGmailOAuthService.trashMessage(verification.account, messageId);
     res.json(result.success ? { success: true, message: 'Message moved to trash' } : { success: false, error: result.error });
   } catch (error) {
     res.status(500).json({ success: false, error: formatError(error) });
+  }
+});
+
+// ========================================
+// MULTI-ACCOUNT ROUTES
+// ========================================
+
+router.post('/sync-all', isAuthenticated, emailAccountRateLimiter.middleware(), async (req: any, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { accountIds, maxResults } = req.body;
+
+    logger.info(`🔄 Starting parallel sync for user ${userId}`);
+
+    const results = await ParallelEmailFetcher.fetchMultipleAccounts(
+      userId,
+      accountIds,
+      { maxResults: maxResults || 50 }
+    );
+
+    const successCount = results.filter(r => r.success).length;
+    const totalMessages = results.reduce((sum, r) => sum + r.messageCount, 0);
+
+    res.json({
+      success: true,
+      message: `Synced ${successCount} accounts, ${totalMessages} new messages`,
+      results,
+      totalAccounts: results.length,
+      successfulAccounts: successCount,
+      totalMessages
+    });
+  } catch (error) {
+    logger.error('Parallel sync failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to sync accounts',
+      details: formatError(error)
+    });
+  }
+});
+
+router.get('/unified-inbox', isAuthenticated, async (req: any, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { limit, offset, accountIds } = req.query;
+
+    const result = await ParallelEmailFetcher.getUnifiedInbox(userId, {
+      limit: limit ? parseInt(limit as string) : 50,
+      offset: offset ? parseInt(offset as string) : 0,
+      accountIds: accountIds ? (accountIds as string).split(',') : undefined
+    });
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    logger.error('Failed to get unified inbox:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve unified inbox',
+      details: formatError(error)
+    });
   }
 });
 
