@@ -569,6 +569,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Admin approval routes
   app.use('/api/admin', (await import('./routes/adminApprovalRoutes')).default);
+  
+  // Admin login history and force logout routes
+  app.use('/api/admin', (await import('./routes/adminLoginHistoryRoutes')).default);
 
   // Email enhancements routes
   app.use('/api/email-enhancements', emailEnhancementsRoutes);

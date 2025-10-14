@@ -465,4 +465,87 @@ export class AuthService {
       console.error(`❌ Failed to send rejection email to ${email}:`, error);
     }
   }
+
+  // Send suspicious login alert to admin
+  static async sendSuspiciousLoginAlert(userId: string, userEmail: string, reasons: string[], loginDetails: any) {
+    const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
+    if (!adminEmail) return;
+
+    const appUrl = process.env.APP_URL || 'http://localhost:5000';
+    const subject = '🚨 Suspicious Login Activity Detected';
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #dc2626;">⚠️ Suspicious Login Detected</h2>
+        <p>A potentially suspicious login was detected for user: <strong>${userEmail}</strong></p>
+        
+        <div style="background: #fee2e2; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #dc2626;">
+          <h3 style="margin: 0 0 10px 0; color: #991b1b;">Suspicious Reasons:</h3>
+          <ul style="margin: 5px 0; padding-left: 20px;">
+            ${reasons.map(r => `<li>${r}</li>`).join('')}
+          </ul>
+        </div>
+        
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+          <h3 style="margin: 0 0 10px 0;">Login Details:</h3>
+          <p style="margin: 5px 0;"><strong>IP Address:</strong> ${loginDetails.ipAddress}</p>
+          <p style="margin: 5px 0;"><strong>Location:</strong> ${loginDetails.city}, ${loginDetails.region}, ${loginDetails.country}</p>
+          <p style="margin: 5px 0;"><strong>Device:</strong> ${loginDetails.browser} on ${loginDetails.os}</p>
+          <p style="margin: 5px 0;"><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+        </div>
+        
+        <p style="margin-top: 20px;">
+          <a href="${appUrl}/admin" style="background: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
+            Review in Admin Dashboard
+          </a>
+        </p>
+      </div>
+    `;
+    
+    try {
+      await sendEmailNodemailer(adminEmail, subject, html, undefined, {
+        category: 'security-alert',
+        priority: 'high'
+      });
+      console.log(`✅ Suspicious login alert sent to admin`);
+    } catch (error) {
+      console.error(`❌ Failed to send suspicious login alert:`, error);
+    }
+  }
+
+  // Send new device login notification to user
+  static async sendNewDeviceLoginEmail(email: string, name: string, loginDetails: any) {
+    const subject = '🔒 New Device Login Detected';
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">Hi ${name},</h2>
+        <p>We detected a login to your account from a new device.</p>
+        
+        <div style="background: #f0f9ff; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #0284c7;">
+          <h3 style="margin: 0 0 10px 0; color: #0c4a6e;">Login Details:</h3>
+          <p style="margin: 5px 0;"><strong>Location:</strong> ${loginDetails.city}, ${loginDetails.region}, ${loginDetails.country}</p>
+          <p style="margin: 5px 0;"><strong>Device:</strong> ${loginDetails.browser} on ${loginDetails.os}</p>
+          <p style="margin: 5px 0;"><strong>IP Address:</strong> ${loginDetails.ipAddress}</p>
+          <p style="margin: 5px 0;"><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+        </div>
+        
+        <p><strong>Was this you?</strong></p>
+        <p>If you recognize this activity, you can safely ignore this email.</p>
+        <p style="color: #dc2626; margin-top: 20px;">
+          <strong>If this wasn't you:</strong> Please change your password immediately and contact support.
+        </p>
+        
+        <p style="color: #999; font-size: 12px; margin-top: 40px;">This is an automated security message from ResumeCustomizer Pro.</p>
+      </div>
+    `;
+    
+    try {
+      await sendEmailNodemailer(email, subject, html, undefined, {
+        category: 'security-notification',
+        priority: 'high'
+      });
+      console.log(`✅ New device login notification sent to ${email}`);
+    } catch (error) {
+      console.error(`❌ Failed to send new device notification to ${email}:`, error);
+    }
+  }
 }

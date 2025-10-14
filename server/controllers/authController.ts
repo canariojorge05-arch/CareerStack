@@ -205,22 +205,103 @@ export class AuthController {
             return next(err);
           }
           
+          // Get geolocation and device info
+          const ipAddress = (req.ip || 'unknown').replace('::ffff:', '');
+          const userAgent = req.headers['user-agent'] as string || '';
+          
+          // Parse device info
+          const { DeviceParser } = await import('../utils/deviceParser');
+          const deviceInfo = DeviceParser.parse(userAgent);
+          
+          // Get geolocation
+          const { GeolocationService } = await import('../services/geolocationService');
+          const geoData = await GeolocationService.getLocation(ipAddress);
+          
+          // Check for suspicious activity
+          const { SuspiciousActivityDetector } = await import('../utils/suspiciousActivityDetector');
+          const suspiciousCheck = await SuspiciousActivityDetector.analyze(user.id, {
+            ipAddress,
+            city: geoData.city,
+            region: geoData.region,
+            country: geoData.country,
+            browser: deviceInfo.browser,
+            os: deviceInfo.os,
+            deviceType: deviceInfo.deviceType
+          });
+          
+          // Log login to history
+          const { loginHistory } = await import('@shared/schema');
+          await db.insert(loginHistory).values({
+            userId: user.id,
+            status: 'success',
+            ipAddress,
+            city: geoData.city,
+            region: geoData.region,
+            country: geoData.country,
+            countryCode: geoData.countryCode,
+            timezone: geoData.timezone,
+            isp: geoData.isp,
+            latitude: geoData.latitude,
+            longitude: geoData.longitude,
+            userAgent,
+            browser: deviceInfo.browser,
+            browserVersion: deviceInfo.browserVersion,
+            os: deviceInfo.os,
+            osVersion: deviceInfo.osVersion,
+            deviceType: deviceInfo.deviceType,
+            deviceVendor: deviceInfo.deviceVendor,
+            isSuspicious: suspiciousCheck.isSuspicious,
+            suspiciousReasons: suspiciousCheck.reasons,
+            isNewLocation: suspiciousCheck.isNewLocation,
+            isNewDevice: suspiciousCheck.isNewDevice
+          });
+          
+          // Send alerts if suspicious or new device
+          if (suspiciousCheck.isSuspicious) {
+            SuspiciousActivityDetector.alertAdmin(user.id, user.email, suspiciousCheck.reasons, {
+              ipAddress,
+              city: geoData.city,
+              region: geoData.region,
+              country: geoData.country,
+              browser: deviceInfo.browser,
+              os: deviceInfo.os,
+              deviceType: deviceInfo.deviceType
+            });
+          }
+          
+          if (suspiciousCheck.isNewDevice) {
+            SuspiciousActivityDetector.notifyUser(user.email, `${user.firstName} ${user.lastName}`.trim() || 'User', {
+              ipAddress,
+              city: geoData.city,
+              region: geoData.region,
+              country: geoData.country,
+              browser: deviceInfo.browser,
+              os: deviceInfo.os,
+              deviceType: deviceInfo.deviceType
+            });
+          }
+          
           // Generate tokens
           const accessToken = AuthService.generateAccessToken(user.id);
           const refreshToken = await AuthService.generateRefreshToken(
             user.id,
-            req.headers['user-agent'] as string,
-            (req.ip || '')
+            userAgent,
+            ipAddress
           );
 
-          // Update last login
+          // Update last login with full tracking info
           await db
             .update(users)
             .set({ 
               lastLoginAt: new Date(),
-              lastIpAddress: req.ip,
-              lastUserAgent: req.headers['user-agent'] as string,
-              failedLoginAttempts: 0, // Reset failed attempts on successful login
+              lastIpAddress: ipAddress,
+              lastUserAgent: userAgent,
+              lastLoginCity: geoData.city,
+              lastLoginCountry: geoData.country,
+              lastLoginBrowser: deviceInfo.browser,
+              lastLoginOs: deviceInfo.os,
+              lastLoginDevice: deviceInfo.deviceType,
+              failedLoginAttempts: 0,
               accountLockedUntil: null,
             })
             .where(eq(users.id, user.id));

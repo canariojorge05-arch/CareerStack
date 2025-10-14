@@ -103,6 +103,50 @@ export const accountActivityLogs = pgTable("account_activity_logs", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Login history table - detailed tracking of all login attempts
+export const loginHistory = pgTable("login_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  
+  // Login status
+  status: varchar("status").notNull(), // 'success' | 'failed' | 'blocked'
+  failureReason: varchar("failure_reason"), // Why login failed
+  
+  // IP and Geolocation
+  ipAddress: varchar("ip_address").notNull(),
+  city: varchar("city"),
+  region: varchar("region"), // State/Province
+  country: varchar("country"),
+  countryCode: varchar("country_code"), // US, GB, etc.
+  timezone: varchar("timezone"),
+  isp: varchar("isp"), // Internet Service Provider
+  latitude: varchar("latitude"),
+  longitude: varchar("longitude"),
+  
+  // Device Information
+  userAgent: text("user_agent"),
+  browser: varchar("browser"),
+  browserVersion: varchar("browser_version"),
+  os: varchar("os"),
+  osVersion: varchar("os_version"),
+  deviceType: varchar("device_type"), // desktop, mobile, tablet
+  deviceVendor: varchar("device_vendor"),
+  
+  // Security flags
+  isSuspicious: boolean("is_suspicious").default(false),
+  suspiciousReasons: text("suspicious_reasons").array(),
+  isNewLocation: boolean("is_new_location").default(false),
+  isNewDevice: boolean("is_new_device").default(false),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_login_history_user_id").on(table.userId),
+  index("idx_login_history_status").on(table.status),
+  index("idx_login_history_created_at").on(table.createdAt),
+  index("idx_login_history_ip_address").on(table.ipAddress),
+  index("idx_login_history_suspicious").on(table.isSuspicious),
+]);
+
 export const resumes = pgTable("resumes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
@@ -726,6 +770,13 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   }),
 }));
 
+export const loginHistoryRelations = relations(loginHistory, ({ one }) => ({
+  user: one(users, {
+    fields: [loginHistory.userId],
+    references: [users.id],
+  }),
+}));
+
 // Types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -883,3 +934,7 @@ export const ApprovalStatus = {
 } as const;
 
 export type ApprovalStatusType = typeof ApprovalStatus[keyof typeof ApprovalStatus];
+
+// Types for login history
+export type LoginHistory = typeof loginHistory.$inferSelect;
+export type InsertLoginHistory = typeof loginHistory.$inferInsert;
