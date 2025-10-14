@@ -1,5 +1,6 @@
-import { Navigate, useLocation } from 'wouter';
+import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
+import { Navigate } from 'react-router-dom';
 
 interface RoleBasedRouteProps {
   children: React.ReactNode;
@@ -26,7 +27,9 @@ export function RoleBasedRoute({ children, allowedRoles }: RoleBasedRouteProps) 
 
   // Redirect to login if not authenticated
   if (!isAuthenticated || !user) {
-    return <Navigate to={`/login?redirect=${encodeURIComponent(location)}`} />;
+    const [, setLocation] = useLocation();
+    setLocation(`/login?redirect=${encodeURIComponent(location)}`);
+    return null;
   }
 
   // Check if user has required role
