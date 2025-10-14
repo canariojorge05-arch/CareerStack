@@ -564,6 +564,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Stats routes (for dashboard metrics)
   app.use('/api/stats', (await import('./routes/statsRoutes')).default);
 
+  // Admin routes (for user management - requires admin role)
+  app.use('/api/admin', (await import('./routes/adminUserRoutes')).default);
+  
+  // Admin approval routes
+  app.use('/api/admin', (await import('./routes/adminApprovalRoutes')).default);
+  
+  // Admin login history and force logout routes
+  app.use('/api/admin', (await import('./routes/adminLoginHistoryRoutes')).default);
+
   // Email enhancements routes
   app.use('/api/email-enhancements', emailEnhancementsRoutes);
 
@@ -775,6 +784,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           password: hashedPassword,
           emailVerificationToken: verification.tokenHash,
           emailVerificationExpires: verification.expiresAt,
+          approvalStatus: 'pending_verification', // Will change to pending_approval after email verification
           createdAt: new Date(),
           updatedAt: new Date(),
         })

@@ -56,6 +56,7 @@ import {
   emailMessages, 
   emailAttachments,
   emailAccounts,
+  users,
   insertConsultantSchema,
   insertConsultantProjectSchema,
   insertRequirementSchema,
@@ -171,17 +172,32 @@ const requireMarketingRole = async (req: any, res: any, next: any) => {
       return res.status(401).json({ message: 'Authentication required' });
     }
 
-    // For now, allow all authenticated users access to marketing module
-    // In production, you'd check if user has 'marketing' or 'admin' role
-    // const user = await db.query.users.findFirst({
-    //   where: eq(users.id, req.user.id)
-    // });
-    // if (!user || !['marketing', 'admin'].includes(user.role)) {
-    //   return res.status(403).json({ message: 'Marketing role required' });
-    // }
+    // Check if user has 'marketing' or 'admin' role
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, req.user.id),
+      columns: {
+        id: true,
+        role: true
+      }
+    });
+    
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+    
+    // Allow marketing and admin roles
+    if (!user.role || !['marketing', 'admin'].includes(user.role)) {
+      return res.status(403).json({ 
+        message: 'Marketing role required',
+        code: 'INSUFFICIENT_PERMISSIONS',
+        requiredRoles: ['marketing', 'admin'],
+        currentRole: user.role || 'none'
+      });
+    }
 
     next();
   } catch (error) {
+    console.error('Marketing role check error:', error);
     return res.status(500).json({ message: 'Authorization check failed' });
   }
 };

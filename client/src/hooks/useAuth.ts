@@ -11,6 +11,7 @@ export interface User {
   firstName?: string;
   lastName?: string;
   profileImageUrl?: string;
+  role?: string; // 'user' | 'marketing' | 'admin'
   createdAt: string;
   updatedAt: string;
 }

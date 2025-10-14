@@ -5,11 +5,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { Bell, LogOut, Mail, MessageSquare, FileText, Zap } from 'lucide-react';
+import { Bell, LogOut, Mail, MessageSquare, FileText, Zap, Shield } from 'lucide-react';
 import type { User as ClientUser } from '@/hooks/useAuth';
 
 interface AppHeaderProps {
-  currentPage?: 'dashboard' | 'email' | 'marketing' | 'editor';
+  currentPage?: 'dashboard' | 'email' | 'marketing' | 'editor' | 'admin';
 }
 
 export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
@@ -176,6 +176,32 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
                 Open Multi-Editor to edit multiple resumes side-by-side.
               </TooltipContent>
             </Tooltip>
+
+            {/* Admin Button - Only show for admin users */}
+            {user?.role === 'admin' && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentPage === 'admin' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => navigate('/admin')}
+                    className={`transition-all duration-200 ${
+                      currentPage === 'admin'
+                        ? 'bg-purple-600 text-white hover:bg-purple-700'
+                        : 'bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100'
+                    }`}
+                    data-testid="button-admin"
+                    aria-label="Navigate to admin panel"
+                  >
+                    <Shield size={16} className="mr-1" />
+                    <span className="hidden sm:inline">Admin</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Admin panel - manage users and system settings
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             <Button
               variant="ghost"

@@ -62,6 +62,15 @@ export const users = pgTable("users", {
   googleTokenExpiresAt: timestamp("google_token_expires_at"),
   googleDriveConnected: boolean("google_drive_connected").default(false),
   googleDriveEmail: varchar("google_drive_email"),
+  // Role-based access control
+  role: varchar("role").notNull().default("user"), // 'user' | 'marketing' | 'admin'
+  // Admin approval system
+  approvalStatus: varchar("approval_status").notNull().default("pending_approval"), // 'pending_verification' | 'pending_approval' | 'approved' | 'rejected'
+  approvedBy: varchar("approved_by").references(() => users.id, { onDelete: 'set null' }),
+  approvedAt: timestamp("approved_at"),
+  rejectedBy: varchar("rejected_by").references(() => users.id, { onDelete: 'set null' }),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
 });
 
 // User devices/sessions table
@@ -93,6 +102,50 @@ export const accountActivityLogs = pgTable("account_activity_logs", {
   metadata: jsonb("metadata"), // Additional data about the activity
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Login history table - detailed tracking of all login attempts
+export const loginHistory = pgTable("login_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  
+  // Login status
+  status: varchar("status").notNull(), // 'success' | 'failed' | 'blocked'
+  failureReason: varchar("failure_reason"), // Why login failed
+  
+  // IP and Geolocation
+  ipAddress: varchar("ip_address").notNull(),
+  city: varchar("city"),
+  region: varchar("region"), // State/Province
+  country: varchar("country"),
+  countryCode: varchar("country_code"), // US, GB, etc.
+  timezone: varchar("timezone"),
+  isp: varchar("isp"), // Internet Service Provider
+  latitude: varchar("latitude"),
+  longitude: varchar("longitude"),
+  
+  // Device Information
+  userAgent: text("user_agent"),
+  browser: varchar("browser"),
+  browserVersion: varchar("browser_version"),
+  os: varchar("os"),
+  osVersion: varchar("os_version"),
+  deviceType: varchar("device_type"), // desktop, mobile, tablet
+  deviceVendor: varchar("device_vendor"),
+  
+  // Security flags
+  isSuspicious: boolean("is_suspicious").default(false),
+  suspiciousReasons: text("suspicious_reasons").array(),
+  isNewLocation: boolean("is_new_location").default(false),
+  isNewDevice: boolean("is_new_device").default(false),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_login_history_user_id").on(table.userId),
+  index("idx_login_history_status").on(table.status),
+  index("idx_login_history_created_at").on(table.createdAt),
+  index("idx_login_history_ip_address").on(table.ipAddress),
+  index("idx_login_history_suspicious").on(table.isSuspicious),
+]);
 
 export const resumes = pgTable("resumes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -717,6 +770,13 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   }),
 }));
 
+export const loginHistoryRelations = relations(loginHistory, ({ one }) => ({
+  user: one(users, {
+    fields: [loginHistory.userId],
+    references: [users.id],
+  }),
+}));
+
 // Types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -797,3 +857,84 @@ export const Timezones = {
   MST: 'MST',
   PST: 'PST'
 } as const;
+
+// RBAC - User Roles
+export const UserRole = {
+  USER: 'user',
+  MARKETING: 'marketing',
+  ADMIN: 'admin'
+} as const;
+
+export type UserRoleType = typeof UserRole[keyof typeof UserRole];
+
+// RBAC - Permission definitions
+export const Permissions = {
+  // User permissions
+  MANAGE_OWN_RESUMES: 'manage_own_resumes',
+  PROCESS_TECH_STACKS: 'process_tech_stacks',
+  UPLOAD_DOCUMENTS: 'upload_documents',
+  
+  // Marketing permissions
+  ACCESS_MARKETING: 'access_marketing',
+  MANAGE_CONSULTANTS: 'manage_consultants',
+  MANAGE_REQUIREMENTS: 'manage_requirements',
+  MANAGE_INTERVIEWS: 'manage_interviews',
+  SEND_EMAILS: 'send_emails',
+  
+  // Admin permissions
+  MANAGE_USERS: 'manage_users',
+  ASSIGN_ROLES: 'assign_roles',
+  VIEW_AUDIT_LOGS: 'view_audit_logs',
+  SYSTEM_CONFIG: 'system_config',
+  ACCESS_ALL_DATA: 'access_all_data'
+} as const;
+
+export type PermissionType = typeof Permissions[keyof typeof Permissions];
+
+// Role to permissions mapping
+export const RolePermissions: Record<UserRoleType, PermissionType[]> = {
+  [UserRole.USER]: [
+    Permissions.MANAGE_OWN_RESUMES,
+    Permissions.PROCESS_TECH_STACKS,
+    Permissions.UPLOAD_DOCUMENTS
+  ],
+  [UserRole.MARKETING]: [
+    Permissions.MANAGE_OWN_RESUMES,
+    Permissions.PROCESS_TECH_STACKS,
+    Permissions.UPLOAD_DOCUMENTS,
+    Permissions.ACCESS_MARKETING,
+    Permissions.MANAGE_CONSULTANTS,
+    Permissions.MANAGE_REQUIREMENTS,
+    Permissions.MANAGE_INTERVIEWS,
+    Permissions.SEND_EMAILS
+  ],
+  [UserRole.ADMIN]: [
+    Permissions.MANAGE_OWN_RESUMES,
+    Permissions.PROCESS_TECH_STACKS,
+    Permissions.UPLOAD_DOCUMENTS,
+    Permissions.ACCESS_MARKETING,
+    Permissions.MANAGE_CONSULTANTS,
+    Permissions.MANAGE_REQUIREMENTS,
+    Permissions.MANAGE_INTERVIEWS,
+    Permissions.SEND_EMAILS,
+    Permissions.MANAGE_USERS,
+    Permissions.ASSIGN_ROLES,
+    Permissions.VIEW_AUDIT_LOGS,
+    Permissions.SYSTEM_CONFIG,
+    Permissions.ACCESS_ALL_DATA
+  ]
+};
+
+// Approval Status enum
+export const ApprovalStatus = {
+  PENDING_VERIFICATION: 'pending_verification',
+  PENDING_APPROVAL: 'pending_approval',
+  APPROVED: 'approved',
+  REJECTED: 'rejected'
+} as const;
+
+export type ApprovalStatusType = typeof ApprovalStatus[keyof typeof ApprovalStatus];
+
+// Types for login history
+export type LoginHistory = typeof loginHistory.$inferSelect;
+export type InsertLoginHistory = typeof loginHistory.$inferInsert;
