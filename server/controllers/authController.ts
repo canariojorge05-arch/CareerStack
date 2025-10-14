@@ -154,6 +154,31 @@ export class AuthController {
           });
         }
 
+        // Check if account is approved by admin
+        if (user.approvalStatus === 'pending_approval') {
+          return res.status(403).json({ 
+            success: false,
+            message: 'Your account is pending admin approval. You will receive an email once approved.',
+            code: 'PENDING_APPROVAL'
+          });
+        }
+
+        if (user.approvalStatus === 'rejected') {
+          return res.status(403).json({ 
+            success: false,
+            message: 'Your account registration was not approved. Please contact support.',
+            code: 'ACCOUNT_REJECTED'
+          });
+        }
+
+        if (user.approvalStatus !== 'approved') {
+          return res.status(403).json({ 
+            success: false,
+            message: 'Account verification pending. Please complete email verification first.',
+            code: 'PENDING_VERIFICATION'
+          });
+        }
+
         // If 2FA is enabled, generate and send code
         if (user.twoFactorEnabled) {
           const code = Math.floor(100000 + Math.random() * 900000).toString();

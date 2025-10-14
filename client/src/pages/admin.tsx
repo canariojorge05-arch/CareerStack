@@ -159,6 +159,14 @@ export default function AdminPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
           <p className="text-muted-foreground mt-2">Manage users and system settings</p>
+          <div className="flex gap-2 mt-4">
+            <Button onClick={() => window.location.href = '/admin'} variant="default">
+              User Management
+            </Button>
+            <Button onClick={() => window.location.href = '/admin/approvals'} variant="outline">
+              Pending Approvals
+            </Button>
+          </div>
         </div>
 
         {/* Statistics Cards */}

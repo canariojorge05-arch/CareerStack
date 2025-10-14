@@ -64,6 +64,13 @@ export const users = pgTable("users", {
   googleDriveEmail: varchar("google_drive_email"),
   // Role-based access control
   role: varchar("role").notNull().default("user"), // 'user' | 'marketing' | 'admin'
+  // Admin approval system
+  approvalStatus: varchar("approval_status").notNull().default("pending_approval"), // 'pending_verification' | 'pending_approval' | 'approved' | 'rejected'
+  approvedBy: varchar("approved_by").references(() => users.id, { onDelete: 'set null' }),
+  approvedAt: timestamp("approved_at"),
+  rejectedBy: varchar("rejected_by").references(() => users.id, { onDelete: 'set null' }),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
 });
 
 // User devices/sessions table
@@ -866,3 +873,13 @@ export const RolePermissions: Record<UserRoleType, PermissionType[]> = {
     Permissions.ACCESS_ALL_DATA
   ]
 };
+
+// Approval Status enum
+export const ApprovalStatus = {
+  PENDING_VERIFICATION: 'pending_verification',
+  PENDING_APPROVAL: 'pending_approval',
+  APPROVED: 'approved',
+  REJECTED: 'rejected'
+} as const;
+
+export type ApprovalStatusType = typeof ApprovalStatus[keyof typeof ApprovalStatus];

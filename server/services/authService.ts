@@ -293,16 +293,32 @@ export class AuthService {
       throw new Error('Invalid or expired verification token');
     }
 
-    // Mark email as verified
+    // Mark email as verified and change status to pending_approval
     await db
       .update(users)
       .set({ 
         emailVerified: true,
         emailVerificationToken: null,
         emailVerificationExpires: null,
+        approvalStatus: 'pending_approval', // Now waiting for admin approval
         updatedAt: new Date(),
       })
       .where(eq(users.id, user.id));
+
+    // Send notification to admin
+    try {
+      await this.sendAdminNotificationEmail(user.email, user.firstName || 'User');
+    } catch (error) {
+      console.error('Failed to send admin notification:', error);
+      // Don't fail verification if admin email fails
+    }
+
+    // Send pending approval email to user
+    try {
+      await this.sendPendingApprovalEmail(user.email, user.firstName || 'User');
+    } catch (error) {
+      console.error('Failed to send pending approval email:', error);
+    }
 
     return true;
   }
@@ -323,5 +339,130 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  // Send pending approval email to user
+  static async sendPendingApprovalEmail(email: string, name: string) {
+    const subject = 'Account Pending Admin Approval';
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">Hi ${name},</h2>
+        <p>Thank you for verifying your email address!</p>
+        <p>Your account is currently <strong>pending admin approval</strong>. An administrator will review your registration shortly.</p>
+        <p>You'll receive an email notification once your account has been approved. This usually takes 1-2 business days.</p>
+        <p style="margin-top: 30px; color: #666;">If you have any questions, feel free to reply to this email.</p>
+        <p style="color: #999; font-size: 12px; margin-top: 40px;">This is an automated message from ResumeCustomizer Pro.</p>
+      </div>
+    `;
+    
+    try {
+      await sendEmailNodemailer(email, subject, html, undefined, {
+        category: 'pending-approval',
+        priority: 'normal'
+      });
+      console.log(`✅ Pending approval email sent to ${email}`);
+    } catch (error) {
+      console.error(`❌ Failed to send pending approval email to ${email}:`, error);
+    }
+  }
+
+  // Send notification to admin about new signup
+  static async sendAdminNotificationEmail(userEmail: string, userName: string) {
+    const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
+    if (!adminEmail) {
+      console.warn('No admin email configured for new user notifications');
+      return;
+    }
+
+    const appUrl = process.env.APP_URL || 'http://localhost:5000';
+    const subject = '🔔 New User Registration - Pending Approval';
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">New User Signup</h2>
+        <p>A new user has signed up and verified their email. Their account is waiting for your approval.</p>
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+          <p style="margin: 5px 0;"><strong>Name:</strong> ${userName}</p>
+          <p style="margin: 5px 0;"><strong>Email:</strong> ${userEmail}</p>
+          <p style="margin: 5px 0;"><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+        </div>
+        <p style="margin-top: 20px;">
+          <a href="${appUrl}/admin/approvals" style="background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
+            Review in Admin Dashboard
+          </a>
+        </p>
+        <p style="color: #666; font-size: 14px; margin-top: 30px;">
+          You can approve or reject this user in your admin dashboard.
+        </p>
+      </div>
+    `;
+    
+    try {
+      await sendEmailNodemailer(adminEmail, subject, html, undefined, {
+        category: 'admin-notification',
+        priority: 'high'
+      });
+      console.log(`✅ Admin notification sent to ${adminEmail}`);
+    } catch (error) {
+      console.error(`❌ Failed to send admin notification:`, error);
+    }
+  }
+
+  // Send approval confirmation email to user
+  static async sendApprovalEmail(email: string, name: string) {
+    const appUrl = process.env.APP_URL || 'http://localhost:5000';
+    const subject = '🎉 Your Account Has Been Approved!';
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #22c55e;">Great News, ${name}!</h2>
+        <p>Your account has been approved by an administrator.</p>
+        <p>You can now log in and start using ResumeCustomizer Pro!</p>
+        <p style="margin-top: 30px;">
+          <a href="${appUrl}/login" style="background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
+            Login Now
+          </a>
+        </p>
+        <p style="margin-top: 30px; color: #666;">Welcome aboard! We're excited to have you.</p>
+        <p style="color: #999; font-size: 12px; margin-top: 40px;">This is an automated message from ResumeCustomizer Pro.</p>
+      </div>
+    `;
+    
+    try {
+      await sendEmailNodemailer(email, subject, html, undefined, {
+        category: 'account-approved',
+        priority: 'high'
+      });
+      console.log(`✅ Approval email sent to ${email}`);
+    } catch (error) {
+      console.error(`❌ Failed to send approval email to ${email}:`, error);
+    }
+  }
+
+  // Send rejection notification email to user
+  static async sendRejectionEmail(email: string, name: string, reason?: string) {
+    const subject = 'Account Registration Update';
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">Hi ${name},</h2>
+        <p>Thank you for your interest in ResumeCustomizer Pro.</p>
+        <p>Unfortunately, we're unable to approve your account registration at this time.</p>
+        ${reason ? `<div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+          <p style="margin: 0;"><strong>Reason:</strong> ${reason}</p>
+        </div>` : ''}
+        <p style="margin-top: 30px; color: #666;">
+          If you believe this is an error or have questions, please contact our support team by replying to this email.
+        </p>
+        <p style="color: #999; font-size: 12px; margin-top: 40px;">This is an automated message from ResumeCustomizer Pro.</p>
+      </div>
+    `;
+    
+    try {
+      await sendEmailNodemailer(email, subject, html, undefined, {
+        category: 'account-rejected',
+        priority: 'normal'
+      });
+      console.log(`✅ Rejection email sent to ${email}`);
+    } catch (error) {
+      console.error(`❌ Failed to send rejection email to ${email}:`, error);
+    }
   }
 }

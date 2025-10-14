@@ -19,6 +19,7 @@ const MultiResumeEditorPage = lazy(() => import('@/pages/multi-resume-editor-pag
 const MarketingPage = lazy(() => import('@/pages/marketing'));
 const EmailPage = lazy(() => import('@/pages/email'));
 const AdminPage = lazy(() => import('@/pages/admin'));
+const AdminApprovalsPage = lazy(() => import('@/pages/admin-approvals'));
 const UnauthorizedPage = lazy(() => import('@/pages/unauthorized'));
 const VerifyEmail = lazy(() => import('@/pages/verify-email'));
 const ResetPassword = lazy(() => import('@/pages/reset-password'));
@@ -110,6 +111,14 @@ const Router = memo(() => {
           {() => (
             <AdminRoute>
               <AdminPage />
+            </AdminRoute>
+          )}
+        </Route>
+
+        <Route path="/admin/approvals">
+          {() => (
+            <AdminRoute>
+              <AdminApprovalsPage />
             </AdminRoute>
           )}
         </Route>
