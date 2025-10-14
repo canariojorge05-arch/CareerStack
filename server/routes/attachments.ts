@@ -9,6 +9,7 @@ import { isAuthenticated as auth } from '../localAuth';
 import { db } from '../db';
 import { attachments, emailRateLimits } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -183,7 +184,7 @@ router.post('/upload', attachmentsRateLimiter, upload.array('files', MAX_FILES_P
     });
 
   } catch (error) {
-    console.error('File upload error:', error);
+    logger.error({ error: error }, 'File upload error:');
     res.status(500).json({
       success: false,
       message: 'Failed to upload files',
@@ -238,7 +239,7 @@ router.get('/:id', async (req, res) => {
     // Stream file to avoid loading the whole thing into memory
     const stream = createReadStream(filePath);
     stream.on('error', (err) => {
-      console.error('Stream error:', err);
+      logger.error({ error: err }, 'Stream error:');
       if (!res.headersSent) {
         res.status(500).json({ success: false, message: 'Failed to stream file' });
       }
@@ -246,7 +247,7 @@ router.get('/:id', async (req, res) => {
     stream.pipe(res);
 
   } catch (error) {
-    console.error('File download error:', error);
+    logger.error({ error: error }, 'File download error:');
     res.status(500).json({
       success: false,
       message: 'Failed to download file',
@@ -285,7 +286,7 @@ router.get('/entity/:entityType/:entityId', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get entity attachments error:', error);
+    logger.error({ error: error }, 'Get entity attachments error:');
     res.status(500).json({
       success: false,
       message: 'Failed to get attachments',
@@ -335,7 +336,7 @@ router.get('/', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get attachments error:', error);
+    logger.error({ error: error }, 'Get attachments error:');
     res.status(500).json({
       success: false,
       message: 'Failed to get attachments',
@@ -385,7 +386,7 @@ router.delete('/:id', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('File deletion error:', error);
+    logger.error({ error: error }, 'File deletion error:');
     res.status(500).json({
       success: false,
       message: 'Failed to delete file',
@@ -440,7 +441,7 @@ router.get('/:id/info', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get file info error:', error);
+    logger.error({ error: error }, 'Get file info error:');
     res.status(500).json({
       success: false,
       message: 'Failed to get file info',

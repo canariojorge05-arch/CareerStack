@@ -3,6 +3,7 @@ import { AuthenticationProvider } from '@microsoft/microsoft-graph-client';
 import { db } from '../db';
 import { emailAccounts } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
+import { logger } from '../utils/logger';
 
 export interface OutlookOAuthConfig {
   clientId: string;
@@ -155,7 +156,7 @@ export class OutlookOAuthService {
         };
       }
     } catch (error) {
-      console.error('Outlook OAuth callback error:', error);
+      logger.error({ error: error }, 'Outlook OAuth callback error:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'OAuth callback failed'
@@ -208,7 +209,7 @@ export class OutlookOAuthService {
 
       return tokens.access_token;
     } catch (error) {
-      console.error('Error refreshing Outlook access token:', error);
+      logger.error({ error: error }, 'Error refreshing Outlook access token:');
       return null;
     }
   }
@@ -219,7 +220,7 @@ export class OutlookOAuthService {
 
       // Check if token is expired
       if (account.tokenExpiresAt && new Date() >= new Date(account.tokenExpiresAt)) {
-        console.log('Access token expired, refreshing...');
+        logger.info('Access token expired, refreshing...');
         accessToken = await this.refreshAccessToken(account);
         
         if (!accessToken) {
@@ -231,7 +232,7 @@ export class OutlookOAuthService {
         authProvider: new CustomAuthProvider(accessToken)
       });
     } catch (error) {
-      console.error('Error creating Graph client:', error);
+      logger.error({ error: error }, 'Error creating Graph client:');
       return null;
     }
   }
@@ -247,11 +248,11 @@ export class OutlookOAuthService {
       // Test by getting user profile
       const profile = await graphClient.api('/me').get();
       
-      console.log(`✅ Outlook connection successful for ${account.emailAddress}. User: ${profile.displayName}`);
+      logger.info(`✅ Outlook connection successful for ${account.emailAddress}. User: ${profile.displayName}`);
       
       return { success: true };
     } catch (error) {
-      console.error(`❌ Outlook connection failed for ${account.emailAddress}:`, error);
+      logger.error(`❌ Outlook connection failed for ${account.emailAddress}:`, error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
@@ -289,7 +290,7 @@ export class OutlookOAuthService {
         textBody: msg.body?.contentType === 'text' ? msg.body.content : msg.bodyPreview,
       }));
     } catch (error) {
-      console.error('Error fetching Outlook messages:', error);
+      logger.error({ error: error }, 'Error fetching Outlook messages:');
       throw error;
     }
   }
@@ -336,7 +337,7 @@ export class OutlookOAuthService {
         messageId: 'sent', // Graph API doesn't return message ID for sent messages
       };
     } catch (error) {
-      console.error('Error sending Outlook message:', error);
+      logger.error({ error: error }, 'Error sending Outlook message:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to send message'
@@ -359,7 +360,7 @@ export class OutlookOAuthService {
 
       return folders.value.map((folder: any) => folder.displayName);
     } catch (error) {
-      console.error('Error getting Outlook folders:', error);
+      logger.error({ error: error }, 'Error getting Outlook folders:');
       throw error;
     }
   }

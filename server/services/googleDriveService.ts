@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { Readable } from 'stream';
+import { logger } from '../utils/logger';
 
 export interface GoogleDriveFile {
   id: string;
@@ -83,7 +84,7 @@ export class GoogleDriveService {
         email
       } as any;
     } catch (error) {
-      console.error('Failed to get tokens:', error);
+      logger.error({ error: error }, 'Failed to get tokens:');
       throw new Error('Failed to authenticate with Google Drive');
     }
   }
@@ -124,7 +125,7 @@ export class GoogleDriveService {
         nextPageToken: response.data.nextPageToken
       };
     } catch (error) {
-      console.error('Failed to list Drive files:', error);
+      logger.error({ error: error }, 'Failed to list Drive files:');
       throw new Error('Failed to fetch files from Google Drive');
     }
   }
@@ -141,7 +142,7 @@ export class GoogleDriveService {
 
       return response.data;
     } catch (error) {
-      console.error('Failed to get file metadata:', error);
+      logger.error({ error: error }, 'Failed to get file metadata:');
       throw new Error('Failed to get file information from Google Drive');
     }
   }
@@ -151,7 +152,7 @@ export class GoogleDriveService {
    */
   async downloadFile(fileId: string): Promise<Buffer> {
     try {
-      console.log(`📥 Downloading file from Google Drive: ${fileId}`);
+      logger.info(`📥 Downloading file from Google Drive: ${fileId}`);
       
       const response = await this.drive.files.get({
         fileId,
@@ -168,13 +169,13 @@ export class GoogleDriveService {
         stream.on('data', (chunk) => chunks.push(chunk));
         stream.on('end', () => {
           const buffer = Buffer.concat(chunks);
-          console.log(`✅ Downloaded ${buffer.length} bytes from Google Drive`);
+          logger.info(`✅ Downloaded ${buffer.length} bytes from Google Drive`);
           resolve(buffer);
         });
         stream.on('error', reject);
       });
     } catch (error) {
-      console.error('Failed to download file from Drive:', error);
+      logger.error({ error: error }, 'Failed to download file from Drive:');
       throw new Error('Failed to download file from Google Drive');
     }
   }
@@ -187,7 +188,7 @@ export class GoogleDriveService {
       const metadata = await this.getFileMetadata(fileId);
       return metadata.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     } catch (error) {
-      console.error('Failed to validate file:', error);
+      logger.error({ error: error }, 'Failed to validate file:');
       return false;
     }
   }
@@ -212,7 +213,7 @@ export class GoogleDriveService {
       this.oauth2Client.setCredentials(creds);
       return;
     } catch (error) {
-      console.error('Failed to refresh access token:', error);
+      logger.error({ error: error }, 'Failed to refresh access token:');
       throw new Error('Failed to refresh Google Drive access');
     }
   }

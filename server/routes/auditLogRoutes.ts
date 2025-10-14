@@ -3,6 +3,7 @@ import { db } from '../db';
 import { sql } from 'drizzle-orm';
 import { users } from '../../shared/schema';
 import { eq } from 'drizzle-orm';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -27,7 +28,7 @@ router.get('/requirements/:id', async (req, res) => {
     
     res.json(result.rows || []);
   } catch (error) {
-    console.error('Failed to fetch audit logs:', error);
+    logger.error({ error: error }, 'Failed to fetch audit logs:');
     res.status(500).json({ message: 'Failed to fetch audit logs' });
   }
 });

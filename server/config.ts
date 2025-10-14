@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { logger } from './utils/logger';
 
 dotenv.config();
 
@@ -22,7 +23,7 @@ if (missingBase.length > 0) {
 }
 
 if (!hasGenericEmail) {
-  console.warn('⚠️ Warning: No email configuration detected. Password reset and verification emails will not work until you configure EMAIL_* environment variables.');
+  logger.warn('⚠️ Warning: No email configuration detected. Password reset and verification emails will not work until you configure EMAIL_* environment variables.');
 }
 
 // Application configuration

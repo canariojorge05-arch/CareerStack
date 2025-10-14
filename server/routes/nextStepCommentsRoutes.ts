@@ -19,13 +19,14 @@ import {
   type InsertNextStepComment
 } from '@shared/schema';
 import { z } from 'zod';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
 // Conditional CSRF protection - bypass in development for debugging
 const conditionalCSRF = (req: any, res: any, next: any) => {
   if (process.env.NODE_ENV === 'development') {
-    console.log('🔧 CSRF bypassed in development mode');
+    logger.info('🔧 CSRF bypassed in development mode');
     return next();
   }
   return csrfProtection(req, res, next);
@@ -62,7 +63,7 @@ router.get('/requirements/:id/next-step-comments', async (req, res) => {
 
     res.json(comments);
   } catch (error) {
-    console.error('Error fetching next step comments:', error);
+    logger.error({ error: error }, 'Error fetching next step comments:');
     res.status(500).json({ message: 'Failed to fetch next step comments' });
   }
 });
@@ -110,7 +111,7 @@ router.post('/requirements/:id/next-step-comments', conditionalCSRF, writeOperat
 
     res.status(201).json(commentWithUser);
   } catch (error) {
-    console.error('Error adding next step comment:', error);
+    logger.error({ error: error }, 'Error adding next step comment:');
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Invalid data', errors: error.errors });
     }
@@ -166,7 +167,7 @@ router.patch('/next-step-comments/:id', conditionalCSRF, writeOperationsRateLimi
 
     res.json(commentWithUser);
   } catch (error) {
-    console.error('Error updating next step comment:', error);
+    logger.error({ error: error }, 'Error updating next step comment:');
     res.status(500).json({ message: 'Failed to update next step comment' });
   }
 });
@@ -197,7 +198,7 @@ router.delete('/next-step-comments/:id', conditionalCSRF, writeOperationsRateLim
 
     res.json({ message: 'Comment deleted successfully' });
   } catch (error) {
-    console.error('Error deleting next step comment:', error);
+    logger.error({ error: error }, 'Error deleting next step comment:');
     res.status(500).json({ message: 'Failed to delete next step comment' });
   }
 });

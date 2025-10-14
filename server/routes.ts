@@ -26,6 +26,7 @@ import { withRetry, withDbRetry, ErrorRecoveryService } from './utils/error-reco
 import { jobProcessor } from './utils/job-processor';
 import { redisService } from './services/redis';
 import { healthCheckHandler, simpleHealthHandler, readinessHandler } from './utils/health-check';
+import { logger } from './utils/logger';
 
 // Helper functions for tech stack processing
 interface TechStackData {
@@ -159,17 +160,17 @@ function logRequest(method: string, path: string, userId?: string, extra?: any) 
   const timestamp = new Date().toISOString();
   const userInfo = userId ? ` - User: ${userId}` : '';
   const extraInfo = extra ? ` - ${JSON.stringify(extra)}` : '';
-  console.log(`🔍 [${timestamp}] ${method} ${path}${userInfo}${extraInfo}`);
+  logger.info(`🔍 [${timestamp}] ${method} ${path}${userInfo}${extraInfo}`);
 }
 
 function logSuccess(operation: string, details?: any) {
   const detailsInfo = details ? ` - ${JSON.stringify(details)}` : '';
-  console.log(`✅ ${operation}${detailsInfo}`);
+  logger.info(`✅ ${operation}${detailsInfo}`);
 }
 
 function logError(operation: string, error: any, context?: any) {
   const contextInfo = context ? ` - Context: ${JSON.stringify(context)}` : '';
-  console.error(`💥 ${operation} failed:`, error, contextInfo);
+  logger.error(`💥 ${operation} failed:`, error, contextInfo);
 }
 
 // Helper function to verify resume ownership
@@ -404,7 +405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const stats = await jobProcessor.getQueueStats();
       res.json(stats);
     } catch (error) {
-      console.error('Failed to get queue stats:', error);
+      logger.error({ error: error }, 'Failed to get queue stats:');
       res.status(500).json({ error: 'Failed to get queue stats' });
     }
   });
@@ -542,7 +543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const stats = ErrorRecoveryService.getInstance().getStats();
       res.json(stats);
     } catch (error) {
-      console.error('Failed to get error stats:', error);
+      logger.error({ error: error }, 'Failed to get error stats:');
       res.status(500).json({ error: 'Failed to get error stats' });
     }
   });
@@ -553,7 +554,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await jobProcessor.cleanupOldJobs(olderThanDays);
       res.json({ success: true, message: `Cleaned up jobs older than ${olderThanDays} days` });
     } catch (error) {
-      console.error('Failed to cleanup old jobs:', error);
+      logger.error({ error: error }, 'Failed to cleanup old jobs:');
       res.status(500).json({ error: 'Failed to cleanup old jobs' });
     }
   });
@@ -631,7 +632,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         jobProcessor: queueStats
       });
     } catch (error) {
-      console.error('Debug endpoint error:', error);
+      logger.error({ error }, 'Debug endpoint error');
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -664,61 +665,126 @@ export async function registerRoutes(app: Express): Promise<Server> {
         resumeId: resume.id
       });
     } catch (error) {
-      console.error('Manual processing trigger error:', error);
+      logger.error({ error }, 'Manual processing trigger error');
       res.status(500).json({ error: 'Failed to trigger processing' });
     }
   });
 
-  // Debug endpoint to check user status (for troubleshooting login issues) - no CSRF
-  app.get('/api/debug/user-status/:email', async (req, res) => {
-    try {
-      const email = req.params.email;
-      if (!email) {
-        return res.status(400).json({ error: 'Email required' });
-      }
-
-      const user = await db.query.users.findFirst({
-        where: (t, { eq }) => eq(t.email, email.toLowerCase()),
-        columns: {
-          id: true,
-          email: true,
-          emailVerified: true,
-          failedLoginAttempts: true,
-          accountLockedUntil: true,
-          createdAt: true,
-          lastLoginAt: true,
-          twoFactorEnabled: true
+  // Debug endpoint to check user status (for troubleshooting login issues)
+  // SECURITY: Only available in development mode OR for admin users
+  if (process.env.NODE_ENV !== 'production') {
+    app.get('/api/debug/user-status/:email', isAuthenticated, async (req: any, res) => {
+      try {
+        const email = req.params.email;
+        if (!email) {
+          return res.status(400).json({ error: 'Email required' });
         }
-      });
 
-      if (!user) {
-        return res.json({
-          exists: false,
-          message: 'User not found with this email'
+        // Only allow admins to check other users' status
+        const requestingUser = await db.query.users.findFirst({
+          where: (t, { eq }) => eq(t.id, req.user.id),
+          columns: { role: true, email: true }
         });
-      }
 
-      const isLocked = user.accountLockedUntil && user.accountLockedUntil > new Date();
-      
-      res.json({
-        exists: true,
-        user: {
-          id: user.id,
-          email: user.email,
-          emailVerified: user.emailVerified,
-          failedLoginAttempts: user.failedLoginAttempts || 0,
-          isAccountLocked: isLocked,
-          accountLockedUntil: user.accountLockedUntil,
-          twoFactorEnabled: user.twoFactorEnabled || false,
-          createdAt: user.createdAt,
-          lastLoginAt: user.lastLoginAt
+        if (requestingUser?.role !== 'admin' && requestingUser?.email !== email.toLowerCase()) {
+          return res.status(403).json({ error: 'Access denied - admin only' });
         }
-      });
-    } catch (error) {
-      console.error('Debug user status error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
+
+        const user = await db.query.users.findFirst({
+          where: (t, { eq }) => eq(t.email, email.toLowerCase()),
+          columns: {
+            id: true,
+            email: true,
+            emailVerified: true,
+            failedLoginAttempts: true,
+            accountLockedUntil: true,
+            createdAt: true,
+            lastLoginAt: true,
+            twoFactorEnabled: true
+          }
+        });
+
+        if (!user) {
+          return res.json({
+            exists: false,
+            message: 'User not found with this email'
+          });
+        }
+
+        const isLocked = user.accountLockedUntil && user.accountLockedUntil > new Date();
+        
+        res.json({
+          exists: true,
+          user: {
+            id: user.id,
+            email: user.email,
+            emailVerified: user.emailVerified,
+            failedLoginAttempts: user.failedLoginAttempts || 0,
+            isAccountLocked: isLocked,
+            accountLockedUntil: user.accountLockedUntil,
+            twoFactorEnabled: user.twoFactorEnabled || false,
+            createdAt: user.createdAt,
+            lastLoginAt: user.lastLoginAt
+          }
+        });
+      } catch (error) {
+        logger.error({ error }, 'Debug user status error');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+  } else {
+    // In production, require admin role
+    const { requireRole } = await import('./middleware/auth');
+    app.get('/api/debug/user-status/:email', isAuthenticated, requireRole('admin'), async (req: any, res) => {
+      try {
+        const email = req.params.email;
+        if (!email) {
+          return res.status(400).json({ error: 'Email required' });
+        }
+
+        const user = await db.query.users.findFirst({
+          where: (t, { eq }) => eq(t.email, email.toLowerCase()),
+          columns: {
+            id: true,
+            email: true,
+            emailVerified: true,
+            failedLoginAttempts: true,
+            accountLockedUntil: true,
+            createdAt: true,
+            lastLoginAt: true,
+            twoFactorEnabled: true
+          }
+        });
+
+        if (!user) {
+          return res.json({
+            exists: false,
+            message: 'User not found with this email'
+          });
+        }
+
+        const isLocked = user.accountLockedUntil && user.accountLockedUntil > new Date();
+        
+        res.json({
+          exists: true,
+          user: {
+            id: user.id,
+            email: user.email,
+            emailVerified: user.emailVerified,
+            failedLoginAttempts: user.failedLoginAttempts || 0,
+            isAccountLocked: isLocked,
+            accountLockedUntil: user.accountLockedUntil,
+            twoFactorEnabled: user.twoFactorEnabled || false,
+            createdAt: user.createdAt,
+            lastLoginAt: user.lastLoginAt
+          }
+        });
+      } catch (error) {
+        logger.error({ error }, 'Debug user status error');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+  }
 
   // Simple trigger to reprocess all uploaded resumes (for testing enhanced formatting)
   app.get('/api/debug/reprocess-all', isAuthenticated, async (req: any, res) => {
@@ -743,7 +809,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           processed++;
         } catch (error) {
-          console.error(`Failed to queue job for resume ${resume.id}:`, error);
+          logger.error({ error, resumeId: resume.id }, 'Failed to queue job for resume');
         }
       }
       
@@ -754,7 +820,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         resumesQueued: processed
       });
     } catch (error) {
-      console.error('Reprocess all error:', error);
+      logger.error({ error: error }, 'Reprocess all error:');
       res.status(500).json({ error: 'Failed to trigger reprocessing' });
     }
   });
@@ -825,7 +891,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(req.user.id);
       res.json(user);
     } catch (error) {
-      console.error("Error fetching user:", error);
+      logger.error({ error: error }, 'Error fetching user:');
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
@@ -944,7 +1010,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "User not authenticated" });
       }
 
-      console.log('Routes: Fetching stats for user:', req.user.id);
+      logger.info('Routes: Fetching stats for user:', req.user.id);
       const stats = await storage.getUserStats(req.user.id);
       
       if (!stats) {
@@ -953,7 +1019,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(stats);
     } catch (error) {
-      console.error("Error fetching user stats:", error);
+      logger.error({ error: error }, 'Error fetching user stats:');
       res.status(500).json({ 
         message: "Failed to fetch user stats",
         error: error instanceof Error ? error.message : "Unknown error"
@@ -969,10 +1035,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const resumes = await storage.getResumesByUserId(userId);
       
-      console.log(`📋 Fetched ${resumes.length} resumes for user ${userId}`);
+      logger.info(`📋 Fetched ${resumes.length} resumes for user ${userId}`);
       res.json(resumes);
     } catch (error) {
-      console.error("Error fetching resumes:", error);
+      logger.error({ error: error }, 'Error fetching resumes:');
       res.status(500).json({ 
         message: "Failed to fetch resumes",
         error: error instanceof Error ? error.message : "Unknown error"
@@ -996,10 +1062,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      console.log(`📄 Fetched resume ${id} for user ${userId}`);
+      logger.info(`📄 Fetched resume ${id} for user ${userId}`);
       res.json(resume);
     } catch (error) {
-      console.error("Error fetching resume:", error);
+      logger.error({ error: error }, 'Error fetching resume:');
       res.status(500).json({ 
         message: "Failed to fetch resume",
         error: error instanceof Error ? error.message : "Unknown error"
@@ -1065,15 +1131,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
         res.setHeader('Content-Length', String(end - start + 1));
         fs.createReadStream(filePath, { start, end }).pipe(res);
-        console.log(`📁 Served DOCX (range) for resume ${id}`);
+        logger.info(`📁 Served DOCX (range) for resume ${id}`);
         return;
       }
 
       res.setHeader('Content-Length', String(stat.size));
       fs.createReadStream(filePath).pipe(res);
-      console.log(`📁 Served DOCX file for resume ${id}`);
+      logger.info(`📁 Served DOCX file for resume ${id}`);
     } catch (error) {
-      console.error("Error serving resume file:", error);
+      logger.error({ error: error }, 'Error serving resume file:');
       res.status(500).json({ 
         message: "Failed to serve resume file",
         error: error instanceof Error ? error.message : "Unknown error"
@@ -1135,7 +1201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const backupPath = path.join(backupDir, `${id}-${timestamp}.docx`);
             await fsp.copyFile(resume.originalPath, backupPath);
-            console.log(`✅ Backup created: ${backupPath}`);
+            logger.info(`✅ Backup created: ${backupPath}`);
             
             // Clean up old backups (keep only last 5)
             const backupFiles = await fsp.readdir(backupDir);
@@ -1148,10 +1214,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             for (let i = 5; i < resumeBackups.length; i++) {
               const oldBackupPath = path.join(backupDir, resumeBackups[i]);
               await fsp.unlink(oldBackupPath);
-              console.log(`🗑️  Deleted old backup: ${oldBackupPath}`);
+              logger.info(`🗑️  Deleted old backup: ${oldBackupPath}`);
             }
           } catch (err) {
-            console.warn('Failed to create backup:', err);
+            logger.warn({ context: err }, 'Failed to create backup:');
             // Continue anyway - backup failure shouldn't block save
           }
         }
@@ -1163,7 +1229,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Update database
         await storage.updateResumeStatus(id, 'customized');
         
-        console.log(`✅ Updated DOCX file for resume: ${id} (${(file.size / 1024).toFixed(1)} KB)`);
+        logger.info(`✅ Updated DOCX file for resume: ${id} (${(file.size / 1024).toFixed(1)} KB)`);
         
         res.json({ 
           message: 'Document saved successfully',
@@ -1172,7 +1238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           updatedAt: new Date().toISOString(),
         });
       } catch (error) {
-        console.error('💥 Error updating resume file:', error);
+        logger.error({ error: error }, '💥 Error updating resume file:');
         res.status(500).json({ 
           message: 'Failed to update document',
           error: error instanceof Error ? error.message : 'Unknown error' 
@@ -1187,7 +1253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { updates } = bulkSaveSchema.parse(req.body);
       const userId = req.user.id;
 
-      console.log(`\ud83d\udcbe BULK SAVE: ${updates.length} resumes`);
+      logger.info(`\ud83d\udcbe BULK SAVE: ${updates.length} resumes`);
 
       // Verify user owns all resumes
       const resumeChecks = await Promise.all(
@@ -1208,7 +1274,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.updateResumeStatus(update.resumeId, "customized");
           return { resumeId: update.resumeId, success: true };
         } catch (error) {
-          console.error(`Failed to save resume ${update.resumeId}:`, error);
+          logger.error(`Failed to save resume ${update.resumeId}:`, error);
           return { resumeId: update.resumeId, success: false, error: error instanceof Error ? error.message : "Unknown error" };
         }
       });
@@ -1216,7 +1282,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const results = await Promise.all(savePromises);
       const successCount = results.filter(r => r.success).length;
 
-      console.log(`\ud83d\udcbe BULK SAVE completed: ${successCount}/${updates.length} successful`);
+      logger.info(`\ud83d\udcbe BULK SAVE completed: ${successCount}/${updates.length} successful`);
 
       res.json({
         success: true,
@@ -1229,7 +1295,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid request data", errors: error.errors });
       }
-      console.error("\ud83d\udca5 Bulk save failed:", error);
+      logger.error({ error: error }, '\ud83d\udca5 Bulk save failed:');
       res.status(500).json({ message: "Bulk save failed" });
     }
   });
@@ -1311,7 +1377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const startTime = Date.now();
-      console.log(`⚡ ULTRA-FAST upload started: ${files.length} files`);
+      logger.info(`⚡ ULTRA-FAST upload started: ${files.length} files`);
       
       // Ensure resume upload directory exists
       const baseUploadPath = process.env.FILE_STORAGE_PATH || process.env.UPLOAD_PATH || './uploads';
@@ -1343,7 +1409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Queue for background processing
           queueBackground = true;
         } catch (error) {
-          console.error(`File validation failed ${file.originalname}:`, error);
+          logger.error(`File validation failed ${file.originalname}:`, error);
           throw error;
         }
         
@@ -1377,9 +1443,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             maxAttempts: 3,
             userId
           });
-          console.log(`📨 Queued background DOCX processing for: ${file.originalname}`);
+          logger.info(`📨 Queued background DOCX processing for: ${file.originalname}`);
         } catch (e) {
-          console.warn('Failed to queue background DOCX processing job', e);
+          logger.warn({ context: e }, 'Failed to queue background DOCX processing job');
         }
 
         // Cache small thumbnails placeholder entry (server-side pre-gen hook)
@@ -1390,7 +1456,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch {}
 
         const fileTime = Date.now() - fileStartTime;
-        console.log(`⚡ File ${index + 1}/${files.length} done in ${fileTime}ms: ${file.originalname}`);
+        logger.info(`⚡ File ${index + 1}/${files.length} done in ${fileTime}ms: ${file.originalname}`);
         
         return resume;
       });
@@ -1398,11 +1464,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const uploadedResumes = await Promise.all(uploadPromises);
       const totalTime = Date.now() - startTime;
       
-      console.log(`🚀 ULTRA-FAST upload completed: ${files.length} files in ${totalTime}ms (avg: ${Math.round(totalTime/files.length)}ms/file)`);
+      logger.info(`🚀 ULTRA-FAST upload completed: ${files.length} files in ${totalTime}ms (avg: ${Math.round(totalTime/files.length)}ms/file)`);
       res.json(uploadedResumes);
       
     } catch (error) {
-      console.error("💥 Upload failed:", error);
+      logger.error({ error: error }, '💥 Upload failed:');
       res.status(500).json({ 
         message: error instanceof Error ? error.message : "Failed to upload resumes" 
       });
@@ -1441,13 +1507,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       );
       
-      console.log(`✅ Updated content for resume: ${id}`);
+      logger.info(`✅ Updated content for resume: ${id}`);
       res.json({ message: "Resume content updated successfully" });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid request data", errors: error.errors });
       }
-      console.error("💥 Error updating resume content:", error);
+      logger.error({ error: error }, '💥 Error updating resume content:');
       res.status(500).json({ message: "Failed to update resume content" });
     }
   });
@@ -1469,7 +1535,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteResume(id);
       res.json({ message: "Resume deleted successfully" });
     } catch (error) {
-      console.error("Error deleting resume:", error);
+      logger.error({ error: error }, 'Error deleting resume:');
       res.status(500).json({ 
         message: "Failed to delete resume",
         error: error instanceof Error ? error.message : "Unknown error"
@@ -1542,7 +1608,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           return { resumeId, success: true, pointGroups: pointGroupsBatchData.length };
         } catch (error) {
-          console.error(`Failed to process resume ${resumeId}:`, error);
+          logger.error(`Failed to process resume ${resumeId}:`, error);
           return { resumeId, success: false, error: error instanceof Error ? error.message : "Unknown error" };
         }
       });
@@ -1553,7 +1619,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const successCount = results.filter(r => r.success).length;
       const failureCount = results.length - successCount;
       
-      console.log(`🚀 BULK PROCESSING completed: ${successCount} successful, ${failureCount} failed in ${totalTime}ms`);
+      logger.info(`🚀 BULK PROCESSING completed: ${successCount} successful, ${failureCount} failed in ${totalTime}ms`);
       
       // Save bulk processing history
       const bulkHistory = {
@@ -1576,7 +1642,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
     } catch (error) {
-      console.error("💥 Bulk processing failed:", error);
+      logger.error({ error: error }, '💥 Bulk processing failed:');
       res.status(500).json({ message: "Bulk processing failed" });
     }
   });
@@ -1587,7 +1653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const startTime = Date.now();
       
-      console.log(`⚡ ULTRA-FAST tech stack processing started for resume: ${id}`);
+      logger.info(`⚡ ULTRA-FAST tech stack processing started for resume: ${id}`);
       
       const resume = await storage.getResumeById(id);
       if (!resume) {
@@ -1606,7 +1672,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parseStartTime = Date.now();
       const techStacksData = parseTechStackInputOptimized(input);
       const parseTime = Date.now() - parseStartTime;
-      console.log(`⚡ Parsing completed in ${parseTime}ms`);
+      logger.info(`⚡ Parsing completed in ${parseTime}ms`);
       
       // ULTRA-FAST: Clear existing data first
       const dbStartTime = Date.now();
@@ -1624,7 +1690,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // BATCH INSERT: Save all tech stacks in one operation
       const savedTechStacks = await storage.createTechStacksBatch(techStacksBatchData);
-      console.log(`⚡ Saved ${savedTechStacks.length} tech stacks in batch`);
+      logger.info(`⚡ Saved ${savedTechStacks.length} tech stacks in batch`);
       
       // Generate point groups using automatic distribution
       const pointGroups = generatePointGroupsAuto(techStacksData);
@@ -1638,10 +1704,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // BATCH INSERT: Save all point groups in one operation
       await storage.createPointGroupsBatch(pointGroupsBatchData);
-      console.log(`⚡ Saved ${pointGroupsBatchData.length} point groups in batch`);
+      logger.info(`⚡ Saved ${pointGroupsBatchData.length} point groups in batch`);
       
       const dbTime = Date.now() - dbStartTime;
-      console.log(`⚡ Database operations completed in ${dbTime}ms`);
+      logger.info(`⚡ Database operations completed in ${dbTime}ms`);
       
       // Get the saved groups for response (cached from transaction)
       const savedGroups = await storage.getPointGroupsByResumeId(id);
@@ -1665,7 +1731,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ]);
 
       const totalTime = Date.now() - startTime;
-      console.log(`🚀 ULTRA-FAST tech stack processing completed in ${totalTime}ms`);
+      logger.info(`🚀 ULTRA-FAST tech stack processing completed in ${totalTime}ms`);
       
       // Invalidate cache for this user
       (storage as any).invalidateUserCache?.(userId);
@@ -1683,7 +1749,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
     } catch (error) {
-      console.error("💥 Tech stack processing failed:", error);
+      logger.error({ error: error }, '💥 Tech stack processing failed:');
       res.status(500).json({ message: "Failed to process tech stack" });
     }
   });
@@ -1707,7 +1773,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pointGroups = await storage.getPointGroupsByResumeId(id);
       res.json(pointGroups);
     } catch (error) {
-      console.error("Error fetching point groups:", error);
+      logger.error({ error: error }, 'Error fetching point groups:');
       res.status(500).json({ message: "Failed to fetch point groups" });
     }
   });
@@ -1731,7 +1797,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const techStacks = await storage.getTechStacksByResumeId(id);
       res.json(techStacks);
     } catch (error) {
-      console.error("Error fetching tech stacks:", error);
+      logger.error({ error: error }, 'Error fetching tech stacks:');
       res.status(500).json({ message: "Failed to fetch tech stacks" });
     }
   });
@@ -1755,7 +1821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const history = await storage.getProcessingHistoryByResumeId(id);
       res.json(history);
     } catch (error) {
-      console.error("Error fetching processing history:", error);
+      logger.error({ error: error }, 'Error fetching processing history:');
       res.status(500).json({ message: "Failed to fetch processing history" });
     }
   });
@@ -1798,7 +1864,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         statusUrl: `/api/jobs/${jobId}/status`
       });
     } catch (error) {
-      console.error('Failed to start async processing:', error);
+      logger.error({ error: error }, 'Failed to start async processing:');
       res.status(500).json({ 
         error: 'Failed to start processing',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -1813,7 +1879,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const status = await jobProcessor.getJobStatus(jobId);
       res.json(status);
     } catch (error) {
-      console.error('Failed to get job status:', error);
+      logger.error({ error: error }, 'Failed to get job status:');
       res.status(500).json({ 
         error: 'Failed to get job status',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -1833,7 +1899,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(404).json({ error: 'Job not found or cannot be cancelled' });
       }
     } catch (error) {
-      console.error('Failed to cancel job:', error);
+      logger.error({ error: error }, 'Failed to cancel job:');
       res.status(500).json({ 
         error: 'Failed to cancel job',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -1853,7 +1919,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Updates array is required" });
       }
       
-      console.log(`💾 BULK SAVE: ${updates.length} resumes`);
+      logger.info(`💾 BULK SAVE: ${updates.length} resumes`);
       
       // Verify user owns all resumes
       const resumeChecks = await Promise.all(
@@ -1874,7 +1940,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.updateResumeStatus(update.resumeId, "customized");
           return { resumeId: update.resumeId, success: true };
         } catch (error) {
-          console.error(`Failed to save resume ${update.resumeId}:`, error);
+          logger.error(`Failed to save resume ${update.resumeId}:`, error);
           return { resumeId: update.resumeId, success: false, error: error instanceof Error ? error.message : "Unknown error" };
         }
       });
@@ -1882,7 +1948,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const results = await Promise.all(savePromises);
       const successCount = results.filter(r => r.success).length;
       
-      console.log(`💾 BULK SAVE completed: ${successCount}/${updates.length} successful`);
+      logger.info(`💾 BULK SAVE completed: ${successCount}/${updates.length} successful`);
       
       res.json({
         success: true,
@@ -1892,7 +1958,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
     } catch (error) {
-      console.error("💥 Bulk save failed:", error);
+      logger.error({ error: error }, '💥 Bulk save failed:');
       res.status(500).json({ message: "Bulk save failed" });
     }
   });

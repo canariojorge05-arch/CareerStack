@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { logger } from './logger';
 
 // Use a strong encryption key from environment variable
 // In production, this should be a 32-byte (256-bit) key
@@ -36,7 +37,7 @@ export function encrypt(text: string): string {
     // Return format: iv:authTag:encryptedData
     return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
   } catch (error) {
-    console.error('Encryption error:', error);
+    logger.error({ error: error }, 'Encryption error:');
     throw new Error('Failed to encrypt data');
   }
 }
@@ -78,7 +79,7 @@ export function decrypt(encryptedData: string): string {
     
     return decrypted;
   } catch (error) {
-    console.error('Decryption error:', error);
+    logger.error({ error: error }, 'Decryption error:');
     throw new Error('Failed to decrypt data');
   }
 }

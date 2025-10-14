@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { logger } from './logger';
 
 /**
  * Token Encryption Utility
@@ -24,7 +25,7 @@ function getEncryptionKey(): Buffer {
       throw new Error('TOKEN_ENCRYPTION_KEY must be set in production environment');
     }
     // Use a default key for development (NOT SECURE - for dev only)
-    console.warn('⚠️  WARNING: Using default encryption key. Set TOKEN_ENCRYPTION_KEY in production!');
+    logger.warn('⚠️  WARNING: Using default encryption key. Set TOKEN_ENCRYPTION_KEY in production!');
     return crypto.scryptSync('development-key-not-secure', 'salt', 32);
   }
   
@@ -53,7 +54,7 @@ export function encryptToken(token: string | null | undefined): string | null {
     // Return format: iv:authTag:encryptedData
     return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
   } catch (error) {
-    console.error('Token encryption failed:', error);
+    logger.error({ error: error }, 'Token encryption failed:');
     throw new Error('Failed to encrypt token');
   }
 }
@@ -86,7 +87,7 @@ export function decryptToken(encryptedToken: string | null | undefined): string 
     
     return decrypted;
   } catch (error) {
-    console.error('Token decryption failed:', error);
+    logger.error({ error: error }, 'Token decryption failed:');
     throw new Error('Failed to decrypt token');
   }
 }
@@ -134,9 +135,9 @@ const isExecutedDirectly = (() => {
 })();
 
 if (isExecutedDirectly) {
-  console.log('\n🔐 Generated TOKEN_ENCRYPTION_KEY:');
-  console.log(generateEncryptionKey());
-  console.log('\nAdd this to your .env file as:');
-  console.log('TOKEN_ENCRYPTION_KEY=<generated_key>');
-  console.log('\n⚠️  Keep this key secure and never commit it to version control!\n');
+  logger.info('\n🔐 Generated TOKEN_ENCRYPTION_KEY:');
+  logger.info(generateEncryptionKey());
+  logger.info('\nAdd this to your .env file as:');
+  logger.info('TOKEN_ENCRYPTION_KEY=<generated_key>');
+  logger.info('\n⚠️  Keep this key secure and never commit it to version control!\n');
 }

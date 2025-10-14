@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 /**
  * IP Geolocation Service
  * Uses ip-api.com free API for IP address geolocation
@@ -64,7 +65,7 @@ export class GeolocationService {
     // Check cache first
     const cached = this.cache.get(ipAddress);
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
-      console.log(`📍 Geolocation cache hit for IP: ${ipAddress}`);
+      logger.info(`📍 Geolocation cache hit for IP: ${ipAddress}`);
       return cached.data;
     }
 
@@ -86,7 +87,7 @@ export class GeolocationService {
       const data: GeolocationData = await response.json();
 
       if (data.status === 'fail') {
-        console.warn(`Geolocation failed for ${ipAddress}: ${data.message}`);
+        logger.warn(`Geolocation failed for ${ipAddress}: ${data.message}`);
         return {
           success: false,
           ipAddress
@@ -112,11 +113,11 @@ export class GeolocationService {
         timestamp: Date.now()
       });
 
-      console.log(`📍 Geolocation fetched for ${ipAddress}: ${data.city}, ${data.regionName}, ${data.country}`);
+      logger.info(`📍 Geolocation fetched for ${ipAddress}: ${data.city}, ${data.regionName}, ${data.country}`);
 
       return result;
     } catch (error: any) {
-      console.error(`Failed to get geolocation for ${ipAddress}:`, error.message);
+      logger.error(`Failed to get geolocation for ${ipAddress}:`, error.message);
       return {
         success: false,
         ipAddress
@@ -169,7 +170,7 @@ export class GeolocationService {
     }
 
     if (cleared > 0) {
-      console.log(`🧹 Cleared ${cleared} old geolocation cache entries`);
+      logger.info(`🧹 Cleared ${cleared} old geolocation cache entries`);
     }
   }
 

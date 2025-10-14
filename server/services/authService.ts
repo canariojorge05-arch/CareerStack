@@ -6,6 +6,7 @@ import { db } from '../db';
 import { eq, and, lt } from 'drizzle-orm';
 import { sendEmail as sendEmailNodemailer, emailTemplates } from '../utils/email';
 import bcrypt from 'bcryptjs';
+import { logger } from '../utils/logger';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key';
@@ -85,7 +86,7 @@ export class AuthService {
         .where(and(eq(userDevices.isRevoked, false), lt(userDevices.expiresAt, now)));
 
       const rows = (result as any)?.rowCount ?? (result as any)?.affectedRows ?? result;
-      console.log(`[AuthService] Expired refresh tokens revoked — affected: ${rows}`);
+      logger.info(`[AuthService] Expired refresh tokens revoked — affected: ${rows}`);
 
       // Delete ephemeral resumes for affected users (auto-logout cleanup)
       try {
@@ -96,15 +97,15 @@ export class AuthService {
             try {
               await storage.deleteEphemeralResumesByUser(uid);
             } catch (e) {
-              console.warn(`[AuthService] Failed to delete ephemeral resumes for user ${uid}:`, e);
+              logger.warn(`[AuthService] Failed to delete ephemeral resumes for user ${uid}:`, e);
             }
           }
         }
       } catch (e) {
-        console.warn('[AuthService] Ephemeral resume cleanup after auto-logout failed:', e);
+        logger.warn({ context: e }, '[AuthService] Ephemeral resume cleanup after auto-logout failed:');
       }
     } catch (error) {
-      console.error('[AuthService] Failed to cleanup expired refresh tokens:', error);
+      logger.error({ error: error }, '[AuthService] Failed to cleanup expired refresh tokens:');
     }
   }
 
@@ -210,7 +211,7 @@ export class AuthService {
     const verificationUrl = `${appUrl}/verify-email?token=${token}`;
     const { subject, html } = emailTemplates.verification(name, verificationUrl);
     
-    console.log(`🔗 Generated verification URL for ${email}: ${appUrl}/verify-email?token=***`);
+    logger.info(`🔗 Generated verification URL for ${email}: ${appUrl}/verify-email?token=***`);
     
     try {
       const ok = await sendEmailNodemailer(email, subject, html, undefined, {
@@ -219,13 +220,13 @@ export class AuthService {
         replyTo: process.env.SUPPORT_EMAIL || process.env.EMAIL_USER
       });
       if (ok) {
-        console.log(`✅ Verification email sent via SMTP to ${email}`);
+        logger.info(`✅ Verification email sent via SMTP to ${email}`);
         return { accepted: [email], rejected: [], messageId: 'local-smtp', response: 'OK' } as any;
       }
-      console.warn(`⚠️ SMTP transporter reported failure sending verification email to ${email}`);
+      logger.warn(`⚠️ SMTP transporter reported failure sending verification email to ${email}`);
       return { accepted: [], rejected: [email], messageId: 'smtp-failed', response: 'FAILED' } as any;
     } catch (error) {
-      console.error(`❌ Failed to send verification email to ${email}:`, error);
+      logger.error(`❌ Failed to send verification email to ${email}:`, error);
       return { accepted: [], rejected: [email], messageId: 'smtp-exception', response: String(error) } as any;
     }
   }
@@ -236,7 +237,7 @@ export class AuthService {
     const resetUrl = `${appUrl}/reset-password?token=${token}`;
     
     // Log the reset URL for debugging (remove token for security)
-    console.log(`🔗 Generated password reset URL for ${email}: ${appUrl}/reset-password?token=***`);
+    logger.info(`🔗 Generated password reset URL for ${email}: ${appUrl}/reset-password?token=***`);
     
     const { subject, html } = emailTemplates.passwordReset(name, resetUrl);
     try {
@@ -246,13 +247,13 @@ export class AuthService {
         replyTo: process.env.SUPPORT_EMAIL || process.env.EMAIL_USER
       });
       if (ok) {
-        console.log(`✅ Password reset email sent via SMTP to ${email}`);
+        logger.info(`✅ Password reset email sent via SMTP to ${email}`);
         return { accepted: [email], rejected: [], messageId: 'local-smtp', response: 'OK' } as any;
       }
-      console.warn(`⚠️ SMTP transporter reported failure sending password reset email to ${email}`);
+      logger.warn(`⚠️ SMTP transporter reported failure sending password reset email to ${email}`);
       return { accepted: [], rejected: [email], messageId: 'smtp-failed', response: 'FAILED' } as any;
     } catch (error) {
-      console.error(`❌ Failed to send password reset email to ${email}:`, error);
+      logger.error(`❌ Failed to send password reset email to ${email}:`, error);
       return { accepted: [], rejected: [email], messageId: 'smtp-exception', response: String(error) } as any;
     }
   }
@@ -267,13 +268,13 @@ export class AuthService {
         replyTo: process.env.SUPPORT_EMAIL || process.env.EMAIL_USER
       });
       if (ok) {
-        console.log(`✅ 2FA code email sent via SMTP to ${email}`);
+        logger.info(`✅ 2FA code email sent via SMTP to ${email}`);
         return { accepted: [email], rejected: [], messageId: 'local-smtp', response: 'OK' } as any;
       }
-      console.warn(`⚠️ SMTP transporter reported failure sending 2FA email to ${email}`);
+      logger.warn(`⚠️ SMTP transporter reported failure sending 2FA email to ${email}`);
       return { accepted: [], rejected: [email], messageId: 'smtp-failed', response: 'FAILED' } as any;
     } catch (error) {
-      console.error(`❌ Failed to send 2FA email to ${email}:`, error);
+      logger.error(`❌ Failed to send 2FA email to ${email}:`, error);
       return { accepted: [], rejected: [email], messageId: 'smtp-exception', response: String(error) } as any;
     }
   }
@@ -309,7 +310,7 @@ export class AuthService {
     try {
       await this.sendAdminNotificationEmail(user.email, user.firstName || 'User');
     } catch (error) {
-      console.error('Failed to send admin notification:', error);
+      logger.error({ error: error }, 'Failed to send admin notification:');
       // Don't fail verification if admin email fails
     }
 
@@ -317,7 +318,7 @@ export class AuthService {
     try {
       await this.sendPendingApprovalEmail(user.email, user.firstName || 'User');
     } catch (error) {
-      console.error('Failed to send pending approval email:', error);
+      logger.error({ error: error }, 'Failed to send pending approval email:');
     }
 
     return true;
@@ -360,9 +361,9 @@ export class AuthService {
         category: 'pending-approval',
         priority: 'normal'
       });
-      console.log(`✅ Pending approval email sent to ${email}`);
+      logger.info(`✅ Pending approval email sent to ${email}`);
     } catch (error) {
-      console.error(`❌ Failed to send pending approval email to ${email}:`, error);
+      logger.error(`❌ Failed to send pending approval email to ${email}:`, error);
     }
   }
 
@@ -370,7 +371,7 @@ export class AuthService {
   static async sendAdminNotificationEmail(userEmail: string, userName: string) {
     const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
     if (!adminEmail) {
-      console.warn('No admin email configured for new user notifications');
+      logger.warn('No admin email configured for new user notifications');
       return;
     }
 
@@ -401,9 +402,9 @@ export class AuthService {
         category: 'admin-notification',
         priority: 'high'
       });
-      console.log(`✅ Admin notification sent to ${adminEmail}`);
+      logger.info(`✅ Admin notification sent to ${adminEmail}`);
     } catch (error) {
-      console.error(`❌ Failed to send admin notification:`, error);
+      logger.error(`❌ Failed to send admin notification:`, error);
     }
   }
 
@@ -431,9 +432,9 @@ export class AuthService {
         category: 'account-approved',
         priority: 'high'
       });
-      console.log(`✅ Approval email sent to ${email}`);
+      logger.info(`✅ Approval email sent to ${email}`);
     } catch (error) {
-      console.error(`❌ Failed to send approval email to ${email}:`, error);
+      logger.error(`❌ Failed to send approval email to ${email}:`, error);
     }
   }
 
@@ -460,9 +461,9 @@ export class AuthService {
         category: 'account-rejected',
         priority: 'normal'
       });
-      console.log(`✅ Rejection email sent to ${email}`);
+      logger.info(`✅ Rejection email sent to ${email}`);
     } catch (error) {
-      console.error(`❌ Failed to send rejection email to ${email}:`, error);
+      logger.error(`❌ Failed to send rejection email to ${email}:`, error);
     }
   }
 
@@ -506,9 +507,9 @@ export class AuthService {
         category: 'security-alert',
         priority: 'high'
       });
-      console.log(`✅ Suspicious login alert sent to admin`);
+      logger.info(`✅ Suspicious login alert sent to admin`);
     } catch (error) {
-      console.error(`❌ Failed to send suspicious login alert:`, error);
+      logger.error(`❌ Failed to send suspicious login alert:`, error);
     }
   }
 
@@ -543,9 +544,9 @@ export class AuthService {
         category: 'security-notification',
         priority: 'high'
       });
-      console.log(`✅ New device login notification sent to ${email}`);
+      logger.info(`✅ New device login notification sent to ${email}`);
     } catch (error) {
-      console.error(`❌ Failed to send new device notification to ${email}:`, error);
+      logger.error(`❌ Failed to send new device notification to ${email}:`, error);
     }
   }
 }

@@ -18,6 +18,7 @@ import { ErrorRecoveryService } from './utils/error-recovery';
 import { redisService } from './services/redis';
 import { websocketService } from './services/websocket-service';
 import { enhancedRedisService } from './services/enhanced-redis-service';
+import { logger } from './utils/logger';
 // streamFileService removed - no longer needed after removing ZIP export functionality
 
 // Load environment variables from .env file
@@ -29,7 +30,7 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'development';
 const requiredEnvVars = ['DATABASE_URL', 'SESSION_SECRET', 'JWT_SECRET', 'JWT_REFRESH_SECRET'];
 const missing = requiredEnvVars.filter((v) => !process.env[v]);
 if (missing.length > 0) {
-  console.error(`Error: missing required environment variables: ${missing.join(', ')}`);
+  logger.error(`Error: missing required environment variables: ${missing.join(', ')}`);
   // Exit with non-zero so deploys fail fast when a secret is missing
   process.exit(1);
 }
@@ -139,14 +140,14 @@ app.use((req, res, next) => {
   // Setup Vite middleware for proper React development
   try {
     if (app.get("env") === "development") {
-      console.log('Setting up Vite middleware...');
+      logger.info('Setting up Vite middleware...');
       await setupVite(app, server);
-      console.log('Vite middleware setup complete');
+      logger.info('Vite middleware setup complete');
     } else {
       serveStatic(app);
     }
   } catch (e) {
-    console.error('Error setting up Vite middleware:', e);
+    logger.error({ error: e }, 'Error setting up Vite middleware:');
     
     // Fallback: serve static files and HTML
     const clientPublicPath = path.resolve(__dirname, '..', 'client', 'public');
@@ -197,7 +198,7 @@ app.use((req, res, next) => {
     });
 
     // Enhanced logging with error categorization
-    console.error('Unhandled error in request handler:', {
+    logger.error({ error: {
       error: err instanceof Error ? err.stack || err.message : err,
       category: errorInfo.category,
       severity: errorInfo.severity,
@@ -205,7 +206,7 @@ app.use((req, res, next) => {
       suggestedAction: errorInfo.suggestedAction,
       path: req.path,
       method: req.method
-    });
+    } }, 'Unhandled error in request handler:');
 
     if (!res.headersSent) {
       // Send appropriate response based on error category
@@ -273,7 +274,7 @@ app.use((req, res, next) => {
       if (redisHealthy) {
         log('Redis is healthy');
       } else {
-        console.warn('Redis is not healthy, continuing in degraded mode');
+        logger.warn('Redis is not healthy, continuing in degraded mode');
       }
 
       // Initialize and start job processor
@@ -291,7 +292,7 @@ app.use((req, res, next) => {
       // Temp file cleanup removed - no longer needed after removing ZIP export functionality
       log('File cleanup scheduler started');
     } catch (error) {
-      console.error('Error initializing enhanced services:', error);
+      logger.error({ error: error }, 'Error initializing enhanced services:');
     }
 
     // Static/vite middleware already set up earlier
@@ -305,7 +306,7 @@ app.use((req, res, next) => {
       log(`Created logs directory at ${logsDir}`);
     }
   } catch (e) {
-    console.warn('Could not create logs directory:', e);
+    logger.warn({ context: e }, 'Could not create logs directory:');
   }
 
   // Enhanced graceful shutdown with cleanup
@@ -329,7 +330,7 @@ app.use((req, res, next) => {
             await EmailSyncService.stopBackgroundSync();
             log('Email sync service stopped');
           } catch (e) {
-            console.warn('Could not stop email sync service:', e);
+            logger.warn({ context: e }, 'Could not stop email sync service:');
           }
           
           // Shutdown WebSocket service
@@ -337,7 +338,7 @@ app.use((req, res, next) => {
             websocketService.shutdown();
             log('WebSocket service stopped');
           } catch (e) {
-            console.warn('Could not stop WebSocket service:', e);
+            logger.warn({ context: e }, 'Could not stop WebSocket service:');
           }
 
 
@@ -352,24 +353,24 @@ app.use((req, res, next) => {
             await enhancedRedisService.cleanup();
             log('Enhanced Redis service stopped');
           } catch (e) {
-            console.warn('Could not stop enhanced Redis service:', e);
+            logger.warn({ context: e }, 'Could not stop enhanced Redis service:');
           }
           
           log('Graceful shutdown completed');
           process.exit(0);
         } catch (error) {
-          console.error('Error during graceful shutdown:', error);
+          logger.error({ error: error }, 'Error during graceful shutdown:');
           process.exit(1);
         }
       });
       
       // Force shutdown after 30s (increased from 10s for job cleanup)
       setTimeout(() => {
-        console.error('Forcing shutdown after 30s');
+        logger.error('Forcing shutdown after 30s');
         process.exit(1);
       }, 30_000).unref();
     } catch (e) {
-      console.error('Error during shutdown', e);
+      logger.error({ error: e }, 'Error during shutdown');
       process.exit(1);
     }
   };
@@ -378,16 +379,16 @@ app.use((req, res, next) => {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
   process.on('unhandledRejection', (reason) => {
-    console.error('Unhandled Rejection:', reason);
+    logger.error({ error: reason }, 'Unhandled Rejection:');
   });
 
   process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception:', err instanceof Error ? err.stack || err.message : err);
+    logger.error({ error: err instanceof Error ? err.stack || err.message : err }, 'Uncaught Exception:');
     // In development, log but don't exit immediately
     if (process.env.NODE_ENV === 'production') {
       process.exit(1);
     } else {
-      console.warn('Development mode: continuing after uncaught exception...');
+      logger.warn('Development mode: continuing after uncaught exception...');
     }
   });
 
@@ -409,7 +410,7 @@ app.use((req, res, next) => {
       });
       log('✅ Enhanced Gmail OAuth service initialized');
     } else {
-      console.warn('⚠️  Gmail OAuth not configured - missing GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET or GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET');
+      logger.warn('⚠️  Gmail OAuth not configured - missing GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET or GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET');
     }
     
     // Initialize Outlook OAuth
@@ -422,12 +423,12 @@ app.use((req, res, next) => {
       });
       log('✅ Outlook OAuth service initialized');
     } else {
-      console.warn('⚠️  Outlook OAuth not configured - skipping initialization');
+      logger.warn('⚠️  Outlook OAuth not configured - skipping initialization');
     }
     
     log('Email OAuth services initialized');
   } catch (e) {
-    console.error('❌ Failed to initialize Email OAuth services:', e);
+    logger.error({ error: e }, '❌ Failed to initialize Email OAuth services:');
   }
 
   // Start email background sync service
@@ -436,7 +437,7 @@ app.use((req, res, next) => {
     await EmailSyncService.startBackgroundSync();
     log('Email sync service started');
   } catch (e) {
-    console.warn('Could not start email sync service:', e);
+    logger.warn({ context: e }, 'Could not start email sync service:');
   }
 
   // Schedule periodic cleanup of expired refresh tokens (every hour)
@@ -447,7 +448,7 @@ app.use((req, res, next) => {
     // Schedule hourly
     setInterval(() => AuthService.cleanupExpiredRefreshTokens(), 60 * 60 * 1000).unref();
   } catch (e) {
-    console.warn('Could not schedule refresh token cleanup:', e);
+    logger.warn({ context: e }, 'Could not schedule refresh token cleanup:');
   }
 
 })();

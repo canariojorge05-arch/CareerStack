@@ -2,6 +2,7 @@ import { logger } from './logger';
 import { redisService } from '../services/redis';
 import { withRetry } from './error-recovery';
 import { performance } from 'perf_hooks';
+import { logger } from './logger';
 
 // Helper to extract a safe error message
 const getErrorMessage = (error: unknown): string => {
@@ -533,7 +534,7 @@ export const registerBuiltInProcessors = () => {
     try {
       const { resumeId, userId } = job.payload;
       
-      console.log(`Processing DOCX for SuperDoc editor - resume ${resumeId} (user ${userId})`);
+      logger.info(`Processing DOCX for SuperDoc editor - resume ${resumeId} (user ${userId})`);
       
       // Get resume data to access the file
       const { storage } = await import('../storage');
@@ -567,26 +568,26 @@ export const registerBuiltInProcessors = () => {
             await enhancedRedisService.set(`thumbs:${hash}`, { ready: false, pages: 0 }, { ttl: 86400, namespace: 'files' });
           }
         } catch {}
-        console.log(`✅ Resume ${resumeId} marked as ready for SuperDoc editing`);
+        logger.info(`✅ Resume ${resumeId} marked as ready for SuperDoc editing`);
         return {
           success: true,
           result: { message: 'Resume ready for SuperDoc editing', resumeId, userId, fileSize: fileBuffer.length },
           processingTime: performance.now() - startTime
         };
       } catch (fileError) {
-        console.error(`Failed to read DOCX file for resume ${resumeId}:`, fileError);
+        logger.error(`Failed to read DOCX file for resume ${resumeId}:`, fileError);
         throw new Error(`Failed to read DOCX file: ${fileError instanceof Error ? fileError.message : 'Unknown error'}`);
       }
       
     } catch (error) {
-      console.error(`DOCX processing failed for job ${job.id}:`, error);
+      logger.error(`DOCX processing failed for job ${job.id}:`, error);
       
       // Update resume status to indicate failure
       try {
         const { storage } = await import('../storage');
         await storage.updateResumeStatus(job.payload.resumeId, "error");
       } catch (statusError) {
-        console.error('Failed to update resume status to error:', statusError);
+        logger.error({ error: statusError }, 'Failed to update resume status to error:');
       }
       
       return {

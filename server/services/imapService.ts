@@ -2,6 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { db } from '../db';
 import { emailAccounts, emailMessages, emailThreads } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
+import { logger } from '../utils/logger';
 
 export interface EmailAccount {
   id: string;
@@ -78,11 +79,11 @@ export class ImapService {
       
       // Test basic operations
       const mailboxes = await client.list();
-      console.log(`✅ IMAP connection successful for ${account.emailAddress}. Found ${mailboxes.length} mailboxes.`);
+      logger.info(`✅ IMAP connection successful for ${account.emailAddress}. Found ${mailboxes.length} mailboxes.`);
       
       return { success: true };
     } catch (error) {
-      console.error(`❌ IMAP connection failed for ${account.emailAddress}:`, error);
+      logger.error(`❌ IMAP connection failed for ${account.emailAddress}:`, error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
@@ -165,7 +166,7 @@ export class ImapService {
               const body = await client.download(message.uid, 'TEXT', { uid: true });
               textBody = body.toString();
             } catch (e) {
-              console.warn('Could not fetch email body:', e);
+              logger.warn({ context: e }, 'Could not fetch email body:');
             }
           }
           
@@ -189,7 +190,7 @@ export class ImapService {
         mailbox.release();
       }
     } catch (error) {
-      console.error(`Error fetching emails for ${account.emailAddress}:`, error);
+      logger.error(`Error fetching emails for ${account.emailAddress}:`, error);
       throw error;
     } finally {
       if (client) {
@@ -216,7 +217,7 @@ export class ImapService {
         throw new Error('Account not found or inactive');
       }
 
-      console.log(`🔄 Starting email sync for ${account.emailAddress}`);
+      logger.info(`🔄 Starting email sync for ${account.emailAddress}`);
 
       // Fetch emails from IMAP
       const fetchedEmails = await this.fetchEmails(account as any, 'INBOX', 100);
@@ -286,11 +287,11 @@ export class ImapService {
         .set({ lastSyncAt: new Date() })
         .where(eq(emailAccounts.id, accountId));
 
-      console.log(`✅ Synced ${syncedCount} new emails for ${account.emailAddress}`);
+      logger.info(`✅ Synced ${syncedCount} new emails for ${account.emailAddress}`);
       return syncedCount;
 
     } catch (error) {
-      console.error('Error syncing emails:', error);
+      logger.error({ error: error }, 'Error syncing emails:');
       throw error;
     }
   }
@@ -307,7 +308,7 @@ export class ImapService {
       const mailboxes = await client.list();
       return mailboxes.map(mb => mb.path);
     } catch (error) {
-      console.error(`Error getting mailboxes for ${account.emailAddress}:`, error);
+      logger.error(`Error getting mailboxes for ${account.emailAddress}:`, error);
       throw error;
     } finally {
       if (client) {

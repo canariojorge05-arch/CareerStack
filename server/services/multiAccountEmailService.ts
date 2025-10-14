@@ -4,6 +4,7 @@ import { emailAccounts } from '@shared/schema';
 import { eq, desc } from 'drizzle-orm';
 import { EnhancedGmailOAuthService } from './enhancedGmailOAuthService';
 import { OutlookOAuthService } from './outlookOAuthService';
+import { logger } from '../utils/logger';
 
 export interface EmailData {
   to: string[];
@@ -35,7 +36,7 @@ export class MultiAccountEmailService {
         throw new Error('Account not found or inactive');
       }
 
-      console.log(`📧 Sending email from ${account.provider} account: ${account.emailAddress}`);
+      logger.info(`📧 Sending email from ${account.provider} account: ${account.emailAddress}`);
 
       switch (account.provider) {
         case 'gmail':
@@ -49,7 +50,7 @@ export class MultiAccountEmailService {
           throw new Error(`Unsupported provider: ${account.provider}`);
       }
     } catch (error) {
-      console.error('Error sending email from account:', error);
+      logger.error({ error: error }, 'Error sending email from account:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to send email'
@@ -78,7 +79,7 @@ export class MultiAccountEmailService {
         }
       );
     } catch (error) {
-      console.error('Gmail send error:', error);
+      logger.error({ error: error }, 'Gmail send error:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Gmail send failed'
@@ -101,7 +102,7 @@ export class MultiAccountEmailService {
         emailData.bcc || []
       );
     } catch (error) {
-      console.error('Outlook send error:', error);
+      logger.error({ error: error }, 'Outlook send error:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Outlook send failed'
@@ -152,7 +153,7 @@ export class MultiAccountEmailService {
         messageId: result.messageId,
       };
     } catch (error) {
-      console.error('SMTP send error:', error);
+      logger.error({ error: error }, 'SMTP send error:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'SMTP send failed'
@@ -170,7 +171,7 @@ export class MultiAccountEmailService {
 
       return account || null;
     } catch (error) {
-      console.error('Error getting default account:', error);
+      logger.error({ error: error }, 'Error getting default account:');
       return null;
     }
   }
@@ -197,7 +198,7 @@ export class MultiAccountEmailService {
           throw new Error(`Unsupported provider: ${account.provider}`);
       }
     } catch (error) {
-      console.error('Error testing account connection:', error);
+      logger.error({ error: error }, 'Error testing account connection:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Connection test failed'
@@ -222,10 +223,10 @@ export class MultiAccountEmailService {
 
       await transporter.verify();
       
-      console.log(`✅ SMTP connection successful for ${account.emailAddress}`);
+      logger.info(`✅ SMTP connection successful for ${account.emailAddress}`);
       return { success: true };
     } catch (error) {
-      console.error(`❌ SMTP connection failed for ${account.emailAddress}:`, error);
+      logger.error(`❌ SMTP connection failed for ${account.emailAddress}:`, error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'SMTP connection failed'
@@ -277,7 +278,7 @@ export class MultiAccountEmailService {
         syncedCount,
       };
     } catch (error) {
-      console.error('Error syncing account:', error);
+      logger.error({ error: error }, 'Error syncing account:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Sync failed'
@@ -345,7 +346,7 @@ export class MultiAccountEmailService {
 
         syncedCount++;
       } catch (error) {
-        console.warn(`Failed to save message ${message.externalMessageId}:`, error);
+        logger.warn(`Failed to save message ${message.externalMessageId}:`, error);
       }
     }
 

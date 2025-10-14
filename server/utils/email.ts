@@ -1,6 +1,7 @@
 import nodemailer, { TransportOptions } from 'nodemailer';
 import { google } from 'googleapis';
 import { config } from 'dotenv';
+import { logger } from './logger';
 
 config();
 
@@ -98,7 +99,7 @@ const createTransporter = async () => {
   
     return nodemailer.createTransport(transportConfig);
   } catch (error) {
-    console.error('Error creating transporter:', error);
+    logger.error({ error: error }, 'Error creating transporter:');
     throw error;
   }
 };
@@ -136,10 +137,10 @@ export async function sendEmail(
     const domain = process.env.EMAIL_DOMAIN || 'resumecustomizerpro.com';
     const messageId = `<${Date.now()}.${Math.random().toString(36).substr(2, 9)}@${domain}>`;
 
-    console.log(`📧 Preparing to send email to: ${to}`);
-    console.log(`📧 From: ${fromHeader}`);
-    console.log(`📧 Subject: ${subject}`);
-    console.log(`📧 Message-ID: ${messageId}`);
+    logger.info(`📧 Preparing to send email to: ${to}`);
+    logger.info(`📧 From: ${fromHeader}`);
+    logger.info(`📧 Subject: ${subject}`);
+    logger.info(`📧 Message-ID: ${messageId}`);
 
     // Create clean text version
     const textContent = html
@@ -192,12 +193,12 @@ export async function sendEmail(
 
     try {
       const info = await transporter.sendMail(mailOptions);
-      console.log(`✅ Email sent successfully! Message ID: ${info.messageId}`);
-      console.log(`📧 Email details - To: ${to}, Subject: ${subject}`);
-      console.log(`📧 Accepted: ${info.accepted?.length || 0}, Rejected: ${info.rejected?.length || 0}`);
+      logger.info(`✅ Email sent successfully! Message ID: ${info.messageId}`);
+      logger.info(`📧 Email details - To: ${to}, Subject: ${subject}`);
+      logger.info(`📧 Accepted: ${info.accepted?.length || 0}, Rejected: ${info.rejected?.length || 0}`);
       return true;
     } catch (primaryError) {
-      console.error(`❌ Primary email provider failed (${provider}):`, primaryError);
+      logger.error(`❌ Primary email provider failed (${provider}):`, primaryError);
       // Try a simple fallback to generic SMTP credentials if available
       try {
         const fallbackSmtp = {
@@ -209,27 +210,27 @@ export async function sendEmail(
             pass: (process.env.EMAIL_PASSWORD || '').replace(/\s+/g, '')
           }
         } as TransportOptions;
-        console.log('🔁 Attempting fallback send via generic SMTP settings...');
+        logger.info('🔁 Attempting fallback send via generic SMTP settings...');
         transporter = nodemailer.createTransport(fallbackSmtp);
         const info2 = await transporter.sendMail(mailOptions);
-        console.log(`✅ Fallback email sent successfully! Message ID: ${info2.messageId}`);
-        console.log(`📧 Email details - To: ${to}, Subject: ${subject}`);
-        console.log(`📧 Accepted: ${info2.accepted?.length || 0}, Rejected: ${info2.rejected?.length || 0}`);
+        logger.info(`✅ Fallback email sent successfully! Message ID: ${info2.messageId}`);
+        logger.info(`📧 Email details - To: ${to}, Subject: ${subject}`);
+        logger.info(`📧 Accepted: ${info2.accepted?.length || 0}, Rejected: ${info2.rejected?.length || 0}`);
         return true;
       } catch (fallbackError) {
-        console.error('❌ Fallback SMTP send failed:', fallbackError);
+        logger.error({ error: fallbackError }, '❌ Fallback SMTP send failed:');
         throw primaryError;
       }
     }
     
   } catch (error) {
-    console.error(`❌ Failed to send email to ${to}:`, error);
-    console.error(`📧 Email subject: ${subject}`);
+    logger.error(`❌ Failed to send email to ${to}:`, error);
+    logger.error(`📧 Email subject: ${subject}`);
     
     // Log specific error details
     if (error instanceof Error) {
-      console.error(`📧 Error message: ${error.message}`);
-      console.error(`📧 Error stack: ${error.stack}`);
+      logger.error(`📧 Error message: ${error.message}`);
+      logger.error(`📧 Error stack: ${error.stack}`);
     }
     return false;
   }

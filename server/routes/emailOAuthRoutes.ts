@@ -8,6 +8,7 @@ import { EmailSyncService } from '../services/emailSyncService';
 import { db } from '../db';
 import { emailAccounts } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -120,7 +121,7 @@ router.get('/gmail/auth-url', isAuthenticated, async (req: any, res: Response) =
     const userId = req.user.id;
     const authUrl = EnhancedGmailOAuthService.getAuthUrl(userId);
     
-    console.log(`📧 Generated Gmail auth URL for user: ${userId}`);
+    logger.info(`📧 Generated Gmail auth URL for user: ${userId}`);
     
     res.json({
       success: true,
@@ -129,7 +130,7 @@ router.get('/gmail/auth-url', isAuthenticated, async (req: any, res: Response) =
       message: 'Redirect user to this URL to authorize Gmail access'
     });
   } catch (error) {
-    console.error('Failed to generate Gmail auth URL:', error);
+    logger.error({ error: error }, 'Failed to generate Gmail auth URL:');
     res.status(500).json({
       success: false,
       error: 'Failed to generate authorization URL',
@@ -147,7 +148,7 @@ router.get('/outlook/auth-url', isAuthenticated, async (req: any, res: Response)
     const userId = req.user.id;
     const authUrl = OutlookOAuthService.getAuthUrl(userId);
     
-    console.log(`📧 Generated Outlook auth URL for user: ${userId}`);
+    logger.info(`📧 Generated Outlook auth URL for user: ${userId}`);
     
     res.json({
       success: true,
@@ -156,7 +157,7 @@ router.get('/outlook/auth-url', isAuthenticated, async (req: any, res: Response)
       message: 'Redirect user to this URL to authorize Outlook access'
     });
   } catch (error) {
-    console.error('Failed to generate Outlook auth URL:', error);
+    logger.error({ error: error }, 'Failed to generate Outlook auth URL:');
     res.status(500).json({
       success: false,
       error: 'Failed to generate authorization URL',
@@ -181,7 +182,7 @@ router.get('/oauth/callback', isAuthenticated, async (req: any, res: Response) =
       });
     }
 
-    console.log(`📧 Processing OAuth callback for Gmail - User: ${userId}`);
+    logger.info(`📧 Processing OAuth callback for Gmail - User: ${userId}`);
 
     // For now, assume Gmail since that's what we're setting up
     const result = await EnhancedGmailOAuthService.handleCallback(code as string, userId);
@@ -194,7 +195,7 @@ router.get('/oauth/callback', isAuthenticated, async (req: any, res: Response) =
       res.redirect('/email?error=connection_failed');
     }
   } catch (error) {
-    console.error('OAuth callback error:', error);
+    logger.error({ error: error }, 'OAuth callback error:');
     res.redirect('/email?error=callback_failed');
   }
 });
@@ -209,7 +210,7 @@ router.post('/oauth/callback', isAuthenticated, async (req: any, res: Response) 
     const { code, state, provider } = oauthCallbackSchema.parse(req.body);
     const userId = req.user.id;
 
-    console.log(`📧 Processing OAuth callback for ${provider} - User: ${userId}`);
+    logger.info(`📧 Processing OAuth callback for ${provider} - User: ${userId}`);
 
     let result;
     
@@ -225,7 +226,7 @@ router.post('/oauth/callback', isAuthenticated, async (req: any, res: Response) 
     }
 
     if (result.success) {
-      console.log(`✅ ${provider} account connected successfully`);
+      logger.info(`✅ ${provider} account connected successfully`);
       
       res.json({
         success: true,
@@ -233,7 +234,7 @@ router.post('/oauth/callback', isAuthenticated, async (req: any, res: Response) 
         account: result.account
       });
     } else {
-      console.error(`❌ ${provider} OAuth failed:`, result.error);
+      logger.error(`❌ ${provider} OAuth failed:`, result.error);
       
       res.status(400).json({
         success: false,
@@ -250,7 +251,7 @@ router.post('/oauth/callback', isAuthenticated, async (req: any, res: Response) 
       });
     }
 
-    console.error('OAuth callback error:', error);
+    logger.error({ error: error }, 'OAuth callback error:');
     res.status(500).json({
       success: false,
       error: 'Failed to process OAuth callback',
@@ -294,7 +295,7 @@ router.get('/accounts', isAuthenticated, async (req: any, res: Response) => {
       count: sanitizedAccounts.length
     });
   } catch (error) {
-    console.error('Failed to get email accounts:', error);
+    logger.error({ error: error }, 'Failed to get email accounts:');
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve email accounts',
@@ -343,7 +344,7 @@ router.get('/accounts/:accountId', isAuthenticated, async (req: any, res: Respon
       account: sanitizedAccount
     });
   } catch (error) {
-    console.error('Failed to get email account:', error);
+    logger.error({ error: error }, 'Failed to get email account:');
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve email account',
@@ -372,7 +373,7 @@ router.post('/accounts/:accountId/test', isAuthenticated, async (req: any, res: 
 
     const { account } = verification;
 
-    console.log(`🔍 Testing connection for ${account.provider} account: ${account.emailAddress}`);
+    logger.info(`🔍 Testing connection for ${account.provider} account: ${account.emailAddress}`);
 
     let result;
     
@@ -400,7 +401,7 @@ router.post('/accounts/:accountId/test', isAuthenticated, async (req: any, res: 
       });
     }
   } catch (error) {
-    console.error('Connection test failed:', error);
+    logger.error({ error: error }, 'Connection test failed:');
     res.status(500).json({
       success: false,
       error: 'Failed to test connection',
@@ -429,7 +430,7 @@ router.delete('/accounts/:accountId', isAuthenticated, async (req: any, res: Res
 
     const { account } = verification;
 
-    console.log(`🗑️  Deleting ${account.provider} account: ${account.emailAddress}`);
+    logger.info(`🗑️  Deleting ${account.provider} account: ${account.emailAddress}`);
 
     let result;
     
@@ -458,7 +459,7 @@ router.delete('/accounts/:accountId', isAuthenticated, async (req: any, res: Res
       });
     }
   } catch (error) {
-    console.error('Failed to delete account:', error);
+    logger.error({ error: error }, 'Failed to delete account:');
     res.status(500).json({
       success: false,
       error: 'Failed to disconnect email account',
@@ -504,7 +505,7 @@ router.patch('/accounts/:accountId', isAuthenticated, async (req: any, res: Resp
         eq(emailAccounts.userId, userId)
       ));
 
-    console.log(`✅ Updated account settings: ${accountId}`);
+    logger.info(`✅ Updated account settings: ${accountId}`);
 
     res.json({
       success: true,
@@ -519,7 +520,7 @@ router.patch('/accounts/:accountId', isAuthenticated, async (req: any, res: Resp
       });
     }
 
-    console.error('Failed to update account:', error);
+    logger.error({ error: error }, 'Failed to update account:');
     res.status(500).json({
       success: false,
       error: 'Failed to update account settings',
@@ -552,7 +553,7 @@ router.post('/send', isAuthenticated, async (req: any, res: Response) => {
 
     const { account } = verification;
 
-    console.log(`📤 Sending email from ${account.emailAddress} to ${data.to.join(', ')}`);
+    logger.info(`📤 Sending email from ${account.emailAddress} to ${data.to.join(', ')}`);
 
     // Convert attachments from base64
     const attachments = data.attachments?.map(att => ({
@@ -601,7 +602,7 @@ router.post('/send', isAuthenticated, async (req: any, res: Response) => {
       });
     }
 
-    console.error('Failed to send email:', error);
+    logger.error({ error: error }, 'Failed to send email:');
     res.status(500).json({
       success: false,
       error: 'Failed to send email',
@@ -628,7 +629,7 @@ router.post('/sync', isAuthenticated, async (req: any, res: Response) => {
       });
     }
 
-    console.log(`🔄 Starting email sync for account: ${data.accountId}`);
+    logger.info(`🔄 Starting email sync for account: ${data.accountId}`);
 
     const result = await EmailSyncService.syncAccountOnDemand(data.accountId, userId);
 
@@ -653,7 +654,7 @@ router.post('/sync', isAuthenticated, async (req: any, res: Response) => {
       });
     }
 
-    console.error('Email sync failed:', error);
+    logger.error({ error: error }, 'Email sync failed:');
     res.status(500).json({
       success: false,
       error: 'Failed to sync emails',
@@ -701,7 +702,7 @@ router.get('/gmail/:accountId/labels', isAuthenticated, async (req: any, res: Re
       count: labels.length
     });
   } catch (error) {
-    console.error('Failed to get labels:', error);
+    logger.error({ error: error }, 'Failed to get labels:');
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve labels',
@@ -769,7 +770,7 @@ router.post('/gmail/:accountId/labels', isAuthenticated, async (req: any, res: R
       });
     }
 
-    console.error('Failed to create label:', error);
+    logger.error({ error: error }, 'Failed to create label:');
     res.status(500).json({
       success: false,
       error: 'Failed to create label',
@@ -832,7 +833,7 @@ router.post('/gmail/labels/modify', isAuthenticated, async (req: any, res: Respo
       });
     }
 
-    console.error('Failed to modify labels:', error);
+    logger.error({ error: error }, 'Failed to modify labels:');
     res.status(500).json({
       success: false,
       error: 'Failed to update message labels',
@@ -896,7 +897,7 @@ router.get('/gmail/attachments', isAuthenticated, async (req: any, res: Response
       });
     }
 
-    console.error('Failed to get attachment:', error);
+    logger.error({ error: error }, 'Failed to get attachment:');
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve attachment',

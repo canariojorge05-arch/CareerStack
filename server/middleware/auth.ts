@@ -8,7 +8,11 @@ import { sessionCache, apiCache } from '../services/redis';
 import { rateLimiter } from '../services/redis-examples';
 import { logger } from '../utils/logger';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+// Enforce JWT_SECRET from environment - no fallback for security
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required. Please set it in your .env file.');
+}
 
 // Extend Express Request interface to include user
 declare global {
@@ -210,7 +214,7 @@ export const requireVerifiedEmail = async (req: Request, res: Response, next: Ne
     
     next();
   } catch (error) {
-    console.error('Email verification check error:', error);
+    logger.error({ error }, 'Email verification check error');
     res.status(500).json({ message: 'Failed to verify email status' });
   }
 };

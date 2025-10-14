@@ -1,4 +1,5 @@
 import UAParser from 'ua-parser-js';
+import { logger } from './logger';
 
 interface DeviceInfo {
   browser: string;
@@ -34,7 +35,7 @@ export class DeviceParser {
         deviceVendor: result.device.vendor || 'Unknown'
       };
     } catch (error) {
-      console.error('Failed to parse user agent:', error);
+      logger.error({ error: error }, 'Failed to parse user agent:');
       return this.getDefaultInfo();
     }
   }

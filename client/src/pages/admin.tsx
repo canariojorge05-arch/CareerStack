@@ -7,10 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Users, Shield, UserCheck, Loader2, RefreshCw } from 'lucide-react';
+import { Search, Users, Shield, UserCheck, Loader2, RefreshCw, MoreVertical, History, Monitor, LogOut, AlertTriangle } from 'lucide-react';
 import { AppHeader } from '@/components/shared/app-header';
+import { LoginHistoryDialog } from '@/components/admin/login-history-dialog';
+import { ActiveSessionsDialog } from '@/components/admin/active-sessions-dialog';
+import { formatDistanceToNow } from 'date-fns';
 
 interface User {
   id: string;
@@ -49,6 +53,10 @@ export default function AdminPage() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [newRole, setNewRole] = useState('');
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false);
+  const [loginHistoryUser, setLoginHistoryUser] = useState<User | null>(null);
+  const [isLoginHistoryOpen, setIsLoginHistoryOpen] = useState(false);
+  const [activeSessionsUser, setActiveSessionsUser] = useState<User | null>(null);
+  const [isActiveSessionsOpen, setIsActiveSessionsOpen] = useState(false);
 
   // Fetch user statistics
   const { data: stats, isLoading: statsLoading } = useQuery<UserStats>({
@@ -84,6 +92,22 @@ export default function AdminPage() {
       const res = await fetch('/api/admin/roles', { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch roles');
       return res.json();
+    }
+  });
+
+  // Fetch suspicious logins count for security stats
+  const { data: securityData } = useQuery({
+    queryKey: ['/api/admin/suspicious-logins', { page: 1, limit: 1 }],
+    queryFn: async () => {
+      try {
+        const res = await fetch('/api/admin/suspicious-logins?page=1&limit=1', { 
+          credentials: 'include' 
+        });
+        if (!res.ok) return { pagination: { total: 0 } };
+        return res.json();
+      } catch {
+        return { pagination: { total: 0 } };
+      }
     }
   });
 
@@ -142,6 +166,57 @@ export default function AdminPage() {
     }
   };
 
+  const handleViewLoginHistory = (user: User) => {
+    setLoginHistoryUser(user);
+    setIsLoginHistoryOpen(true);
+  };
+
+  const handleViewSessions = (user: User) => {
+    setActiveSessionsUser(user);
+    setIsActiveSessionsOpen(true);
+  };
+
+  const handleForceLogout = async (user: User) => {
+    if (confirm(`Force logout all sessions for ${user.email}? This will immediately disconnect the user from all devices.`)) {
+      try {
+        const csrfToken = document.cookie
+          .split('; ')
+          .find(row => row.startsWith('csrf_token='))
+          ?.split('=')[1];
+
+        const res = await fetch(`/api/admin/users/${user.id}/force-logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken || ''
+          },
+          credentials: 'include'
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.message || 'Failed to force logout');
+        }
+
+        toast({
+          title: 'User logged out',
+          description: `All sessions for ${user.email} have been terminated`
+        });
+
+        // Refresh sessions if dialog is open
+        if (activeSessionsUser?.id === user.id) {
+          queryClient.invalidateQueries({ queryKey: [`/api/admin/users/${user.id}/active-sessions`] });
+        }
+      } catch (error) {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: error instanceof Error ? error.message : 'Failed to force logout'
+        });
+      }
+    }
+  };
+
   const getRoleBadge = (role: string) => {
     const variants: Record<string, 'default' | 'secondary' | 'destructive'> = {
       admin: 'destructive',
@@ -166,11 +241,15 @@ export default function AdminPage() {
             <Button onClick={() => window.location.href = '/admin/approvals'} variant="outline">
               Pending Approvals
             </Button>
+            <Button onClick={() => window.location.href = '/admin/security'} variant="outline">
+              <AlertTriangle className="h-4 w-4 mr-2" />
+              Security
+            </Button>
           </div>
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid gap-4 md:grid-cols-3 mb-8">
+        <div className="grid gap-4 md:grid-cols-4 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Users</CardTitle>
@@ -190,7 +269,7 @@ export default function AdminPage() {
             </CardContent>
           </Card>
 
-          {stats?.byRole.map((roleStats) => (
+          {stats?.byRole.slice(0, 2).map((roleStats) => (
             <Card key={roleStats.role}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">{roleStats.roleName}</CardTitle>
@@ -204,6 +283,30 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           ))}
+
+          {/* Security Stats Card */}
+          <Card className="border-red-200 bg-red-50">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Suspicious Logins</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600">
+                {securityData?.pagination?.total || 0}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Requires attention
+              </p>
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="mt-3 w-full text-xs"
+                onClick={() => window.location.href = '/admin/security'}
+              >
+                View Security Dashboard
+              </Button>
+            </CardContent>
+          </Card>
         </div>
 
         {/* User Management Section */}
@@ -260,7 +363,7 @@ export default function AdminPage() {
                         <TableHead>Name</TableHead>
                         <TableHead>Role</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Created</TableHead>
+                        <TableHead>Last Login</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -287,16 +390,53 @@ export default function AdminPage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {new Date(user.createdAt).toLocaleDateString()}
+                            {user.lastLoginAt ? (
+                              <div className="text-sm">
+                                <div>{formatDistanceToNow(new Date(user.lastLoginAt), { addSuffix: true })}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {new Date(user.lastLoginAt).toLocaleDateString()}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">Never</span>
+                            )}
                           </TableCell>
                           <TableCell>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleChangeRole(user)}
-                            >
-                              Change Role
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleChangeRole(user)}
+                              >
+                                Change Role
+                              </Button>
+                              
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button size="sm" variant="ghost">
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => handleViewLoginHistory(user)}>
+                                    <History className="h-4 w-4 mr-2" />
+                                    Login History
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleViewSessions(user)}>
+                                    <Monitor className="h-4 w-4 mr-2" />
+                                    Active Sessions
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem 
+                                    onClick={() => handleForceLogout(user)}
+                                    className="text-red-600"
+                                  >
+                                    <LogOut className="h-4 w-4 mr-2" />
+                                    Force Logout
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -389,6 +529,26 @@ export default function AdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Login History Dialog */}
+      {loginHistoryUser && (
+        <LoginHistoryDialog
+          userId={loginHistoryUser.id}
+          userEmail={loginHistoryUser.email}
+          open={isLoginHistoryOpen}
+          onOpenChange={setIsLoginHistoryOpen}
+        />
+      )}
+
+      {/* Active Sessions Dialog */}
+      {activeSessionsUser && (
+        <ActiveSessionsDialog
+          userId={activeSessionsUser.id}
+          userEmail={activeSessionsUser.email}
+          open={isActiveSessionsOpen}
+          onOpenChange={setIsActiveSessionsOpen}
+        />
+      )}
     </div>
   );
 }

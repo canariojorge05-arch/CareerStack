@@ -19,6 +19,7 @@ import { db } from "./db";
 import { eq, desc, inArray, sql, and } from "drizzle-orm";
 import memoize from "memoizee";
 import { randomUUID } from "crypto";
+import { logger } from './utils/logger';
 
 // In-memory cache for super fast operations
 const CACHE_TTL = 5000; // 5 seconds cache
@@ -160,7 +161,7 @@ export class DatabaseStorage implements IStorage {
     try {
       return await this._getResumesByUserIdCached(userId);
     } catch (error) {
-      console.error('Storage: Error fetching resumes:', error);
+      logger.error({ error: error }, 'Storage: Error fetching resumes:');
       throw error;
     }
   }
@@ -187,7 +188,7 @@ export class DatabaseStorage implements IStorage {
     try {
       return await this._getUserStatsCached(userId);
     } catch (error) {
-      console.error('Storage: Error fetching user stats:', error);
+      logger.error({ error: error }, 'Storage: Error fetching user stats:');
       throw new Error('Failed to fetch user stats: ' + (error instanceof Error ? error.message : String(error)));
     }
   }
@@ -225,19 +226,19 @@ export class DatabaseStorage implements IStorage {
       if (!resume) throw new Error('Resume not found');
       
       // Delete related records sequentially for HTTP adapter compatibility
-      console.log(`Deleting related data for resume: ${id}`);
+      logger.info(`Deleting related data for resume: ${id}`);
       
       // Delete tech stacks
       await db.delete(techStacks).where(eq(techStacks.resumeId, id));
-      console.log('Tech stacks deleted');
+      logger.info('Tech stacks deleted');
       
       // Delete point groups
       await db.delete(pointGroups).where(eq(pointGroups.resumeId, id));
-      console.log('Point groups deleted');
+      logger.info('Point groups deleted');
       
       // Delete processing history
       await db.delete(processingHistory).where(eq(processingHistory.resumeId, id));
-      console.log('Processing history deleted');
+      logger.info('Processing history deleted');
       
       // Remove original file from disk if present
       try {
@@ -247,22 +248,22 @@ export class DatabaseStorage implements IStorage {
           const filePath = path.resolve(process.cwd(), (resume as any).originalPath as string);
           if (fs.existsSync(filePath)) {
             await (await import('fs/promises')).unlink(filePath);
-            console.log('Original file deleted');
+            logger.info('Original file deleted');
           }
         }
       } catch (e) {
-        console.warn('Failed to delete original file from disk', e);
+        logger.warn({ context: e }, 'Failed to delete original file from disk');
       }
       
       // Finally, delete the resume
       await db.delete(resumes).where(eq(resumes.id, id));
-      console.log('Resume deleted');
+      logger.info('Resume deleted');
       
       // Invalidate cache after successful deletion
       this.invalidateUserCache(resume.userId);
-      console.log(`Resume ${id} successfully deleted`);
+      logger.info(`Resume ${id} successfully deleted`);
     } catch (error) {
-      console.error('Storage: Error deleting resume:', error);
+      logger.error({ error: error }, 'Storage: Error deleting resume:');
       throw new Error('Failed to delete resume: ' + (error instanceof Error ? error.message : String(error)));
     }
   }
@@ -349,7 +350,7 @@ export class DatabaseStorage implements IStorage {
       }
       return toDelete.length;
     } catch (e) {
-      console.warn('Storage: deleteEphemeralResumesBySession failed', e);
+      logger.warn({ context: e }, 'Storage: deleteEphemeralResumesBySession failed');
       return 0;
     }
   }
@@ -365,7 +366,7 @@ export class DatabaseStorage implements IStorage {
       }
       return toDelete.length;
     } catch (e) {
-      console.warn('Storage: deleteEphemeralResumesByUser failed', e);
+      logger.warn({ context: e }, 'Storage: deleteEphemeralResumesByUser failed');
       return 0;
     }
   }
@@ -382,7 +383,7 @@ export class DatabaseStorage implements IStorage {
       }
       return expired.length;
     } catch (e) {
-      console.warn('Storage: deleteExpiredEphemeralResumes failed', e);
+      logger.warn({ context: e }, 'Storage: deleteExpiredEphemeralResumes failed');
       return 0;
     }
   }

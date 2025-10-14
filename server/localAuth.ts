@@ -419,9 +419,9 @@ export async function setupAuth(app: Express) {
 
     // Debug logging in development (disabled for performance)
     // if (process.env.NODE_ENV === 'development') {
-    //   console.log('Session ID:', req.sessionID);
-    //   console.log('Is authenticated:', req.isAuthenticated());
-    //   console.log('User:', req.user);
+    //   logger.info('Session ID:', req.sessionID);
+    //   logger.info('Is authenticated:', req.isAuthenticated());
+    //   logger.info('User:', req.user);
     // }
     
     next();
@@ -535,7 +535,7 @@ export async function setupAuth(app: Express) {
 
       return done(null, safeUser);
     } catch (error) {
-      console.error('Deserialize user error:', error);
+      logger.error({ error: error }, 'Deserialize user error:');
       done(error);
     }
   });
@@ -568,15 +568,15 @@ export function isAuthenticated(req: Request, res: Response, next: NextFunction)
   if (req.path.startsWith('/api/')) {
     // Debug logging to aid diagnosing repeated 401s from clients
     try {
-      console.warn('[auth] Rejecting API request - unauthenticated', {
+      logger.warn({ context: {
         path: req.path,
         method: req.method,
         sessionID: req.sessionID,
         cookies: req.headers.cookie,
-        isAuthenticated: req.isAuthenticated(),
+        isAuthenticated: req.isAuthenticated( }, '[auth] Rejecting API request - unauthenticated'),
       });
     } catch (e) {
-      console.error('Failed to record auth rejection details:', e);
+      logger.error({ error: e }, 'Failed to record auth rejection details:');
     }
 
     return res.status(401).json({ 
@@ -660,7 +660,7 @@ function recordFailedAttempt(attemptKey: string): void {
       const lockDuration = LOCK_DURATION * lockoutMultiplier;
       attempts.lockedUntil = new Date(now.getTime() + lockDuration);
 
-      console.warn(
+      logger.warn(
         `[SECURITY] Account lockout triggered for ${attemptKey}\n` +
           `Attempts: ${attempts.count}\n` +
           `Lock Duration: ${Math.round(lockDuration / 60000)} minutes\n` +
@@ -688,7 +688,7 @@ function recordFailedAttempt(attemptKey: string): void {
       cleanupLoginAttempts();
     }
   } catch (error) {
-    console.error('Error recording failed login attempt:', error);
+    logger.error({ error: error }, 'Error recording failed login attempt:');
   }
 }
 
@@ -730,8 +730,8 @@ function cleanupLoginAttempts(): void {
         .forEach(([key]) => loginAttempts.delete(key));
     }
   } catch (error) {
-    console.error('Error in cleanupLoginAttempts:', error);
+    logger.error({ error: error }, 'Error in cleanupLoginAttempts:');
   }
   
-  console.log(`[Auth] Active sessions: ${activeSessions.size}, Login attempts tracked: ${loginAttempts.size}`);
+  logger.info(`[Auth] Active sessions: ${activeSessions.size}, Login attempts tracked: ${loginAttempts.size}`);
 }

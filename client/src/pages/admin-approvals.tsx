@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Search, UserCheck, UserX, Clock, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Search, UserCheck, UserX, Clock, Loader2, CheckCircle, XCircle, AlertCircle, AlertTriangle } from 'lucide-react';
 import { AppHeader } from '@/components/shared/app-header';
 
 interface PendingUser {
@@ -181,6 +181,18 @@ export default function AdminApprovalsPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">User Approvals</h1>
           <p className="text-muted-foreground mt-2">Review and approve new user registrations</p>
+          <div className="flex gap-2 mt-4">
+            <Button onClick={() => window.location.href = '/admin'} variant="outline">
+              User Management
+            </Button>
+            <Button onClick={() => window.location.href = '/admin/approvals'} variant="default">
+              Pending Approvals
+            </Button>
+            <Button onClick={() => window.location.href = '/admin/security'} variant="outline">
+              <AlertTriangle className="h-4 w-4 mr-2" />
+              Security
+            </Button>
+          </div>
         </div>
 
         {/* Statistics Cards */}

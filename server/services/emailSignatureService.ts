@@ -1,5 +1,6 @@
 import { db } from '../db';
 import { sql } from 'drizzle-orm';
+import { logger } from '../utils/logger';
 
 // Email signatures table schema (add to schema.ts)
 export interface EmailSignature {
@@ -184,13 +185,13 @@ export class EmailSignatureService {
       // If this is set as default, unset other default signatures
       if (signatureData.isDefault) {
         // This would update existing signatures to set isDefault = false
-        console.log('Setting other signatures as non-default');
+        logger.info('Setting other signatures as non-default');
       }
 
       // In a real implementation, this would insert into the database
       const signatureId = `sig_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      console.log('Creating signature:', {
+      logger.info('Creating signature:', {
         id: signatureId,
         userId,
         ...signatureData
@@ -201,7 +202,7 @@ export class EmailSignatureService {
         signatureId
       };
     } catch (error) {
-      console.error('Error creating signature:', error);
+      logger.error({ error: error }, 'Error creating signature:');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to create signature'
@@ -314,7 +315,7 @@ export class EmailSignatureService {
   ): Promise<{ success: boolean; error?: string }> {
     try {
       // This would update the signature in the database
-      console.log('Updating signature:', signatureId, updates);
+      logger.info('Updating signature:', signatureId, updates);
       
       return { success: true };
     } catch (error) {
@@ -334,7 +335,7 @@ export class EmailSignatureService {
   ): Promise<{ success: boolean; error?: string }> {
     try {
       // This would delete the signature from the database
-      console.log('Deleting signature:', signatureId);
+      logger.info('Deleting signature:', signatureId);
       
       return { success: true };
     } catch (error) {
