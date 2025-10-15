@@ -6,6 +6,7 @@ import { OutlookOAuthService } from '../services/outlookOAuthService';
 import { MultiAccountEmailService } from '../services/multiAccountEmailService';
 import { EmailSyncService } from '../services/emailSyncService';
 import { ParallelEmailFetcher } from '../services/parallelEmailFetcher';
+import { EmailCacheService } from '../services/emailCacheService';
 import { emailAccountRateLimiter } from '../middleware/emailAccountRateLimiter';
 import { db } from '../db';
 import { emailAccounts } from '@shared/schema';
@@ -1024,15 +1025,42 @@ router.get('/unified-inbox', isAuthenticated, async (req: any, res: Response) =>
     const userId = req.user.id;
     const { limit, offset, accountIds } = req.query;
 
+    // Try cache first for initial load (offset = 0)
+    const cacheKey = `inbox-${offset || 0}`;
+    if (!offset || offset === '0') {
+      const cached = await EmailCacheService.getThreadList(userId, cacheKey);
+      if (cached) {
+        logger.debug(`📊 Cache hit for unified inbox ${userId}`);
+        const { EmailPerformanceMonitor } = await import('../services/emailPerformanceMonitor');
+        EmailPerformanceMonitor.recordCacheHit(true);
+        
+        return res.json({
+          success: true,
+          threads: cached,
+          total: cached.length,
+          fromCache: true
+        });
+      }
+      
+      const { EmailPerformanceMonitor } = await import('../services/emailPerformanceMonitor');
+      EmailPerformanceMonitor.recordCacheHit(false);
+    }
+
     const result = await ParallelEmailFetcher.getUnifiedInbox(userId, {
       limit: limit ? parseInt(limit as string) : 50,
       offset: offset ? parseInt(offset as string) : 0,
       accountIds: accountIds ? (accountIds as string).split(',') : undefined
     });
 
+    // Cache the result for fast subsequent loads
+    if (!offset || offset === '0') {
+      await EmailCacheService.cacheThreadList(userId, cacheKey, result.threads || [], { ttl: 30 });
+    }
+
     res.json({
       success: true,
-      ...result
+      ...result,
+      fromCache: false
     });
   } catch (error) {
     logger.error('Failed to get unified inbox:', error);
@@ -1040,6 +1068,25 @@ router.get('/unified-inbox', isAuthenticated, async (req: any, res: Response) =>
       success: false,
       error: 'Failed to retrieve unified inbox',
       details: formatError(error)
+    });
+  }
+});
+
+// Performance monitoring endpoint
+router.get('/performance/stats', isAuthenticated, async (req: any, res: Response) => {
+  try {
+    const { EmailPerformanceMonitor } = await import('../services/emailPerformanceMonitor');
+    const stats = await EmailPerformanceMonitor.getStats();
+    
+    res.json({
+      success: true,
+      stats
+    });
+  } catch (error) {
+    logger.error('Failed to get performance stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve performance statistics'
     });
   }
 });

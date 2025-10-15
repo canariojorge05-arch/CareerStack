@@ -465,6 +465,7 @@ export const emailThreads = pgTable("email_threads", {
 }, (table) => [
   index("idx_email_threads_created_by").on(table.createdBy),
   index("idx_email_threads_last_message").on(table.lastMessageAt),
+  index("idx_email_threads_user_archive").on(table.createdBy, table.isArchived),
 ]);
 
 // Email messages table
@@ -494,6 +495,9 @@ export const emailMessages = pgTable("email_messages", {
   index("idx_email_messages_from_email").on(table.fromEmail),
   index("idx_email_messages_message_type").on(table.messageType),
   index("idx_email_messages_sent_at").on(table.sentAt),
+  index("idx_email_messages_account_id").on(table.emailAccountId),
+  index("idx_email_messages_external_id").on(table.externalMessageId),
+  index("idx_email_messages_account_thread").on(table.emailAccountId, table.threadId),
 ]);
 
 // Email attachments table
@@ -539,7 +543,8 @@ export const emailAccounts = pgTable("email_accounts", {
   isActive: boolean("is_active").default(true),
   syncEnabled: boolean("sync_enabled").default(true),
   lastSyncAt: timestamp("last_sync_at"),
-  syncFrequency: integer("sync_frequency").default(300), // seconds
+  syncFrequency: integer("sync_frequency").default(15), // seconds - ultra-fast sync
+  historyId: varchar("history_id"), // Gmail History ID for incremental sync
   
   // Folder mapping
   inboxFolder: varchar("inbox_folder").default('INBOX'),
@@ -553,6 +558,7 @@ export const emailAccounts = pgTable("email_accounts", {
   index("idx_email_accounts_user_id").on(table.userId),
   index("idx_email_accounts_email").on(table.emailAddress),
   index("idx_email_accounts_provider").on(table.provider),
+  index("idx_email_accounts_sync").on(table.userId, table.isActive, table.syncEnabled),
   uniqueIndex("uq_email_accounts_user_email").on(table.userId, table.emailAddress),
 ]);
 

@@ -337,9 +337,173 @@ export class EnhancedGmailOAuthService {
   }
 
   /**
-   * Fetch Gmail messages with attachments
+   * Fetch Gmail messages using incremental sync (History API) - MUCH FASTER!
    */
-  static async fetchGmailMessages(
+  static async fetchGmailMessagesIncremental(
+    account: any,
+    options: {
+      maxResults?: number;
+      labelIds?: string[];
+    } = {}
+  ): Promise<{ messages: GmailMessage[]; historyId?: string; fullSync: boolean }> {
+    try {
+      const gmail = await this.getGmailClient(account);
+      
+      if (!gmail) {
+        throw new Error('Failed to create Gmail client');
+      }
+
+      // If we have a historyId, use incremental sync
+      if (account.historyId) {
+        try {
+          logger.debug(`📊 Using incremental sync for ${account.emailAddress} from historyId: ${account.historyId}`);
+          
+          const historyResponse = await this.executeWithRetry(() =>
+            gmail.users.history.list({
+              userId: 'me',
+              startHistoryId: account.historyId,
+              historyTypes: ['messageAdded', 'messageDeleted', 'labelAdded', 'labelRemoved'],
+              maxResults: options.maxResults || 100,
+            })
+          );
+
+          const history = historyResponse.data.history || [];
+          const messageIds = new Set<string>();
+          
+          // Collect unique message IDs from history
+          history.forEach((record: any) => {
+            record.messagesAdded?.forEach((msg: any) => {
+              if (msg.message?.id) messageIds.add(msg.message.id);
+            });
+          });
+
+          if (messageIds.size === 0) {
+            logger.debug(`✅ No new messages for ${account.emailAddress} (incremental)`);
+            return {
+              messages: [],
+              historyId: historyResponse.data.historyId,
+              fullSync: false
+            };
+          }
+
+          // Fetch full details for new messages
+          const messages: GmailMessage[] = [];
+          for (const messageId of messageIds) {
+            try {
+              const fullMessage = await this.executeWithRetry(() =>
+                gmail.users.messages.get({
+                  userId: 'me',
+                  id: messageId,
+                  format: 'full',
+                })
+              );
+
+              const parsedMessage = this.parseGmailMessage(fullMessage.data);
+              if (parsedMessage) messages.push(parsedMessage);
+            } catch (error) {
+              logger.warn(`Failed to fetch message ${messageId}:`, error);
+            }
+          }
+
+          logger.info(`✅ Incremental sync for ${account.emailAddress}: ${messages.length} new messages`);
+          
+          return {
+            messages,
+            historyId: historyResponse.data.historyId,
+            fullSync: false
+          };
+        } catch (error: any) {
+          // If history sync fails (e.g., historyId too old), fall back to full sync
+          if (error.code === 404 || error.message?.includes('history')) {
+            logger.info(`⚠️  History expired for ${account.emailAddress}, performing full sync`);
+          } else {
+            logger.warn(`⚠️  Incremental sync failed for ${account.emailAddress}, falling back to full sync:`, error);
+          }
+        }
+      }
+
+      // Full sync fallback
+      logger.debug(`📊 Using full sync for ${account.emailAddress}`);
+      const result = await this.fetchGmailMessagesFull(account, options);
+      
+      // Get profile to obtain current historyId
+      const profile = await this.executeWithRetry(() => 
+        gmail.users.getProfile({ userId: 'me' })
+      );
+      
+      return {
+        messages: result.messages,
+        historyId: profile.data.historyId,
+        fullSync: true
+      };
+    } catch (error) {
+      logger.error({ error: error }, 'Error in incremental fetch:');
+      throw error;
+    }
+  }
+
+  /**
+   * Parse Gmail message data into our format
+   */
+  private static parseGmailMessage(msg: any): GmailMessage | null {
+    try {
+      const headers = msg.payload?.headers || [];
+      
+      const getHeader = (name: string) => 
+        headers.find((h: any) => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
+
+      // Extract body and attachments
+      let htmlBody = '';
+      let textBody = '';
+      const attachments: GmailAttachment[] = [];
+      
+      const extractContent = (part: any) => {
+        if (part.mimeType === 'text/plain' && part.body?.data) {
+          textBody = Buffer.from(part.body.data, 'base64').toString();
+        } else if (part.mimeType === 'text/html' && part.body?.data) {
+          htmlBody = Buffer.from(part.body.data, 'base64').toString();
+        } else if (part.filename && part.body?.attachmentId) {
+          attachments.push({
+            attachmentId: part.body.attachmentId,
+            fileName: part.filename,
+            mimeType: part.mimeType || 'application/octet-stream',
+            size: part.body.size || 0
+          });
+        }
+        
+        if (part.parts) {
+          part.parts.forEach(extractContent);
+        }
+      };
+
+      if (msg.payload) {
+        extractContent(msg.payload);
+      }
+
+      return {
+        externalMessageId: msg.id!,
+        from: getHeader('From'),
+        to: getHeader('To').split(',').map((email: string) => email.trim()).filter(Boolean),
+        cc: getHeader('Cc').split(',').map((email: string) => email.trim()).filter(Boolean),
+        bcc: getHeader('Bcc').split(',').map((email: string) => email.trim()).filter(Boolean),
+        subject: getHeader('Subject') || 'No Subject',
+        date: new Date(parseInt(msg.internalDate || '0')),
+        htmlBody: htmlBody || undefined,
+        textBody: textBody || msg.snippet || undefined,
+        labels: msg.labelIds || [],
+        attachments: attachments.length > 0 ? attachments : undefined,
+        snippet: msg.snippet || undefined
+      };
+    } catch (error) {
+      logger.error({ error: error }, 'Error parsing Gmail message:');
+      return null;
+    }
+  }
+
+  /**
+   * Fetch Gmail messages with attachments (full sync)
+   */
+  private static async fetchGmailMessagesFull(
     account: any, 
     options: {
       maxResults?: number;
@@ -382,55 +546,10 @@ export class EnhancedGmailOAuthService {
             })
           );
 
-          const msg = fullMessage.data;
-          const headers = msg.payload?.headers || [];
-          
-          // Extract headers
-          const getHeader = (name: string) => 
-            headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
-
-          // Extract body and attachments
-          let htmlBody = '';
-          let textBody = '';
-          const attachments: GmailAttachment[] = [];
-          
-          const extractContent = (part: any) => {
-            if (part.mimeType === 'text/plain' && part.body?.data) {
-              textBody = Buffer.from(part.body.data, 'base64').toString();
-            } else if (part.mimeType === 'text/html' && part.body?.data) {
-              htmlBody = Buffer.from(part.body.data, 'base64').toString();
-            } else if (part.filename && part.body?.attachmentId) {
-              attachments.push({
-                attachmentId: part.body.attachmentId,
-                fileName: part.filename,
-                mimeType: part.mimeType || 'application/octet-stream',
-                size: part.body.size || 0
-              });
-            }
-            
-            if (part.parts) {
-              part.parts.forEach(extractContent);
-            }
-          };
-
-          if (msg.payload) {
-            extractContent(msg.payload);
+          const parsedMessage = this.parseGmailMessage(fullMessage.data);
+          if (parsedMessage) {
+            fetchedMessages.push(parsedMessage);
           }
-
-          fetchedMessages.push({
-            externalMessageId: msg.id!,
-            from: getHeader('From'),
-            to: getHeader('To').split(',').map(email => email.trim()).filter(Boolean),
-            cc: getHeader('Cc').split(',').map(email => email.trim()).filter(Boolean),
-            bcc: getHeader('Bcc').split(',').map(email => email.trim()).filter(Boolean),
-            subject: getHeader('Subject') || 'No Subject',
-            date: new Date(parseInt(msg.internalDate || '0')),
-            htmlBody: htmlBody || undefined,
-            textBody: textBody || msg.snippet || undefined,
-            labels: msg.labelIds || [],
-            attachments: attachments.length > 0 ? attachments : undefined,
-            snippet: msg.snippet || undefined
-          });
         } catch (error) {
           logger.warn(`Failed to fetch message ${message.id}:`, error);
         }
@@ -700,7 +819,38 @@ export class EnhancedGmailOAuthService {
   }
 
   /**
-   * Get history for incremental sync
+   * Fetch Gmail messages with automatic incremental/full sync selection
+   * This is the main method to use for syncing
+   */
+  static async fetchGmailMessages(
+    account: any, 
+    options: {
+      maxResults?: number;
+      query?: string;
+      labelIds?: string[];
+      pageToken?: string;
+    } = {}
+  ): Promise<{ messages: GmailMessage[]; nextPageToken?: string; historyId?: string; fullSync?: boolean }> {
+    // Use incremental sync when possible (no query or pageToken)
+    if (!options.query && !options.pageToken) {
+      const result = await this.fetchGmailMessagesIncremental(account, {
+        maxResults: options.maxResults,
+        labelIds: options.labelIds
+      });
+      
+      return {
+        messages: result.messages,
+        historyId: result.historyId,
+        fullSync: result.fullSync
+      };
+    }
+    
+    // Fall back to full sync for queries and pagination
+    return await this.fetchGmailMessagesFull(account, options);
+  }
+
+  /**
+   * Get history for incremental sync (legacy method)
    */
   static async getHistory(
     account: any,
