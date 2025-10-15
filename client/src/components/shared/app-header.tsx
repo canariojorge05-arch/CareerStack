@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
-import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -14,9 +13,8 @@ interface AppHeaderProps {
 
 export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [, navigate] = useLocation();
-  const queryClient = useQueryClient();
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
@@ -45,37 +43,12 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
 
   const handleLogout = useCallback(async () => {
     try {
-      const csrfToken = document.cookie
-        .split('; ')
-        .find((row) => row.startsWith('csrf_token='))
-        ?.split('=')[1];
-
-      const response = await fetch('/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'X-CSRF-Token': csrfToken || '',
-        },
-      });
-
-      if (response.ok) {
-        queryClient.clear();
-        queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
-        toast({
-          title: 'Logged out',
-          description: 'You have been successfully logged out.',
-        });
-      } else {
-        throw new Error('Logout failed');
-      }
+      await logout();
     } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to logout. Please try again.',
-        variant: 'destructive',
-      });
+      // Error handling is already done in useAuth.logout()
+      console.error('Logout error:', error);
     }
-  }, [queryClient, toast]);
+  }, [logout]);
 
   return (
     <header
