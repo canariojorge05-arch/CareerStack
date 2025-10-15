@@ -1091,4 +1091,97 @@ router.get('/performance/stats', isAuthenticated, async (req: any, res: Response
   }
 });
 
+// ========================================
+// EMAIL SEARCH ROUTES
+// ========================================
+
+/**
+ * Search emails with Gmail-style operators
+ * GET /api/email/search
+ * 
+ * Query parameters:
+ *   - q: Search query (supports Gmail operators)
+ *   - limit: Max results (default: 50, max: 100)
+ *   - offset: Pagination offset (default: 0)
+ *   - accountId: Filter by specific account
+ * 
+ * Example queries:
+ *   - "from:john@example.com subject:meeting"
+ *   - "has:attachment is:unread after:2024-01-01"
+ *   - "newer_than:7d -from:spam"
+ *   - "larger:10M filename:report.pdf"
+ */
+router.get('/search', isAuthenticated, async (req: any, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { q, limit, offset, accountId } = req.query;
+
+    const { EmailSearchService } = await import('../services/emailSearchService');
+    
+    const result = await EmailSearchService.searchEmails(userId, {
+      query: q as string,
+      limit: limit ? parseInt(limit as string) : 50,
+      offset: offset ? parseInt(offset as string) : 0,
+      accountIds: accountId ? [accountId as string] : undefined
+    });
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    logger.error('Email search failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Search failed',
+      details: formatError(error)
+    });
+  }
+});
+
+/**
+ * Get search operator help/documentation
+ * GET /api/email/search/operators
+ */
+router.get('/search/operators', isAuthenticated, async (req: any, res: Response) => {
+  try {
+    const { EmailSearchService } = await import('../services/emailSearchService');
+    const operators = EmailSearchService.getSearchOperatorHelp();
+    
+    res.json({
+      success: true,
+      operators
+    });
+  } catch (error) {
+    logger.error('Failed to get search operators:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve search operators'
+    });
+  }
+});
+
+/**
+ * Get search analytics
+ * GET /api/email/search/analytics
+ */
+router.get('/search/analytics', isAuthenticated, async (req: any, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { EmailSearchService } = await import('../services/emailSearchService');
+    const analytics = await EmailSearchService.getSearchAnalytics(userId);
+    
+    res.json({
+      success: true,
+      analytics
+    });
+  } catch (error) {
+    logger.error('Failed to get search analytics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve search analytics'
+    });
+  }
+});
+
 export default router;
