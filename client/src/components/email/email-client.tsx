@@ -67,7 +67,7 @@ interface EmailMessage {
   attachments?: any[];
 }
 
-export default function UltraModernGmailClient() {
+export default function EmailClient() {
   const { isAuthenticated, isLoading: isAuthLoading, isAuthChecked } = useAuth();
   const [, navigate] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -1461,11 +1461,8 @@ export default function UltraModernGmailClient() {
                   <EmailEditor 
                     content={composeBody}
                     onChange={setComposeBody}
-                    placeholder="Compose your message..." onClose={function (): void {
-                      throw new Error('Function not implemented.');
-                    } } onSend={function (data: EmailData): Promise<void> {
-                      throw new Error('Function not implemented.');
-                    } }                  />
+                    placeholder="Compose your message..."
+                  />
                 </div>
 
                 {/* Compose Footer */}
