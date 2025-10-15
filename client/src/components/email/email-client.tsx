@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useVirtualizer } from '@tantml:react-virtual';
 import { format } from 'date-fns';
 import { apiRequest } from '@/lib/queryClient';
 import { useHotkeys } from 'react-hotkeys-hook';
@@ -8,6 +8,8 @@ import { useDropzone } from 'react-dropzone';
 import { EmailData, EmailEditor } from './email-editor';
 import { EmailListSkeleton, EmailDetailSkeleton } from './loading-skeleton';
 import { EmailContent } from './email-content';
+import { EmailErrorBoundary } from './EmailErrorBoundary';
+import { VirtualizedEmailMessages } from './VirtualizedEmailMessages';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -66,7 +68,7 @@ interface EmailMessage {
   attachments?: any[];
 }
 
-export default function EmailClient() {
+function EmailClientInner() {
   const { isAuthenticated, isLoading: isAuthLoading, isAuthChecked } = useAuth();
   const [, navigate] = useLocation();
   // Navigation & selection state
@@ -1301,13 +1303,23 @@ export default function EmailClient() {
                     </div>
                   </div>
 
-                  {/* Messages */}
-                  <ScrollArea className="flex-1 px-6 py-4">
-                    {messagesLoading ? (
+                  {/* Messages - Now with Virtualization for Better Performance */}
+                  {messagesLoading ? (
+                    <div className="flex-1 px-6 py-4">
                       <EmailDetailSkeleton />
-                    ) : (
-                      <div className="space-y-4 max-w-4xl">
-                        {threadMessages.map((message, index) => (
+                    </div>
+                  ) : (
+                    <VirtualizedEmailMessages
+                      messages={threadMessages}
+                      onStarToggle={(messageId, isStarred) => starMutation.mutate({ messageId, isStarred })}
+                      onReply={handleReply}
+                      getInitials={getInitials}
+                    />
+                  )}
+                  
+                  {/* Old non-virtualized code - kept as fallback but not rendered
+                  <div className="hidden space-y-4 max-w-4xl">
+                    {threadMessages.map((message, index) => (
                           <div key={message.id} className={cn(
                             "rounded-lg bg-white transition-all border border-gray-200",
                             index === threadMessages.length - 1 && "ring-2 ring-blue-100 border-blue-200 shadow-md"
@@ -2244,3 +2256,12 @@ const ThreadRow = React.memo(({
   );
 });
 ThreadRow.displayName = 'ThreadRow';
+
+// Export with Error Boundary wrapper for resilience
+export default function EmailClient() {
+  return (
+    <EmailErrorBoundary>
+      <EmailClientInner />
+    </EmailErrorBoundary>
+  );
+}
