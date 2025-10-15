@@ -3,12 +3,12 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tansta
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { formatDistanceToNow, format } from 'date-fns';
 import { apiRequest } from '@/lib/queryClient';
-import DOMPurify from 'dompurify';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useDropzone } from 'react-dropzone';
 import EmojiPicker from 'emoji-picker-react';
 import { EmailData, EmailEditor } from './email-editor';
 import { EmailListSkeleton, EmailDetailSkeleton } from './loading-skeleton';
+import { EmailContent } from './email-content';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -375,8 +375,8 @@ export default function EmailClient() {
     },
   });
 
-  // OAuth handlers
-  const handleConnectAccount = async (provider: 'gmail' | 'outlook') => {
+  // OAuth handlers - memoized
+  const handleConnectAccount = useCallback(async (provider: 'gmail' | 'outlook') => {
     try {
       const endpoint = `/api/email/${provider}/auth-url`;
       const response = await apiRequest('GET', endpoint);
@@ -388,18 +388,18 @@ export default function EmailClient() {
     } catch (error) {
       toast.error('Failed to connect account');
     }
-  };
+  }, []);
 
-  const handleRemoveAccount = (accountId: string, accountName: string) => {
+  const handleRemoveAccount = useCallback((accountId: string, accountName: string) => {
     if (confirm(`Are you sure you want to remove ${accountName}?`)) {
       deleteAccountMutation.mutate(accountId);
     }
-  };
+  }, [deleteAccountMutation]);
 
-  const getInitials = (email: string) => {
+  const getInitials = useCallback((email: string) => {
     const name = email.split('@')[0];
     return name.slice(0, 2).toUpperCase();
-  };
+  }, []);
 
   // File dropzone configuration
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -411,20 +411,24 @@ export default function EmailClient() {
     multiple: true,
   });
 
-  // Draft auto-save every 30 seconds
+  // Draft auto-save every 30 seconds - optimized to only save when content exists
+  // and to avoid showing unnecessary toasts
   useEffect(() => {
     if (!composeTo && !composeSubject && !composeBody) return;
     
     const timer = setInterval(() => {
-      console.log('Auto-saving draft...');
-      localStorage.setItem('emailDraft', JSON.stringify({
-        to: composeTo,
-        subject: composeSubject,
-        body: composeBody,
-        attachments: attachments.map(f => f.name),
-        savedAt: new Date().toISOString(),
-      }));
-      toast.success('Draft saved', { duration: 1000 });
+      // Only save if there's actual content
+      if (composeTo || composeSubject || composeBody) {
+        console.log('Auto-saving draft...');
+        localStorage.setItem('emailDraft', JSON.stringify({
+          to: composeTo,
+          subject: composeSubject,
+          body: composeBody,
+          attachments: attachments.map(f => f.name),
+          savedAt: new Date().toISOString(),
+        }));
+        // Removed toast to reduce noise - draft saves silently in background
+      }
     }, 30000);
 
     return () => clearInterval(timer);
@@ -509,8 +513,8 @@ export default function EmailClient() {
     toast.success('Selection cleared');
   }, { enableOnFormTags: false });
 
-  // Handlers
-  const handleSend = () => {
+  // Handlers - wrapped in useCallback to prevent unnecessary re-renders
+  const handleSend = useCallback(() => {
     if (!composeTo || !composeSubject) {
       toast.error('Please fill in recipient and subject');
       return;
@@ -524,16 +528,16 @@ export default function EmailClient() {
 
     // Clear draft after sending
     localStorage.removeItem('emailDraft');
-  };
+  }, [composeTo, composeSubject, composeBody, sendEmailMutation]);
 
-  const handleReply = (message: EmailMessage) => {
+  const handleReply = useCallback((message: EmailMessage) => {
     setComposeTo(message.fromEmail);
     setComposeSubject(`Re: ${message.subject}`);
     setComposeBody('');
     setComposeOpen(true);
-  };
+  }, []);
 
-  const handleDiscardDraft = () => {
+  const handleDiscardDraft = useCallback(() => {
     setComposeTo('');
     setComposeSubject('');
     setComposeBody('');
@@ -541,35 +545,35 @@ export default function EmailClient() {
     setComposeOpen(false);
     localStorage.removeItem('emailDraft');
     toast.success('Draft discarded');
-  };
+  }, []);
 
-  const removeAttachment = (index: number) => {
+  const removeAttachment = useCallback((index: number) => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
-  };
+  }, []);
 
-  const insertLink = () => {
+  const insertLink = useCallback(() => {
     const url = prompt('Enter URL:');
     if (url) {
       setComposeBody(prev => `${prev}<a href="${url}">${url}</a>`);
     }
-  };
+  }, []);
 
-  const insertImage = () => {
+  const insertImage = useCallback(() => {
     const url = prompt('Enter image URL:');
     if (url) {
       setComposeBody(prev => `${prev}<img src="${url}" alt="Image" style="max-width: 100%;" />`);
     }
-  };
+  }, []);
 
-  // Search history management
-  const addToSearchHistory = (query: string) => {
+  // Search history management - memoized
+  const addToSearchHistory = useCallback((query: string) => {
     if (!query.trim()) return;
     setSearchHistory(prev => {
       const updated = [query, ...prev.filter(q => q !== query)].slice(0, 10);
       localStorage.setItem('emailSearchHistory', JSON.stringify(updated));
       return updated;
     });
-  };
+  }, []);
 
   useEffect(() => {
     try {
@@ -605,17 +609,26 @@ export default function EmailClient() {
     });
   }, [queryClient, debouncedSearchQuery]);
 
-  const folders = [
-    { id: 'inbox', name: 'Inbox', icon: Inbox, color: 'text-blue-600', bgColor: 'bg-blue-50', count: emailThreads.filter((t: EmailThread) => !t.isArchived).length },
+  // Memoize folder counts to avoid expensive filter operations on every render
+  const inboxCount = useMemo(() => 
+    emailThreads.filter((t: EmailThread) => !t.isArchived).length, 
+    [emailThreads]
+  );
+
+  const folders = useMemo(() => [
+    { id: 'inbox', name: 'Inbox', icon: Inbox, color: 'text-blue-600', bgColor: 'bg-blue-50', count: inboxCount },
     { id: 'starred', name: 'Starred', icon: Star, color: 'text-yellow-600', bgColor: 'bg-yellow-50', count: 0 },
     { id: 'snoozed', name: 'Snoozed', icon: Clock, color: 'text-purple-600', bgColor: 'bg-purple-50', count: 0 },
     { id: 'sent', name: 'Sent', icon: Send, color: 'text-green-600', bgColor: 'bg-green-50', count: 0 },
     { id: 'drafts', name: 'Drafts', icon: FileText, color: 'text-orange-600', bgColor: 'bg-orange-50', count: 0 },
     { id: 'archived', name: 'Archive', icon: Archive, color: 'text-gray-600', bgColor: 'bg-gray-50', count: 0 },
     { id: 'trash', name: 'Trash', icon: Trash2, color: 'text-red-600', bgColor: 'bg-red-50', count: 0 },
-  ];
+  ], [inboxCount]);
 
-  const currentFolder = folders.find(f => f.id === selectedFolder) || folders[0];
+  const currentFolder = useMemo(() => 
+    folders.find(f => f.id === selectedFolder) || folders[0],
+    [folders, selectedFolder]
+  );
 
   return (
     <TooltipProvider>
@@ -1065,7 +1078,7 @@ export default function EmailClient() {
                     selectedThreads={selectedThreads}
                     onThreadSelect={setSelectedThread}
                     onThreadsSelect={setSelectedThreads}
-                    onStarToggle={(messageId, isStarred) => starMutation.mutate({ messageId, isStarred })}
+                    starMutation={starMutation}
                     hasNextPage={hasNextPage}
                     isFetchingNextPage={isFetchingNextPage}
                     fetchNextPage={fetchNextPage}
@@ -1877,23 +1890,23 @@ interface VirtualizedThreadListProps {
   selectedThreads: Set<string>;
   onThreadSelect: (threadId: string) => void;
   onThreadsSelect: (threads: Set<string>) => void;
-  onStarToggle: (messageId: string, isStarred: boolean) => void;
+  starMutation: any; // Pass mutation directly instead of callback
   hasNextPage?: boolean;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
 }
 
-function VirtualizedThreadList({
+const VirtualizedThreadList = React.memo(({
   threads,
   selectedThread,
   selectedThreads,
   onThreadSelect,
   onThreadsSelect,
-  onStarToggle,
+  starMutation,
   hasNextPage,
   isFetchingNextPage,
   fetchNextPage,
-}: VirtualizedThreadListProps) {
+}: VirtualizedThreadListProps) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Virtual scrolling configuration
@@ -1905,8 +1918,11 @@ function VirtualizedThreadList({
   });
 
   // Infinite scroll: load more when near bottom
+  // Optimized to avoid running on every virtual item change
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  
   useEffect(() => {
-    const [lastItem] = [...rowVirtualizer.getVirtualItems()].reverse();
+    const [lastItem] = [...virtualItems].reverse();
 
     if (!lastItem) return;
 
@@ -1922,7 +1938,7 @@ function VirtualizedThreadList({
     fetchNextPage,
     threads.length,
     isFetchingNextPage,
-    rowVirtualizer.getVirtualItems(),
+    virtualItems.length, // Only depend on length, not the array itself
   ]);
 
   return (
@@ -1966,19 +1982,10 @@ function VirtualizedThreadList({
                   thread={thread}
                   isSelected={selectedThread === thread.id}
                   isChecked={selectedThreads.has(thread.id)}
-                  onSelect={() => onThreadSelect(thread.id)}
-                  onCheck={(checked) => {
-                    const newSet = new Set(selectedThreads);
-                    if (checked) newSet.add(thread.id);
-                    else newSet.delete(thread.id);
-                    onThreadsSelect(newSet);
-                  }}
-                  onStarToggle={() => {
-                    const message = thread.messages?.[0];
-                    if (message) {
-                      onStarToggle(message.id, !message.isStarred);
-                    }
-                  }}
+                  onSelect={onThreadSelect}
+                  onCheck={onThreadsSelect}
+                  selectedThreads={selectedThreads}
+                  starMutation={starMutation}
                 />
               )}
             </div>
@@ -1987,24 +1994,46 @@ function VirtualizedThreadList({
       </div>
     </div>
   );
-}
+});
+VirtualizedThreadList.displayName = 'VirtualizedThreadList';
 
 // Thread Row Component (Memoized for performance)
+// Now optimized with stable callback references
 const ThreadRow = React.memo(({
   thread,
   isSelected,
   isChecked,
   onSelect,
   onCheck,
-  onStarToggle,
+  selectedThreads,
+  starMutation,
 }: {
   thread: EmailThread;
   isSelected: boolean;
   isChecked: boolean;
-  onSelect: () => void;
-  onCheck: (checked: boolean) => void;
-  onStarToggle: () => void;
+  onSelect: (threadId: string) => void;
+  onCheck: (threads: Set<string>) => void;
+  selectedThreads: Set<string>;
+  starMutation: any;
 }) => {
+  // Memoize handlers to maintain stability
+  const handleSelect = useCallback(() => {
+    onSelect(thread.id);
+  }, [onSelect, thread.id]);
+
+  const handleCheck = useCallback((checked: boolean) => {
+    const newSet = new Set(selectedThreads);
+    if (checked) newSet.add(thread.id);
+    else newSet.delete(thread.id);
+    onCheck(newSet);
+  }, [onCheck, selectedThreads, thread.id]);
+
+  const handleStarToggle = useCallback(() => {
+    const message = thread.messages?.[0];
+    if (message) {
+      starMutation.mutate({ messageId: message.id, isStarred: !message.isStarred });
+    }
+  }, [starMutation, thread.messages]);
   const isUnread = thread.messages?.[0]?.isRead === false;
   const isStarred = thread.messages?.[0]?.isStarred;
 
@@ -2019,13 +2048,13 @@ const ThreadRow = React.memo(({
           : "bg-gray-50 hover:bg-gray-100",
         isSelected && "border-l-4 border-blue-600"
       )}
-      onClick={onSelect}
+      onClick={handleSelect}
     >
       <input
         type="checkbox"
         className="accent-blue-600 rounded cursor-pointer"
         checked={isChecked}
-        onChange={(e) => onCheck(e.target.checked)}
+        onChange={(e) => handleCheck(e.target.checked)}
         onClick={(e) => e.stopPropagation()}
       />
 
@@ -2036,7 +2065,7 @@ const ThreadRow = React.memo(({
         )}
         onClick={(e) => {
           e.stopPropagation();
-          onStarToggle();
+          handleStarToggle();
         }}
       >
         <Star className={cn("h-4 w-4", isStarred && "fill-yellow-500")} />
@@ -2094,185 +2123,3 @@ const ThreadRow = React.memo(({
   );
 });
 ThreadRow.displayName = 'ThreadRow';
-
-// Email Content Component with Sanitization and Proper Styling
-interface EmailContentProps {
-  htmlBody: string | null;
-  textBody: string | null;
-}
-
-function EmailContent({ htmlBody, textBody }: EmailContentProps) {
-  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
-
-  // Sanitize HTML and configure DOMPurify
-  const sanitizedHtml = useMemo(() => {
-    if (!htmlBody) return null;
-
-    // Configure DOMPurify to allow images, links and common email tags
-    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-      // Make all links open in new tab for security
-      if (node.tagName === 'A') {
-        node.setAttribute('target', '_blank');
-        node.setAttribute('rel', 'noopener noreferrer');
-      }
-    });
-
-    const clean = DOMPurify.sanitize(htmlBody, {
-      ADD_TAGS: ['style', 'img', 'a', 'table', 'tbody', 'thead', 'tr', 'td', 'th'],
-      ADD_ATTR: ['href', 'target', 'rel', 'style', 'class', 'src', 'alt', 'width', 'height', 'border', 'cellpadding', 'cellspacing', 'align', 'valign', 'bgcolor'],
-      ALLOW_DATA_ATTR: true,
-      FORCE_BODY: true,
-      ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
-    });
-
-    DOMPurify.removeHook('afterSanitizeAttributes');
-
-    return clean;
-  }, [htmlBody]);
-
-  // Inject custom styles for email content
-  useEffect(() => {
-    if (!htmlBody) return;
-
-    // Add styles for email content
-    const style = document.createElement('style');
-    style.textContent = `
-      .email-content-wrapper {
-        /* Base email styling */
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-        font-size: 14px;
-        line-height: 1.6;
-        color: #1f2937;
-      }
-
-      .email-content-wrapper img {
-        max-width: 100%;
-        height: auto;
-        display: block;
-        margin: 0.5rem 0;
-        border-radius: 0.375rem;
-      }
-
-      .email-content-wrapper a {
-        color: #2563eb !important;
-        text-decoration: underline !important;
-        cursor: pointer;
-        display: inline;
-      }
-
-      .email-content-wrapper a:hover {
-        color: #1d4ed8 !important;
-        text-decoration: underline !important;
-      }
-
-      .email-content-wrapper a:visited {
-        color: #7c3aed;
-      }
-
-      .email-content-wrapper p {
-        margin: 0.75rem 0;
-      }
-
-      .email-content-wrapper h1,
-      .email-content-wrapper h2,
-      .email-content-wrapper h3,
-      .email-content-wrapper h4,
-      .email-content-wrapper h5,
-      .email-content-wrapper h6 {
-        margin-top: 1.5rem;
-        margin-bottom: 0.75rem;
-        font-weight: 600;
-        line-height: 1.3;
-      }
-
-      .email-content-wrapper ul,
-      .email-content-wrapper ol {
-        margin: 0.75rem 0;
-        padding-left: 2rem;
-      }
-
-      .email-content-wrapper blockquote {
-        margin: 1rem 0;
-        padding-left: 1rem;
-        border-left: 4px solid #e5e7eb;
-        color: #6b7280;
-      }
-
-      .email-content-wrapper table {
-        border-collapse: collapse;
-        width: 100%;
-        margin: 1rem 0;
-      }
-
-      .email-content-wrapper table td,
-      .email-content-wrapper table th {
-        border: 1px solid #e5e7eb;
-        padding: 0.5rem;
-      }
-
-      .email-content-wrapper pre {
-        background: #f3f4f6;
-        padding: 1rem;
-        border-radius: 0.375rem;
-        overflow-x: auto;
-        margin: 1rem 0;
-      }
-
-      .email-content-wrapper code {
-        background: #f3f4f6;
-        padding: 0.125rem 0.25rem;
-        border-radius: 0.25rem;
-        font-family: 'Courier New', monospace;
-        font-size: 0.875em;
-      }
-
-      .email-content-wrapper hr {
-        border: none;
-        border-top: 1px solid #e5e7eb;
-        margin: 1.5rem 0;
-      }
-
-      /* Handle email-specific styling */
-      .email-content-wrapper div[style*="background"],
-      .email-content-wrapper table[style*="background"] {
-        border-radius: 0.375rem;
-      }
-    `;
-    document.head.appendChild(style);
-
-    return () => {
-      document.head.removeChild(style);
-    };
-  }, [htmlBody]);
-
-  if (!htmlBody && !textBody) {
-    return (
-      <div className="flex items-center justify-center py-8 text-gray-400">
-        <div className="text-center">
-          <Mail className="h-12 w-12 mx-auto mb-2 opacity-50" />
-          <p className="text-sm">No content to display</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (htmlBody && sanitizedHtml) {
-    return (
-      <div className="email-content-wrapper mt-4 mb-4">
-        <div
-          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-          className="prose prose-sm max-w-none"
-        />
-      </div>
-    );
-  }
-
-  // Fallback to text body
-  return (
-    <div className="email-content-wrapper mt-4 mb-4">
-      <p className="whitespace-pre-wrap text-gray-800 leading-relaxed">
-        {textBody || 'No content available'}
-      </p>
-    </div>
-  );
-}
