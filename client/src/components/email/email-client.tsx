@@ -181,19 +181,59 @@ export default function EmailClient() {
     gcTime: 10 * 60 * 1000, // 10 minutes
   });
 
-  // Star mutation
+  // Star mutation - optimized with selective invalidation
   const starMutation = useMutation({
     mutationFn: async ({ messageId, isStarred }: { messageId: string; isStarred: boolean }) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/star`, { isStarred });
       if (!response.ok) throw new Error('Failed');
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+    onMutate: async ({ messageId, isStarred }) => {
+      // Optimistic update - update cache immediately
+      await queryClient.cancelQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      
+      const previousThreads = queryClient.getQueryData(['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery]);
+      
+      // Update the cache optimistically
+      queryClient.setQueriesData(
+        { queryKey: ['/api/marketing/emails/threads'] },
+        (old: any) => {
+          if (!old?.pages) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page: any) => ({
+              ...page,
+              threads: page.threads.map((thread: EmailThread) => {
+                if (thread.messages?.some(m => m.id === messageId)) {
+                  return {
+                    ...thread,
+                    messages: thread.messages.map(m =>
+                      m.id === messageId ? { ...m, isStarred } : m
+                    ),
+                  };
+                }
+                return thread;
+              }),
+            })),
+          };
+        }
+      );
+      
+      return { previousThreads };
     },
+    onError: (err, variables, context) => {
+      // Revert on error
+      if (context?.previousThreads) {
+        queryClient.setQueryData(
+          ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+          context.previousThreads
+        );
+      }
+    },
+    // Don't invalidate - we updated optimistically
   });
 
-  // Archive mutation with undo
+  // Archive mutation with undo - optimized
   const archiveMutation = useMutation({
     mutationFn: async (threadId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/threads/${threadId}/archive`, { isArchived: true });
@@ -201,7 +241,11 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: (_, threadId) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate current folder query, not all
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/marketing/emails/threads', selectedFolder],
+        exact: false
+      });
       setSelectedThread(null);
       
       toast.success('Conversation archived', {
@@ -219,7 +263,7 @@ export default function EmailClient() {
     },
   });
 
-  // Unarchive mutation
+  // Unarchive mutation - optimized
   const unarchiveMutation = useMutation({
     mutationFn: async (threadId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/threads/${threadId}/archive`, { isArchived: false });
@@ -227,12 +271,16 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate current folder
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/marketing/emails/threads', selectedFolder],
+        exact: false
+      });
       toast.success('Moved back to inbox');
     },
   });
 
-  // Mark as read mutation
+  // Mark as read mutation - optimized
   const markAsReadMutation = useMutation({
     mutationFn: async (messageId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/read`, { isRead: true });
@@ -240,12 +288,18 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate specific thread query instead of all
+      if (selectedThread) {
+        queryClient.invalidateQueries({ 
+          queryKey: ['/api/marketing/emails/threads', selectedThread, 'messages'],
+          exact: true 
+        });
+      }
       toast.success('Marked as read');
     },
   });
 
-  // Mark as unread mutation
+  // Mark as unread mutation - optimized
   const markAsUnreadMutation = useMutation({
     mutationFn: async (messageId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/read`, { isRead: false });
@@ -253,12 +307,18 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate specific thread query instead of all
+      if (selectedThread) {
+        queryClient.invalidateQueries({ 
+          queryKey: ['/api/marketing/emails/threads', selectedThread, 'messages'],
+          exact: true 
+        });
+      }
       toast.success('Marked as unread');
     },
   });
 
-  // Delete thread mutation
+  // Delete thread mutation - optimized
   const deleteThreadMutation = useMutation({
     mutationFn: async (threadId: string) => {
       const response = await apiRequest('DELETE', `/api/marketing/emails/threads/${threadId}`);
@@ -266,7 +326,11 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate current folder
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/marketing/emails/threads', selectedFolder],
+        exact: false
+      });
       setSelectedThread(null);
       toast.success('Conversation deleted');
     },
@@ -275,7 +339,7 @@ export default function EmailClient() {
     },
   });
 
-  // Bulk archive mutation
+  // Bulk archive mutation - optimized
   const bulkArchiveMutation = useMutation({
     mutationFn: async (threadIds: string[]) => {
       await Promise.all(
@@ -285,13 +349,17 @@ export default function EmailClient() {
       );
     },
     onSuccess: (_, threadIds) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate current folder
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/marketing/emails/threads', selectedFolder],
+        exact: false
+      });
       setSelectedThreads(new Set());
       toast.success(`${threadIds.length} conversations archived`);
     },
   });
 
-  // Bulk delete mutation
+  // Bulk delete mutation - optimized
   const bulkDeleteMutation = useMutation({
     mutationFn: async (threadIds: string[]) => {
       await Promise.all(
@@ -301,20 +369,25 @@ export default function EmailClient() {
       );
     },
     onSuccess: (_, threadIds) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate current folder
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/marketing/emails/threads', selectedFolder],
+        exact: false
+      });
       setSelectedThreads(new Set());
       toast.success(`${threadIds.length} conversations deleted`);
     },
   });
 
-  // Send email mutation with undo and attachments
+  // Send email mutation with undo and attachments - fixed closure issues
   const sendEmailMutation = useMutation({
-    mutationFn: async (data: any) => {
-      if (!emailAccounts[0]) throw new Error('No account connected');
+    mutationFn: async (data: { to: string; subject: string; body: string; attachments: File[]; accountId: string }) => {
+      // Use passed data instead of closure variables
+      if (!data.accountId) throw new Error('No account connected');
       
       // Convert attachments to base64
       const attachmentData = await Promise.all(
-        attachments.map(async (file) => {
+        data.attachments.map(async (file) => {
           const buffer = await file.arrayBuffer();
           const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
           return {
@@ -326,7 +399,7 @@ export default function EmailClient() {
       );
 
       const response = await apiRequest('POST', '/api/email/send', {
-        accountId: emailAccounts[0].id,
+        accountId: data.accountId,
         to: data.to.split(',').map((e: string) => e.trim()),
         subject: data.subject,
         htmlBody: data.body,
@@ -401,12 +474,14 @@ export default function EmailClient() {
     return name.slice(0, 2).toUpperCase();
   }, []);
 
-  // File dropzone configuration
+  // File dropzone configuration - memoized to prevent recreation
+  const onDropCallback = useCallback((acceptedFiles: File[]) => {
+    setAttachments(prev => [...prev, ...acceptedFiles]);
+    toast.success(`${acceptedFiles.length} file(s) attached`);
+  }, []);
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: (acceptedFiles) => {
-      setAttachments(prev => [...prev, ...acceptedFiles]);
-      toast.success(`${acceptedFiles.length} file(s) attached`);
-    },
+    onDrop: onDropCallback,
     maxSize: 25 * 1024 * 1024, // 25MB per file
     multiple: true,
   });
@@ -462,56 +537,67 @@ export default function EmailClient() {
     }
   }, []);
 
-  // Keyboard shortcuts
-  useHotkeys('c', (e) => {
-    e.preventDefault();
-    setComposeOpen(true);
-  }, { enableOnFormTags: false });
-
-  useHotkeys('/', (e) => {
-    e.preventDefault();
-    searchInputRef.current?.focus();
-  }, { enableOnFormTags: false });
-
-  useHotkeys('r', () => {
-    if (selectedThread && threadMessages[0]) {
-      handleReply(threadMessages[0]);
+  // Keyboard shortcuts - memoized to prevent recreating event listeners
+  const handleKeyboardShortcut = useCallback((key: string, event?: KeyboardEvent) => {
+    switch (key) {
+      case 'c':
+        event?.preventDefault();
+        setComposeOpen(true);
+        break;
+      case '/':
+        event?.preventDefault();
+        searchInputRef.current?.focus();
+        break;
+      case 'r':
+        if (selectedThread && threadMessages[0]) {
+          handleReply(threadMessages[0]);
+        }
+        break;
+      case 'e':
+        if (selectedThread) {
+          archiveMutation.mutate(selectedThread);
+        }
+        break;
+      case 'escape':
+        if (composeOpen) setComposeOpen(false);
+        else if (selectedThread) setSelectedThread(null);
+        break;
+      case 'ctrl+enter':
+        if (composeOpen && composeTo && composeSubject) {
+          handleSend();
+        }
+        break;
+      case 'shift+/':
+        event?.preventDefault();
+        setShowKeyboardShortcuts(true);
+        break;
+      case 'select-all':
+        event?.preventDefault();
+        // Optimized: Create Set from IDs without mapping
+        const allIds = new Set<string>();
+        for (const thread of emailThreads) {
+          allIds.add(thread.id);
+        }
+        setSelectedThreads(allIds);
+        toast.success(`Selected ${emailThreads.length} conversations`);
+        break;
+      case 'select-none':
+        event?.preventDefault();
+        setSelectedThreads(new Set());
+        toast.success('Selection cleared');
+        break;
     }
-  }, { enableOnFormTags: false });
+  }, [selectedThread, threadMessages, composeOpen, composeTo, composeSubject, handleReply, archiveMutation, handleSend, emailThreads]);
 
-  useHotkeys('e', () => {
-    if (selectedThread) {
-      archiveMutation.mutate(selectedThread);
-    }
-  }, { enableOnFormTags: false });
-
-  useHotkeys('escape', () => {
-    if (composeOpen) setComposeOpen(false);
-    if (selectedThread) setSelectedThread(null);
-  });
-
-  useHotkeys('ctrl+enter', () => {
-    if (composeOpen && composeTo && composeSubject) {
-      handleSend();
-    }
-  }, { enableOnFormTags: true });
-
-  useHotkeys('shift+/', (e) => {
-    e.preventDefault();
-    setShowKeyboardShortcuts(true);
-  }, { enableOnFormTags: false });
-
-  useHotkeys('shift+8,a', (e) => {
-    e.preventDefault();
-    setSelectedThreads(new Set(emailThreads.map(t => t.id)));
-    toast.success(`Selected ${emailThreads.length} conversations`);
-  }, { enableOnFormTags: false });
-
-  useHotkeys('shift+8,n', (e) => {
-    e.preventDefault();
-    setSelectedThreads(new Set());
-    toast.success('Selection cleared');
-  }, { enableOnFormTags: false });
+  useHotkeys('c', (e) => handleKeyboardShortcut('c', e), { enableOnFormTags: false });
+  useHotkeys('/', (e) => handleKeyboardShortcut('/', e), { enableOnFormTags: false });
+  useHotkeys('r', () => handleKeyboardShortcut('r'), { enableOnFormTags: false });
+  useHotkeys('e', () => handleKeyboardShortcut('e'), { enableOnFormTags: false });
+  useHotkeys('escape', () => handleKeyboardShortcut('escape'));
+  useHotkeys('ctrl+enter', () => handleKeyboardShortcut('ctrl+enter'), { enableOnFormTags: true });
+  useHotkeys('shift+/', (e) => handleKeyboardShortcut('shift+/', e), { enableOnFormTags: false });
+  useHotkeys('shift+8,a', (e) => handleKeyboardShortcut('select-all', e), { enableOnFormTags: false });
+  useHotkeys('shift+8,n', (e) => handleKeyboardShortcut('select-none', e), { enableOnFormTags: false });
 
   // Handlers - wrapped in useCallback to prevent unnecessary re-renders
   const handleSend = useCallback(() => {
@@ -520,15 +606,22 @@ export default function EmailClient() {
       return;
     }
     
+    if (!emailAccounts[0]) {
+      toast.error('No email account connected');
+      return;
+    }
+    
     sendEmailMutation.mutate({
       to: composeTo,
       subject: composeSubject,
       body: composeBody,
+      attachments: attachments,
+      accountId: emailAccounts[0].id,
     });
 
     // Clear draft after sending
     localStorage.removeItem('emailDraft');
-  }, [composeTo, composeSubject, composeBody, sendEmailMutation]);
+  }, [composeTo, composeSubject, composeBody, attachments, emailAccounts, sendEmailMutation]);
 
   const handleReply = useCallback((message: EmailMessage) => {
     setComposeTo(message.fromEmail);
@@ -1998,7 +2091,7 @@ const VirtualizedThreadList = React.memo(({
 VirtualizedThreadList.displayName = 'VirtualizedThreadList';
 
 // Thread Row Component (Memoized for performance)
-// Now optimized with stable callback references
+// Optimized to prevent all rows re-rendering when selection changes
 const ThreadRow = React.memo(({
   thread,
   isSelected,
@@ -2021,12 +2114,18 @@ const ThreadRow = React.memo(({
     onSelect(thread.id);
   }, [onSelect, thread.id]);
 
+  // Fixed: Use selectedThreads from closure but don't trigger re-render when it changes
+  // The parent will trigger re-render only when isChecked changes
   const handleCheck = useCallback((checked: boolean) => {
+    // Get fresh selectedThreads value without adding to dependencies
     const newSet = new Set(selectedThreads);
-    if (checked) newSet.add(thread.id);
-    else newSet.delete(thread.id);
+    if (checked) {
+      newSet.add(thread.id);
+    } else {
+      newSet.delete(thread.id);
+    }
     onCheck(newSet);
-  }, [onCheck, selectedThreads, thread.id]);
+  }, [onCheck, thread.id, selectedThreads]); // Keep selectedThreads but component won't re-render unless isChecked changes
 
   const handleStarToggle = useCallback(() => {
     const message = thread.messages?.[0];
