@@ -81,23 +81,19 @@ export default function EmailClient() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   
-  // Compose state - consolidated
-  const [composeState, setComposeState] = useState({
-    to: '',
-    subject: '',
-    body: '',
-    attachments: [] as File[],
-  });
+  // Compose state
+  const [composeTo, setComposeTo] = useState('');
+  const [composeSubject, setComposeSubject] = useState('');
+  const [composeBody, setComposeBody] = useState('');
+  const [attachments, setAttachments] = useState<File[]>([]);
   
-  // UI state - consolidated (modals, pickers, etc.)
-  const [uiState, setUiState] = useState({
-    composeOpen: false,
-    accountsOpen: false,
-    showEmojiPicker: false,
-    showScheduler: false,
-    showSearchSuggestions: false,
-    showKeyboardShortcuts: false,
-  });
+  // UI state (modals, pickers, etc.)
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [accountsOpen, setAccountsOpen] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
   
   const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
