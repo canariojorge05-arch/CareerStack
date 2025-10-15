@@ -6,19 +6,46 @@ import Image from '@tiptap/extension-image';
 import TextAlign from '@tiptap/extension-text-align';
 import Underline from '@tiptap/extension-underline';
 import { Button } from '@/components/ui/button';
-import { 
-  Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
-  AlignLeft, AlignCenter, AlignRight, Undo, Redo
+import {
+  Bold,
+  Italic,
+  Underline as UnderlineIcon,
+  List,
+  ListOrdered,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Undo,
+  Redo,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { EmailMessage } from '@shared/schema';
 
-interface EmailEditorProps {
+export interface EmailData {
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
   content: string;
-  onChange: (html: string) => void;
-  placeholder?: string;
+  attachments?: File[];
 }
 
-export function EmailEditor({ content, onChange, placeholder = 'Compose your message...' }: EmailEditorProps) {
+export interface EmailEditorProps {
+  content?: string;
+  onChange?: (html: string) => void;
+  placeholder?: string;
+  onClose: () => void;
+  onSend: (data: EmailData) => Promise<void>;
+  replyTo?: EmailMessage;
+  replyAll?: boolean;
+  forward?: EmailMessage;
+}
+
+export function EmailEditor({
+  content,
+  onChange,
+  placeholder = 'Compose your message...',
+}: EmailEditorProps) {
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -40,7 +67,7 @@ export function EmailEditor({ content, onChange, placeholder = 'Compose your mes
     ],
     content,
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      onChange?.(editor.getHTML());
     },
     editorProps: {
       attributes: {
@@ -62,10 +89,7 @@ export function EmailEditor({ content, onChange, placeholder = 'Compose your mes
           variant="ghost"
           size="sm"
           onClick={() => editor.chain().focus().toggleBold().run()}
-          className={cn(
-            'h-8 w-8 p-0',
-            editor.isActive('bold') && 'bg-gray-200'
-          )}
+          className={cn('h-8 w-8 p-0', editor.isActive('bold') && 'bg-gray-200')}
         >
           <Bold className="h-4 w-4" />
         </Button>
@@ -75,10 +99,7 @@ export function EmailEditor({ content, onChange, placeholder = 'Compose your mes
           variant="ghost"
           size="sm"
           onClick={() => editor.chain().focus().toggleItalic().run()}
-          className={cn(
-            'h-8 w-8 p-0',
-            editor.isActive('italic') && 'bg-gray-200'
-          )}
+          className={cn('h-8 w-8 p-0', editor.isActive('italic') && 'bg-gray-200')}
         >
           <Italic className="h-4 w-4" />
         </Button>
@@ -88,10 +109,7 @@ export function EmailEditor({ content, onChange, placeholder = 'Compose your mes
           variant="ghost"
           size="sm"
           onClick={() => editor.chain().focus().toggleUnderline().run()}
-          className={cn(
-            'h-8 w-8 p-0',
-            editor.isActive('underline') && 'bg-gray-200'
-          )}
+          className={cn('h-8 w-8 p-0', editor.isActive('underline') && 'bg-gray-200')}
         >
           <UnderlineIcon className="h-4 w-4" />
         </Button>
@@ -103,10 +121,7 @@ export function EmailEditor({ content, onChange, placeholder = 'Compose your mes
           variant="ghost"
           size="sm"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
-          className={cn(
-            'h-8 w-8 p-0',
-            editor.isActive('bulletList') && 'bg-gray-200'
-          )}
+          className={cn('h-8 w-8 p-0', editor.isActive('bulletList') && 'bg-gray-200')}
         >
           <List className="h-4 w-4" />
         </Button>
@@ -116,10 +131,7 @@ export function EmailEditor({ content, onChange, placeholder = 'Compose your mes
           variant="ghost"
           size="sm"
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          className={cn(
-            'h-8 w-8 p-0',
-            editor.isActive('orderedList') && 'bg-gray-200'
-          )}
+          className={cn('h-8 w-8 p-0', editor.isActive('orderedList') && 'bg-gray-200')}
         >
           <ListOrdered className="h-4 w-4" />
         </Button>
@@ -131,10 +143,7 @@ export function EmailEditor({ content, onChange, placeholder = 'Compose your mes
           variant="ghost"
           size="sm"
           onClick={() => editor.chain().focus().setTextAlign('left').run()}
-          className={cn(
-            'h-8 w-8 p-0',
-            editor.isActive({ textAlign: 'left' }) && 'bg-gray-200'
-          )}
+          className={cn('h-8 w-8 p-0', editor.isActive({ textAlign: 'left' }) && 'bg-gray-200')}
         >
           <AlignLeft className="h-4 w-4" />
         </Button>
@@ -144,10 +153,7 @@ export function EmailEditor({ content, onChange, placeholder = 'Compose your mes
           variant="ghost"
           size="sm"
           onClick={() => editor.chain().focus().setTextAlign('center').run()}
-          className={cn(
-            'h-8 w-8 p-0',
-            editor.isActive({ textAlign: 'center' }) && 'bg-gray-200'
-          )}
+          className={cn('h-8 w-8 p-0', editor.isActive({ textAlign: 'center' }) && 'bg-gray-200')}
         >
           <AlignCenter className="h-4 w-4" />
         </Button>
@@ -157,10 +163,7 @@ export function EmailEditor({ content, onChange, placeholder = 'Compose your mes
           variant="ghost"
           size="sm"
           onClick={() => editor.chain().focus().setTextAlign('right').run()}
-          className={cn(
-            'h-8 w-8 p-0',
-            editor.isActive({ textAlign: 'right' }) && 'bg-gray-200'
-          )}
+          className={cn('h-8 w-8 p-0', editor.isActive({ textAlign: 'right' }) && 'bg-gray-200')}
         >
           <AlignRight className="h-4 w-4" />
         </Button>

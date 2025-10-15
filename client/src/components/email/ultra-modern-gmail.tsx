@@ -7,7 +7,7 @@ import DOMPurify from 'dompurify';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useDropzone } from 'react-dropzone';
 import EmojiPicker from 'emoji-picker-react';
-import { EmailEditor } from './email-editor';
+import { EmailData, EmailEditor } from './email-editor';
 import { EmailListSkeleton, EmailDetailSkeleton } from './loading-skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1461,8 +1461,11 @@ export default function UltraModernGmailClient() {
                   <EmailEditor 
                     content={composeBody}
                     onChange={setComposeBody}
-                    placeholder="Compose your message..."
-                  />
+                    placeholder="Compose your message..." onClose={function (): void {
+                      throw new Error('Function not implemented.');
+                    } } onSend={function (data: EmailData): Promise<void> {
+                      throw new Error('Function not implemented.');
+                    } }                  />
                 </div>
 
                 {/* Compose Footer */}
