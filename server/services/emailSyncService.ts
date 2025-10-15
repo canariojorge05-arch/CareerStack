@@ -2,33 +2,51 @@ import { db } from '../db';
 import { emailAccounts } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { MultiAccountEmailService } from './multiAccountEmailService';
+import { EmailCacheService } from './emailCacheService';
+import { emailWebSocketManager } from './emailWebSocketManager';
+import { EmailPerformanceMonitor } from './emailPerformanceMonitor';
 import { logger } from '../utils/logger';
 
 export class EmailSyncService {
   private static syncIntervals: Map<string, NodeJS.Timeout> = new Map();
   private static isRunning = false;
+  private static isSyncing = false;
+  private static readonly DEFAULT_SYNC_INTERVAL = 15 * 1000; // 15 seconds for ultra-fast sync
+  private static readonly MIN_SYNC_INTERVAL = 10 * 1000; // 10 seconds minimum
+  private static readonly MAX_CONCURRENT_SYNCS = 5; // Limit concurrent syncs
 
-  static async startBackgroundSync(): Promise<void> {
+  static async startBackgroundSync(customInterval?: number): Promise<void> {
     if (this.isRunning) {
       logger.info('📧 Email sync service already running');
       return;
     }
 
     this.isRunning = true;
-    logger.info('🚀 Starting email background sync service');
+    const syncInterval = Math.max(
+      customInterval || this.DEFAULT_SYNC_INTERVAL,
+      this.MIN_SYNC_INTERVAL
+    );
+    
+    logger.info(`🚀 Starting ultra-fast email sync service (${syncInterval / 1000}s interval)`);
 
     // Initial sync for all active accounts
-    await this.syncAllAccounts();
+    this.syncAllAccounts().catch(err => 
+      logger.error({ error: err }, 'Initial sync failed')
+    );
 
-    // Set up periodic sync every 1 minute for near-instant email delivery
+    // Set up periodic sync with configurable interval
     const globalSyncInterval = setInterval(async () => {
-      await this.syncAllAccounts();
-    }, 1 * 60 * 1000); // 1 minute
+      if (!this.isSyncing) {
+        await this.syncAllAccounts();
+      } else {
+        logger.debug('⏭️  Skipping sync - previous sync still in progress');
+      }
+    }, syncInterval);
 
     // Store the global interval
     this.syncIntervals.set('global', globalSyncInterval);
 
-    logger.info('✅ Email background sync service started');
+    logger.info(`✅ Email background sync service started with ${syncInterval / 1000}s interval`);
   }
 
   static async stopBackgroundSync(): Promise<void> {
@@ -47,6 +65,14 @@ export class EmailSyncService {
   }
 
   static async syncAllAccounts(): Promise<void> {
+    if (this.isSyncing) {
+      logger.debug('⏭️  Sync already in progress, skipping');
+      return;
+    }
+
+    this.isSyncing = true;
+    const startTime = Date.now();
+
     try {
       // Get all active accounts that have sync enabled
       let accounts;
@@ -65,38 +91,63 @@ export class EmailSyncService {
       );
 
       if (activeAccounts.length === 0) {
-        logger.info('📧 No accounts need syncing');
+        logger.debug('📧 No accounts need syncing');
         return;
       }
 
       logger.info(`🔄 Syncing ${activeAccounts.length} email accounts`);
 
-      // Sync accounts in parallel (but limit concurrency)
-      const syncPromises = activeAccounts.map(account => 
-        this.syncSingleAccount(account)
+      // Sync accounts in parallel with concurrency limit
+      const results = await this.syncAccountsWithConcurrencyLimit(
+        activeAccounts,
+        this.MAX_CONCURRENT_SYNCS
       );
 
-      const results = await Promise.allSettled(syncPromises);
-
-      // Log results
+      // Log results with performance metrics
       let successCount = 0;
       let errorCount = 0;
+      let totalMessages = 0;
 
       results.forEach((result, index) => {
         const account = activeAccounts[index];
         if (result.status === 'fulfilled') {
           successCount++;
-          logger.info(`✅ Synced ${account.emailAddress}: ${result.value.syncedCount} new messages`);
+          totalMessages += result.value.syncedCount;
+          if (result.value.syncedCount > 0) {
+            logger.info(`✅ Synced ${account.emailAddress}: ${result.value.syncedCount} new messages`);
+          }
         } else {
           errorCount++;
           logger.error(`❌ Failed to sync ${account.emailAddress}:`, result.reason);
         }
       });
 
-      logger.info(`📊 Sync completed: ${successCount} successful, ${errorCount} failed`);
+      const duration = Date.now() - startTime;
+      logger.info(`📊 Sync completed in ${duration}ms: ${successCount} successful, ${errorCount} failed, ${totalMessages} new messages`);
     } catch (error) {
       logger.error({ error: error }, 'Error in syncAllAccounts:');
+    } finally {
+      this.isSyncing = false;
     }
+  }
+
+  /**
+   * Sync accounts with concurrency limit for better performance
+   */
+  private static async syncAccountsWithConcurrencyLimit(
+    accounts: any[],
+    limit: number
+  ): Promise<PromiseSettledResult<{ syncedCount: number }>[]> {
+    const results: PromiseSettledResult<{ syncedCount: number }>[] = [];
+    
+    for (let i = 0; i < accounts.length; i += limit) {
+      const batch = accounts.slice(i, i + limit);
+      const batchPromises = batch.map(account => this.syncSingleAccount(account));
+      const batchResults = await Promise.allSettled(batchPromises);
+      results.push(...batchResults);
+    }
+    
+    return results;
   }
 
   private static shouldSync(account: any): boolean {
@@ -106,24 +157,44 @@ export class EmailSyncService {
 
     const now = new Date();
     const lastSync = new Date(account.lastSyncAt);
-    const syncFrequencyMs = (account.syncFrequency || 60) * 1000; // Default 1 minute
+    const syncFrequencyMs = (account.syncFrequency || 15) * 1000; // Default 15 seconds for speed
 
     return (now.getTime() - lastSync.getTime()) >= syncFrequencyMs;
   }
 
   private static async syncSingleAccount(account: any): Promise<{ syncedCount: number }> {
-    try {
-      const result = await MultiAccountEmailService.syncAccount(account.id, account.userId);
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Sync failed');
-      }
+    return EmailPerformanceMonitor.track(
+      'email_sync',
+      async () => {
+        const result = await MultiAccountEmailService.syncAccount(account.id, account.userId);
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Sync failed');
+        }
 
-      return { syncedCount: result.syncedCount || 0 };
-    } catch (error) {
+        // Invalidate cache and notify clients if new messages were synced
+        if (result.syncedCount && result.syncedCount > 0) {
+          await EmailCacheService.invalidateUserCache(account.userId);
+          logger.debug(`🗑️  Invalidated cache for user ${account.userId} after sync`);
+
+          // Send real-time notification via WebSocket
+          emailWebSocketManager.broadcastToUser(account.userId, {
+            type: 'email_sync_complete',
+            accountId: account.id,
+            newMessageCount: result.syncedCount,
+            timestamp: new Date().toISOString()
+          });
+
+          logger.debug(`📡 Sent WebSocket notification to user ${account.userId}: ${result.syncedCount} new messages`);
+        }
+
+        return { syncedCount: result.syncedCount || 0 };
+      },
+      { accountId: account.id, provider: account.provider }
+    ).catch(error => {
       logger.error(`Error syncing account ${account.emailAddress}:`, error);
       throw error;
-    }
+    });
   }
 
   static async syncAccountOnDemand(accountId: string, userId: string): Promise<{
@@ -138,6 +209,20 @@ export class EmailSyncService {
       
       if (result.success) {
         logger.info(`✅ On-demand sync completed: ${result.syncedCount} new messages`);
+        
+        // Invalidate cache and notify client
+        if (result.syncedCount && result.syncedCount > 0) {
+          await EmailCacheService.invalidateUserCache(userId);
+          
+          emailWebSocketManager.broadcastToUser(userId, {
+            type: 'email_sync_complete',
+            accountId,
+            newMessageCount: result.syncedCount,
+            timestamp: new Date().toISOString()
+          });
+          
+          logger.debug(`📡 Sent WebSocket notification for on-demand sync`);
+        }
       }
 
       return result;

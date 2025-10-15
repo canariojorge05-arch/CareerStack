@@ -245,12 +245,18 @@ export class MultiAccountEmailService {
       }
 
       let syncedCount = 0;
+      let historyId: string | undefined;
 
       switch (account.provider) {
         case 'gmail':
-          // Use Gmail API to fetch messages
-          const gmailResult = await EnhancedGmailOAuthService.fetchGmailMessages(account, { maxResults: 50 });
+          // Use Gmail API with incremental sync support
+          const gmailResult = await EnhancedGmailOAuthService.fetchGmailMessages(account, { maxResults: 100 });
           syncedCount = await this.saveMessagesToDatabase(account, gmailResult.messages, userId);
+          historyId = gmailResult.historyId;
+          
+          if (gmailResult.fullSync === false) {
+            logger.debug(`📊 Used incremental sync for ${account.emailAddress}`);
+          }
           break;
         case 'outlook':
           // Use Graph API to fetch messages
@@ -267,10 +273,15 @@ export class MultiAccountEmailService {
           throw new Error(`Unsupported provider for sync: ${account.provider}`);
       }
 
-      // Update last sync time
+      // Update last sync time and historyId (for Gmail)
+      const updateData: any = { lastSyncAt: new Date() };
+      if (historyId) {
+        updateData.historyId = historyId;
+      }
+
       await db
         .update(emailAccounts)
-        .set({ lastSyncAt: new Date() })
+        .set(updateData)
         .where(eq(emailAccounts.id, accountId));
 
       return {
@@ -294,7 +305,40 @@ export class MultiAccountEmailService {
     const { emailMessages, emailThreads } = await import('@shared/schema');
     let syncedCount = 0;
 
-    for (const message of messages) {
+    // Process in batches for better performance
+    const BATCH_SIZE = 10;
+    
+    for (let i = 0; i < messages.length; i += BATCH_SIZE) {
+      const batch = messages.slice(i, i + BATCH_SIZE);
+      
+      // Process batch with retry logic
+      const results = await Promise.allSettled(
+        batch.map(message => this.saveMessageWithRetry(message, account, userId))
+      );
+      
+      // Count successes
+      results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value) {
+          syncedCount++;
+        }
+      });
+    }
+
+    return syncedCount;
+  }
+
+  /**
+   * Save message with retry logic for transient failures
+   */
+  private static async saveMessageWithRetry(
+    message: any,
+    account: any,
+    userId: string,
+    retries: number = 2
+  ): Promise<boolean> {
+    const { emailMessages, emailThreads } = await import('@shared/schema');
+    
+    for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         // Check if message already exists
         const existingMessage = await db.query.emailMessages.findFirst({
@@ -302,7 +346,7 @@ export class MultiAccountEmailService {
         });
 
         if (existingMessage) {
-          continue; // Skip if already synced
+          return false; // Already exists, not an error
         }
 
         // Find or create thread
@@ -344,12 +388,20 @@ export class MultiAccountEmailService {
           createdBy: userId,
         });
 
-        syncedCount++;
+        return true; // Success
       } catch (error) {
-        logger.warn(`Failed to save message ${message.externalMessageId}:`, error);
+        if (attempt < retries) {
+          // Exponential backoff
+          const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          logger.debug(`Retrying message save (attempt ${attempt + 2}/${retries + 1})`);
+        } else {
+          logger.warn(`Failed to save message ${message.externalMessageId} after ${retries + 1} attempts:`, error);
+          return false;
+        }
       }
     }
-
-    return syncedCount;
+    
+    return false;
   }
 }
