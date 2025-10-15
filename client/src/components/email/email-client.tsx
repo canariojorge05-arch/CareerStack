@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useVirtualizer } from '@tanstack/react-virtual';
-import { formatDistanceToNow, format } from 'date-fns';
+import { useVirtualizer } from '@tantml:react-virtual';
+import { format } from 'date-fns';
 import { apiRequest } from '@/lib/queryClient';
-import DOMPurify from 'dompurify';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useDropzone } from 'react-dropzone';
-import EmojiPicker from 'emoji-picker-react';
 import { EmailData, EmailEditor } from './email-editor';
 import { EmailListSkeleton, EmailDetailSkeleton } from './loading-skeleton';
+import { EmailContent } from './email-content';
+import { EmailErrorBoundary } from './EmailErrorBoundary';
+import { VirtualizedEmailMessages } from './VirtualizedEmailMessages';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -17,19 +18,19 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { 
   Menu, Search, Settings, HelpCircle, Mail, Inbox, Send, FileText, Star, Trash2,
-  Archive, Clock, Tag, RefreshCw, ChevronDown, ChevronLeft, ChevronRight,
-  MoreVertical, Pencil, Check, X, AlertCircle, Filter, Users, 
-  Reply, ReplyAll, Forward, Paperclip, Image, Link2, Smile, AtSign,
-  Download, MailOpen, Circle, Square, SquareCheck, ArrowLeft, Plus,
-  Maximize2, Minimize2, AlertTriangle, Calendar, Zap, Bookmark
+  Archive, Clock, RefreshCw, MoreVertical, Pencil, Check, X, Filter,
+  Reply, Paperclip, Smile, Download, MailOpen, Square, SquareCheck, ArrowLeft, 
+  Plus, Zap, Link2, Image, Forward, ReplyAll
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
+
+// Lazy load EmojiPicker to reduce initial bundle size (saves ~50-100KB)
+const EmojiPicker = lazy(() => import('emoji-picker-react'));
 
 interface EmailAccount {
   id: string;
@@ -67,29 +68,36 @@ interface EmailMessage {
   attachments?: any[];
 }
 
-export default function EmailClient() {
+function EmailClientInner() {
   const { isAuthenticated, isLoading: isAuthLoading, isAuthChecked } = useAuth();
   const [, navigate] = useLocation();
+  // Navigation & selection state
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedFolder, setSelectedFolder] = useState('inbox');
   const [selectedThread, setSelectedThread] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
-  const [composeOpen, setComposeOpen] = useState(false);
-  const [accountsOpen, setAccountsOpen] = useState(false);
   const [selectedThreads, setSelectedThreads] = useState<Set<string>>(new Set());
   const [view, setView] = useState<'list' | 'split'>('split');
+  
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  
+  // Compose state
   const [composeTo, setComposeTo] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
   const [attachments, setAttachments] = useState<File[]>([]);
+  
+  // UI state (modals, pickers, etc.)
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [accountsOpen, setAccountsOpen] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
-  const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
-  const [undoSendTimer, setUndoSendTimer] = useState<NodeJS.Timeout | null>(null);
-  const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  
+  const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   
   const queryClient = useQueryClient();
@@ -181,19 +189,76 @@ export default function EmailClient() {
     gcTime: 10 * 60 * 1000, // 10 minutes
   });
 
-  // Star mutation
+  // Star mutation - optimized with proper optimistic updates
   const starMutation = useMutation({
     mutationFn: async ({ messageId, isStarred }: { messageId: string; isStarred: boolean }) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/star`, { isStarred });
       if (!response.ok) throw new Error('Failed');
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+    onMutate: async ({ messageId, isStarred }) => {
+      // Build exact query key for current view
+      const queryKey = ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery];
+      
+      // Cancel outgoing fetches
+      await queryClient.cancelQueries({ queryKey });
+      
+      // Snapshot current data for rollback
+      const previousData = queryClient.getQueryData(queryKey);
+      
+      // Optimistically update ONLY the current query
+      queryClient.setQueryData(queryKey, (old: any) => {
+        if (!old?.pages) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any) => ({
+            ...page,
+            threads: page.threads.map((thread: EmailThread) => {
+              if (thread.messages?.some(m => m.id === messageId)) {
+                return {
+                  ...thread,
+                  messages: thread.messages.map(m =>
+                    m.id === messageId ? { ...m, isStarred } : m
+                  ),
+                };
+              }
+              return thread;
+            }),
+          })),
+        };
+      });
+      
+      // Also update thread messages query if viewing this thread
+      if (selectedThread) {
+        const messagesKey = ['/api/marketing/emails/threads', selectedThread, 'messages'];
+        const previousMessages = queryClient.getQueryData(messagesKey);
+        
+        queryClient.setQueryData(messagesKey, (old: any) => {
+          if (!Array.isArray(old)) return old;
+          return old.map((m: EmailMessage) =>
+            m.id === messageId ? { ...m, isStarred } : m
+          );
+        });
+        
+        return { previousData, previousMessages, queryKey, messagesKey };
+      }
+      
+      return { previousData, queryKey };
     },
+    onError: (err, variables, context) => {
+      // Proper rollback - restore both queries if they exist
+      if (context?.previousData) {
+        queryClient.setQueryData(context.queryKey, context.previousData);
+      }
+      if (context?.previousMessages && context?.messagesKey) {
+        queryClient.setQueryData(context.messagesKey, context.previousMessages);
+      }
+      toast.error('Failed to update star');
+    },
+    // No invalidation needed - we updated optimistically
   });
 
-  // Archive mutation with undo
+  // Archive mutation with undo - optimized
   const archiveMutation = useMutation({
     mutationFn: async (threadId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/threads/${threadId}/archive`, { isArchived: true });
@@ -201,7 +266,11 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: (_, threadId) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate EXACT current folder query with current search
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+        exact: true
+      });
       setSelectedThread(null);
       
       toast.success('Conversation archived', {
@@ -219,7 +288,7 @@ export default function EmailClient() {
     },
   });
 
-  // Unarchive mutation
+  // Unarchive mutation - optimized
   const unarchiveMutation = useMutation({
     mutationFn: async (threadId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/threads/${threadId}/archive`, { isArchived: false });
@@ -227,12 +296,15 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
-      toast.success('Moved back to inbox');
+      // Only invalidate EXACT current folder query
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+        exact: true
+      });
     },
   });
 
-  // Mark as read mutation
+  // Mark as read mutation - optimized (silent, no toast)
   const markAsReadMutation = useMutation({
     mutationFn: async (messageId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/read`, { isRead: true });
@@ -240,12 +312,18 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
-      toast.success('Marked as read');
+      // Only invalidate specific thread query instead of all
+      if (selectedThread) {
+        queryClient.invalidateQueries({ 
+          queryKey: ['/api/marketing/emails/threads', selectedThread, 'messages'],
+          exact: true 
+        });
+      }
+      // Silent update - no toast needed for common action
     },
   });
 
-  // Mark as unread mutation
+  // Mark as unread mutation - optimized (silent)
   const markAsUnreadMutation = useMutation({
     mutationFn: async (messageId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/read`, { isRead: false });
@@ -253,12 +331,18 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
-      toast.success('Marked as unread');
+      // Only invalidate specific thread query instead of all
+      if (selectedThread) {
+        queryClient.invalidateQueries({ 
+          queryKey: ['/api/marketing/emails/threads', selectedThread, 'messages'],
+          exact: true 
+        });
+      }
+      // Silent update - no toast needed
     },
   });
 
-  // Delete thread mutation
+  // Delete thread mutation - optimized
   const deleteThreadMutation = useMutation({
     mutationFn: async (threadId: string) => {
       const response = await apiRequest('DELETE', `/api/marketing/emails/threads/${threadId}`);
@@ -266,7 +350,11 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate EXACT current folder query
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+        exact: true
+      });
       setSelectedThread(null);
       toast.success('Conversation deleted');
     },
@@ -275,7 +363,7 @@ export default function EmailClient() {
     },
   });
 
-  // Bulk archive mutation
+  // Bulk archive mutation - optimized
   const bulkArchiveMutation = useMutation({
     mutationFn: async (threadIds: string[]) => {
       await Promise.all(
@@ -285,13 +373,17 @@ export default function EmailClient() {
       );
     },
     onSuccess: (_, threadIds) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate EXACT current folder query
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+        exact: true
+      });
       setSelectedThreads(new Set());
       toast.success(`${threadIds.length} conversations archived`);
     },
   });
 
-  // Bulk delete mutation
+  // Bulk delete mutation - optimized
   const bulkDeleteMutation = useMutation({
     mutationFn: async (threadIds: string[]) => {
       await Promise.all(
@@ -301,22 +393,37 @@ export default function EmailClient() {
       );
     },
     onSuccess: (_, threadIds) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Only invalidate EXACT current folder query
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+        exact: true
+      });
       setSelectedThreads(new Set());
       toast.success(`${threadIds.length} conversations deleted`);
     },
   });
 
-  // Send email mutation with undo and attachments
+  // Send email mutation with undo and attachments - fixed closure issues
   const sendEmailMutation = useMutation({
-    mutationFn: async (data: any) => {
-      if (!emailAccounts[0]) throw new Error('No account connected');
+    mutationFn: async (data: { to: string; subject: string; body: string; attachments: File[]; accountId: string }) => {
+      // Use passed data instead of closure variables
+      if (!data.accountId) throw new Error('No account connected');
       
-      // Convert attachments to base64
+      // Convert attachments to base64 - optimized for large files
       const attachmentData = await Promise.all(
-        attachments.map(async (file) => {
+        data.attachments.map(async (file) => {
           const buffer = await file.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          const bytes = new Uint8Array(buffer);
+          
+          // Chunked conversion to avoid stack overflow on large files
+          let binary = '';
+          const chunkSize = 8192; // Process 8KB at a time
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+            binary += String.fromCharCode.apply(null, Array.from(chunk));
+          }
+          const base64 = btoa(binary);
+          
           return {
             filename: file.name,
             content: base64,
@@ -326,7 +433,7 @@ export default function EmailClient() {
       );
 
       const response = await apiRequest('POST', '/api/email/send', {
-        accountId: emailAccounts[0].id,
+        accountId: data.accountId,
         to: data.to.split(',').map((e: string) => e.trim()),
         subject: data.subject,
         htmlBody: data.body,
@@ -375,8 +482,8 @@ export default function EmailClient() {
     },
   });
 
-  // OAuth handlers
-  const handleConnectAccount = async (provider: 'gmail' | 'outlook') => {
+  // OAuth handlers - memoized
+  const handleConnectAccount = useCallback(async (provider: 'gmail' | 'outlook') => {
     try {
       const endpoint = `/api/email/${provider}/auth-url`;
       const response = await apiRequest('GET', endpoint);
@@ -388,47 +495,57 @@ export default function EmailClient() {
     } catch (error) {
       toast.error('Failed to connect account');
     }
-  };
+  }, []);
 
-  const handleRemoveAccount = (accountId: string, accountName: string) => {
+  const handleRemoveAccount = useCallback((accountId: string, accountName: string) => {
     if (confirm(`Are you sure you want to remove ${accountName}?`)) {
       deleteAccountMutation.mutate(accountId);
     }
-  };
+  }, [deleteAccountMutation]);
 
-  const getInitials = (email: string) => {
+  const getInitials = useCallback((email: string) => {
     const name = email.split('@')[0];
     return name.slice(0, 2).toUpperCase();
-  };
+  }, []);
 
-  // File dropzone configuration
+  // File dropzone configuration - memoized to prevent recreation
+  const onDropCallback = useCallback((acceptedFiles: File[]) => {
+    setAttachments(prev => [...prev, ...acceptedFiles]);
+    toast.success(`${acceptedFiles.length} file(s) attached`);
+  }, []);
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: (acceptedFiles) => {
-      setAttachments(prev => [...prev, ...acceptedFiles]);
-      toast.success(`${acceptedFiles.length} file(s) attached`);
-    },
+    onDrop: onDropCallback,
     maxSize: 25 * 1024 * 1024, // 25MB per file
     multiple: true,
   });
 
-  // Draft auto-save every 30 seconds
+  // Draft auto-save every 30 seconds - optimized with ref pattern
+  // Avoids recreating interval on every keystroke
+  const draftDataRef = useRef({ composeTo, composeSubject, composeBody, attachments });
+  // Update ref during render (no useEffect needed)
+  draftDataRef.current = { composeTo, composeSubject, composeBody, attachments };
+
   useEffect(() => {
-    if (!composeTo && !composeSubject && !composeBody) return;
-    
     const timer = setInterval(() => {
-      console.log('Auto-saving draft...');
-      localStorage.setItem('emailDraft', JSON.stringify({
-        to: composeTo,
-        subject: composeSubject,
-        body: composeBody,
-        attachments: attachments.map(f => f.name),
-        savedAt: new Date().toISOString(),
-      }));
-      toast.success('Draft saved', { duration: 1000 });
+      const { composeTo, composeSubject, composeBody, attachments } = draftDataRef.current;
+      
+      // Only save if there's actual content
+      if (composeTo || composeSubject || composeBody) {
+        console.log('Auto-saving draft...');
+        localStorage.setItem('emailDraft', JSON.stringify({
+          to: composeTo,
+          subject: composeSubject,
+          body: composeBody,
+          attachments: attachments.map(f => f.name),
+          savedAt: new Date().toISOString(),
+        }));
+        // Draft saves silently in background
+      }
     }, 30000);
 
     return () => clearInterval(timer);
-  }, [composeTo, composeSubject, composeBody, attachments]);
+  }, []); // No dependencies - stable interval!
 
   // Load draft on mount
   useEffect(() => {
@@ -458,61 +575,99 @@ export default function EmailClient() {
     }
   }, []);
 
-  // Keyboard shortcuts
-  useHotkeys('c', (e) => {
-    e.preventDefault();
-    setComposeOpen(true);
-  }, { enableOnFormTags: false });
-
-  useHotkeys('/', (e) => {
-    e.preventDefault();
-    searchInputRef.current?.focus();
-  }, { enableOnFormTags: false });
-
-  useHotkeys('r', () => {
-    if (selectedThread && threadMessages[0]) {
-      handleReply(threadMessages[0]);
-    }
-  }, { enableOnFormTags: false });
-
-  useHotkeys('e', () => {
-    if (selectedThread) {
-      archiveMutation.mutate(selectedThread);
-    }
-  }, { enableOnFormTags: false });
-
-  useHotkeys('escape', () => {
-    if (composeOpen) setComposeOpen(false);
-    if (selectedThread) setSelectedThread(null);
+  // Store latest values in refs to avoid dependencies
+  const latestValuesRef = useRef({
+    selectedThread,
+    threadMessages,
+    composeOpen,
+    composeTo,
+    composeSubject,
+    emailThreads,
   });
 
-  useHotkeys('ctrl+enter', () => {
-    if (composeOpen && composeTo && composeSubject) {
-      handleSend();
+  // Update ref during render (no useEffect needed - cheaper than effect)
+  latestValuesRef.current = {
+    selectedThread,
+    threadMessages,
+    composeOpen,
+    composeTo,
+    composeSubject,
+    emailThreads,
+  };
+
+  // Keyboard shortcuts - optimized to have minimal dependencies
+  const handleKeyboardShortcut = useCallback((key: string, event?: KeyboardEvent) => {
+    const latest = latestValuesRef.current;
+    
+    switch (key) {
+      case 'c':
+        event?.preventDefault();
+        setComposeOpen(true);
+        break;
+      case '/':
+        event?.preventDefault();
+        searchInputRef.current?.focus();
+        break;
+      case 'r':
+        if (latest.selectedThread && latest.threadMessages[0]) {
+          handleReply(latest.threadMessages[0]);
+        }
+        break;
+      case 'e':
+        if (latest.selectedThread) {
+          archiveMutation.mutate(latest.selectedThread);
+        }
+        break;
+      case 'escape':
+        if (latest.composeOpen) setComposeOpen(false);
+        else if (latest.selectedThread) setSelectedThread(null);
+        break;
+      case 'ctrl+enter':
+        if (latest.composeOpen && latest.composeTo && latest.composeSubject) {
+          handleSend();
+        }
+        break;
+      case 'shift+/':
+        event?.preventDefault();
+        setShowKeyboardShortcuts(true);
+        break;
+      case 'select-all':
+        event?.preventDefault();
+        // Optimized: Create Set from IDs without mapping
+        const allIds = new Set<string>();
+        for (const thread of latest.emailThreads) {
+          allIds.add(thread.id);
+        }
+        setSelectedThreads(allIds);
+        toast.success(`Selected ${latest.emailThreads.length} conversations`);
+        break;
+      case 'select-none':
+        event?.preventDefault();
+        setSelectedThreads(new Set());
+        toast.success('Selection cleared');
+        break;
     }
-  }, { enableOnFormTags: true });
+  }, [handleReply, archiveMutation, handleSend]); // Only 3 dependencies now!
 
-  useHotkeys('shift+/', (e) => {
-    e.preventDefault();
-    setShowKeyboardShortcuts(true);
-  }, { enableOnFormTags: false });
+  useHotkeys('c', (e) => handleKeyboardShortcut('c', e), { enableOnFormTags: false });
+  useHotkeys('/', (e) => handleKeyboardShortcut('/', e), { enableOnFormTags: false });
+  useHotkeys('r', () => handleKeyboardShortcut('r'), { enableOnFormTags: false });
+  useHotkeys('e', () => handleKeyboardShortcut('e'), { enableOnFormTags: false });
+  useHotkeys('escape', () => handleKeyboardShortcut('escape'));
+  useHotkeys('ctrl+enter', () => handleKeyboardShortcut('ctrl+enter'), { enableOnFormTags: true });
+  useHotkeys('shift+/', (e) => handleKeyboardShortcut('shift+/', e), { enableOnFormTags: false });
+  useHotkeys('shift+8,a', (e) => handleKeyboardShortcut('select-all', e), { enableOnFormTags: false });
+  useHotkeys('shift+8,n', (e) => handleKeyboardShortcut('select-none', e), { enableOnFormTags: false });
 
-  useHotkeys('shift+8,a', (e) => {
-    e.preventDefault();
-    setSelectedThreads(new Set(emailThreads.map(t => t.id)));
-    toast.success(`Selected ${emailThreads.length} conversations`);
-  }, { enableOnFormTags: false });
-
-  useHotkeys('shift+8,n', (e) => {
-    e.preventDefault();
-    setSelectedThreads(new Set());
-    toast.success('Selection cleared');
-  }, { enableOnFormTags: false });
-
-  // Handlers
-  const handleSend = () => {
+  // Handlers - wrapped in useCallback to prevent unnecessary re-renders
+  const handleSend = useCallback(() => {
     if (!composeTo || !composeSubject) {
       toast.error('Please fill in recipient and subject');
+      return;
+    }
+    
+    if (!emailAccounts[0]) {
+      toast.error('No email account connected');
       return;
     }
     
@@ -520,20 +675,22 @@ export default function EmailClient() {
       to: composeTo,
       subject: composeSubject,
       body: composeBody,
+      attachments: attachments,
+      accountId: emailAccounts[0].id,
     });
 
     // Clear draft after sending
     localStorage.removeItem('emailDraft');
-  };
+  }, [composeTo, composeSubject, composeBody, attachments, emailAccounts, sendEmailMutation]);
 
-  const handleReply = (message: EmailMessage) => {
+  const handleReply = useCallback((message: EmailMessage) => {
     setComposeTo(message.fromEmail);
     setComposeSubject(`Re: ${message.subject}`);
     setComposeBody('');
     setComposeOpen(true);
-  };
+  }, []);
 
-  const handleDiscardDraft = () => {
+  const handleDiscardDraft = useCallback(() => {
     setComposeTo('');
     setComposeSubject('');
     setComposeBody('');
@@ -541,35 +698,35 @@ export default function EmailClient() {
     setComposeOpen(false);
     localStorage.removeItem('emailDraft');
     toast.success('Draft discarded');
-  };
+  }, []);
 
-  const removeAttachment = (index: number) => {
+  const removeAttachment = useCallback((index: number) => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
-  };
+  }, []);
 
-  const insertLink = () => {
+  const insertLink = useCallback(() => {
     const url = prompt('Enter URL:');
     if (url) {
       setComposeBody(prev => `${prev}<a href="${url}">${url}</a>`);
     }
-  };
+  }, []);
 
-  const insertImage = () => {
+  const insertImage = useCallback(() => {
     const url = prompt('Enter image URL:');
     if (url) {
       setComposeBody(prev => `${prev}<img src="${url}" alt="Image" style="max-width: 100%;" />`);
     }
-  };
+  }, []);
 
-  // Search history management
-  const addToSearchHistory = (query: string) => {
+  // Search history management - memoized
+  const addToSearchHistory = useCallback((query: string) => {
     if (!query.trim()) return;
     setSearchHistory(prev => {
       const updated = [query, ...prev.filter(q => q !== query)].slice(0, 10);
       localStorage.setItem('emailSearchHistory', JSON.stringify(updated));
       return updated;
     });
-  };
+  }, []);
 
   useEffect(() => {
     try {
@@ -605,17 +762,101 @@ export default function EmailClient() {
     });
   }, [queryClient, debouncedSearchQuery]);
 
-  const folders = [
-    { id: 'inbox', name: 'Inbox', icon: Inbox, color: 'text-blue-600', bgColor: 'bg-blue-50', count: emailThreads.filter((t: EmailThread) => !t.isArchived).length },
+  // Memoize folder counts to avoid expensive filter operations on every render
+  const inboxCount = useMemo(() => 
+    emailThreads.filter((t: EmailThread) => !t.isArchived).length, 
+    [emailThreads]
+  );
+
+  const folders = useMemo(() => [
+    { id: 'inbox', name: 'Inbox', icon: Inbox, color: 'text-blue-600', bgColor: 'bg-blue-50', count: inboxCount },
     { id: 'starred', name: 'Starred', icon: Star, color: 'text-yellow-600', bgColor: 'bg-yellow-50', count: 0 },
     { id: 'snoozed', name: 'Snoozed', icon: Clock, color: 'text-purple-600', bgColor: 'bg-purple-50', count: 0 },
     { id: 'sent', name: 'Sent', icon: Send, color: 'text-green-600', bgColor: 'bg-green-50', count: 0 },
     { id: 'drafts', name: 'Drafts', icon: FileText, color: 'text-orange-600', bgColor: 'bg-orange-50', count: 0 },
     { id: 'archived', name: 'Archive', icon: Archive, color: 'text-gray-600', bgColor: 'bg-gray-50', count: 0 },
     { id: 'trash', name: 'Trash', icon: Trash2, color: 'text-red-600', bgColor: 'bg-red-50', count: 0 },
-  ];
+  ], [inboxCount]);
 
-  const currentFolder = folders.find(f => f.id === selectedFolder) || folders[0];
+  const currentFolder = useMemo(() => 
+    folders.find(f => f.id === selectedFolder) || folders[0],
+    [folders, selectedFolder]
+  );
+
+  // Optimized checkbox handler - prevents passing entire Set to each row
+  const handleThreadCheckToggle = useCallback((threadId: string, checked: boolean) => {
+    setSelectedThreads(prev => {
+      const newSet = new Set(prev);
+      if (checked) {
+        newSet.add(threadId);
+      } else {
+        newSet.delete(threadId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Memoized handler for select all/none
+  const handleSelectAllToggle = useCallback(() => {
+    if (selectedThreads.size === emailThreads.length) {
+      setSelectedThreads(new Set());
+    } else {
+      setSelectedThreads(new Set(emailThreads.map(t => t.id)));
+      toast.success(`Selected ${emailThreads.length} conversations`);
+    }
+  }, [selectedThreads.size, emailThreads]);
+
+  // Memoized handler for mark as read
+  const handleMarkSelectedAsRead = useCallback(() => {
+    emailThreads
+      .filter(t => selectedThreads.has(t.id))
+      .forEach(t => {
+        const msg = t.messages?.[0];
+        if (msg && !msg.isRead) {
+          markAsReadMutation.mutate(msg.id);
+        }
+      });
+    setSelectedThreads(new Set());
+  }, [emailThreads, selectedThreads, markAsReadMutation]);
+
+  // Memoized handler for bulk archive
+  const handleBulkArchive = useCallback(() => {
+    bulkArchiveMutation.mutate(Array.from(selectedThreads));
+  }, [selectedThreads, bulkArchiveMutation]);
+
+  // Memoized handler for bulk delete
+  const handleBulkDelete = useCallback(() => {
+    if (confirm(`Delete ${selectedThreads.size} conversations?`)) {
+      bulkDeleteMutation.mutate(Array.from(selectedThreads));
+    }
+  }, [selectedThreads, bulkDeleteMutation]);
+
+  // Memoized handler for clearing selection
+  const handleClearSelection = useCallback(() => {
+    setSelectedThreads(new Set());
+  }, []);
+
+  // Memoized handler for sidebar toggle
+  const handleSidebarToggle = useCallback(() => {
+    setSidebarOpen(prev => !prev);
+  }, []);
+
+  // Memoized handler for navigate back
+  const handleNavigateBack = useCallback(() => {
+    navigate('/dashboard');
+  }, [navigate]);
+
+  // Memoized handler for search query change
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    setShowSearchSuggestions(true);
+  }, []);
+
+  // Memoized handler for search query select
+  const handleSearchQuerySelect = useCallback((query: string) => {
+    setSearchQuery(query);
+    setShowSearchSuggestions(false);
+  }, []);
 
   return (
     <TooltipProvider>
@@ -628,7 +869,7 @@ export default function EmailClient() {
                 variant="ghost"
                 size="icon"
                 className="rounded-full"
-                onClick={() => navigate('/dashboard')}
+                onClick={handleNavigateBack}
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -640,7 +881,7 @@ export default function EmailClient() {
             variant="ghost"
             size="icon"
             className="lg:hidden"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={handleSidebarToggle}
           >
             <Menu className="h-5 w-5" />
           </Button>
@@ -658,10 +899,7 @@ export default function EmailClient() {
                 ref={searchInputRef}
                 placeholder="Search mail (Press / to focus)"
                 value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setShowSearchSuggestions(true);
-                }}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && searchQuery.trim()) {
                     addToSearchHistory(searchQuery);
@@ -690,10 +928,7 @@ export default function EmailClient() {
                     <button
                       key={idx}
                       className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded text-left"
-                      onClick={() => {
-                        setSearchQuery(query);
-                        setShowSearchSuggestions(false);
-                      }}
+                      onClick={() => handleSearchQuerySelect(query)}
                     >
                       <Clock className="h-4 w-4 text-gray-400" />
                       <span className="text-sm text-gray-700">{query}</span>
@@ -872,14 +1107,7 @@ export default function EmailClient() {
                       variant="ghost"
                       size="icon"
                       className="rounded-full"
-                      onClick={() => {
-                        if (selectedThreads.size === emailThreads.length) {
-                          setSelectedThreads(new Set());
-                        } else {
-                          setSelectedThreads(new Set(emailThreads.map(t => t.id)));
-                          toast.success(`Selected ${emailThreads.length} conversations`);
-                        }
-                      }}
+                      onClick={handleSelectAllToggle}
                     >
                       {selectedThreads.size === emailThreads.length ? (
                         <SquareCheck className="h-4 w-4 text-blue-600" />
@@ -909,7 +1137,7 @@ export default function EmailClient() {
                           variant="ghost"
                           size="icon"
                           className="rounded-full hover:bg-green-50"
-                          onClick={() => bulkArchiveMutation.mutate(Array.from(selectedThreads))}
+                          onClick={handleBulkArchive}
                           disabled={bulkArchiveMutation.isPending}
                         >
                           <Archive className="h-4 w-4 text-green-600" />
@@ -924,11 +1152,7 @@ export default function EmailClient() {
                           variant="ghost" 
                           size="icon" 
                           className="rounded-full hover:bg-red-50"
-                          onClick={() => {
-                            if (confirm(`Delete ${selectedThreads.size} conversations?`)) {
-                              bulkDeleteMutation.mutate(Array.from(selectedThreads));
-                            }
-                          }}
+                          onClick={handleBulkDelete}
                           disabled={bulkDeleteMutation.isPending}
                         >
                           <Trash2 className="h-4 w-4 text-red-600" />
@@ -945,18 +1169,7 @@ export default function EmailClient() {
                           variant="ghost" 
                           size="icon" 
                           className="rounded-full"
-                          onClick={() => {
-                            // Mark all selected as read
-                            emailThreads
-                              .filter(t => selectedThreads.has(t.id))
-                              .forEach(t => {
-                                const msg = t.messages?.[0];
-                                if (msg && !msg.isRead) {
-                                  markAsReadMutation.mutate(msg.id);
-                                }
-                              });
-                            setSelectedThreads(new Set());
-                          }}
+                          onClick={handleMarkSelectedAsRead}
                         >
                           <MailOpen className="h-4 w-4" />
                         </Button>
@@ -970,7 +1183,7 @@ export default function EmailClient() {
                           variant="ghost" 
                           size="icon" 
                           className="rounded-full"
-                          onClick={() => setSelectedThreads(new Set())}
+                          onClick={handleClearSelection}
                         >
                           <X className="h-4 w-4" />
                         </Button>
@@ -1064,8 +1277,8 @@ export default function EmailClient() {
                     selectedThread={selectedThread}
                     selectedThreads={selectedThreads}
                     onThreadSelect={setSelectedThread}
-                    onThreadsSelect={setSelectedThreads}
-                    onStarToggle={(messageId, isStarred) => starMutation.mutate({ messageId, isStarred })}
+                    onThreadCheckToggle={handleThreadCheckToggle}
+                    starMutation={starMutation}
                     hasNextPage={hasNextPage}
                     isFetchingNextPage={isFetchingNextPage}
                     fetchNextPage={fetchNextPage}
@@ -1173,13 +1386,23 @@ export default function EmailClient() {
                     </div>
                   </div>
 
-                  {/* Messages */}
-                  <ScrollArea className="flex-1 px-6 py-4">
-                    {messagesLoading ? (
+                  {/* Messages - Now with Virtualization for Better Performance */}
+                  {messagesLoading ? (
+                    <div className="flex-1 px-6 py-4">
                       <EmailDetailSkeleton />
-                    ) : (
-                      <div className="space-y-4 max-w-4xl">
-                        {threadMessages.map((message, index) => (
+                    </div>
+                  ) : (
+                    <VirtualizedEmailMessages
+                      messages={threadMessages}
+                      onStarToggle={(messageId, isStarred) => starMutation.mutate({ messageId, isStarred })}
+                      onReply={handleReply}
+                      getInitials={getInitials}
+                    />
+                  )}
+                  
+                  {/* Old non-virtualized code - kept as fallback but not rendered
+                  <div className="hidden space-y-4 max-w-4xl">
+                    {threadMessages.map((message, index) => (
                           <div key={message.id} className={cn(
                             "rounded-lg bg-white transition-all border border-gray-200",
                             index === threadMessages.length - 1 && "ring-2 ring-blue-100 border-blue-200 shadow-md"
@@ -1876,24 +2099,24 @@ interface VirtualizedThreadListProps {
   selectedThread: string | null;
   selectedThreads: Set<string>;
   onThreadSelect: (threadId: string) => void;
-  onThreadsSelect: (threads: Set<string>) => void;
-  onStarToggle: (messageId: string, isStarred: boolean) => void;
+  onThreadCheckToggle: (threadId: string, checked: boolean) => void;
+  starMutation: any; // Pass mutation directly instead of callback
   hasNextPage?: boolean;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
 }
 
-function VirtualizedThreadList({
+const VirtualizedThreadList = React.memo(({
   threads,
   selectedThread,
   selectedThreads,
   onThreadSelect,
-  onThreadsSelect,
-  onStarToggle,
+  onThreadCheckToggle,
+  starMutation,
   hasNextPage,
   isFetchingNextPage,
   fetchNextPage,
-}: VirtualizedThreadListProps) {
+}: VirtualizedThreadListProps) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Virtual scrolling configuration
@@ -1905,8 +2128,11 @@ function VirtualizedThreadList({
   });
 
   // Infinite scroll: load more when near bottom
+  // Optimized to avoid running on every virtual item change
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  
   useEffect(() => {
-    const [lastItem] = [...rowVirtualizer.getVirtualItems()].reverse();
+    const [lastItem] = [...virtualItems].reverse();
 
     if (!lastItem) return;
 
@@ -1922,7 +2148,7 @@ function VirtualizedThreadList({
     fetchNextPage,
     threads.length,
     isFetchingNextPage,
-    rowVirtualizer.getVirtualItems(),
+    virtualItems.length, // Only depend on length, not the array itself
   ]);
 
   return (
@@ -1966,19 +2192,9 @@ function VirtualizedThreadList({
                   thread={thread}
                   isSelected={selectedThread === thread.id}
                   isChecked={selectedThreads.has(thread.id)}
-                  onSelect={() => onThreadSelect(thread.id)}
-                  onCheck={(checked) => {
-                    const newSet = new Set(selectedThreads);
-                    if (checked) newSet.add(thread.id);
-                    else newSet.delete(thread.id);
-                    onThreadsSelect(newSet);
-                  }}
-                  onStarToggle={() => {
-                    const message = thread.messages?.[0];
-                    if (message) {
-                      onStarToggle(message.id, !message.isStarred);
-                    }
-                  }}
+                  onSelect={onThreadSelect}
+                  onCheckToggle={onThreadCheckToggle}
+                  starMutation={starMutation}
                 />
               )}
             </div>
@@ -1987,24 +2203,44 @@ function VirtualizedThreadList({
       </div>
     </div>
   );
-}
+});
+VirtualizedThreadList.displayName = 'VirtualizedThreadList';
 
 // Thread Row Component (Memoized for performance)
+// Optimized to prevent all rows re-rendering when selection changes
 const ThreadRow = React.memo(({
   thread,
   isSelected,
   isChecked,
   onSelect,
-  onCheck,
-  onStarToggle,
+  onCheckToggle,
+  starMutation,
 }: {
   thread: EmailThread;
   isSelected: boolean;
   isChecked: boolean;
-  onSelect: () => void;
-  onCheck: (checked: boolean) => void;
-  onStarToggle: () => void;
+  onSelect: (threadId: string) => void;
+  onCheckToggle: (threadId: string, checked: boolean) => void;
+  starMutation: any;
 }) => {
+  // Memoize handlers to maintain stability
+  const handleSelect = useCallback(() => {
+    onSelect(thread.id);
+  }, [onSelect, thread.id]);
+
+  // Optimized: Pass just ID and state, not the entire Set
+  // This prevents re-renders when other checkboxes change
+  const handleCheckChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    e.stopPropagation();
+    onCheckToggle(thread.id, e.target.checked);
+  }, [onCheckToggle, thread.id]);
+
+  const handleStarToggle = useCallback(() => {
+    const message = thread.messages?.[0];
+    if (message) {
+      starMutation.mutate({ messageId: message.id, isStarred: !message.isStarred });
+    }
+  }, [starMutation, thread.messages]);
   const isUnread = thread.messages?.[0]?.isRead === false;
   const isStarred = thread.messages?.[0]?.isStarred;
 
@@ -2019,14 +2255,13 @@ const ThreadRow = React.memo(({
           : "bg-gray-50 hover:bg-gray-100",
         isSelected && "border-l-4 border-blue-600"
       )}
-      onClick={onSelect}
+      onClick={handleSelect}
     >
       <input
         type="checkbox"
         className="accent-blue-600 rounded cursor-pointer"
         checked={isChecked}
-        onChange={(e) => onCheck(e.target.checked)}
-        onClick={(e) => e.stopPropagation()}
+        onChange={handleCheckChange}
       />
 
       <button
@@ -2036,7 +2271,7 @@ const ThreadRow = React.memo(({
         )}
         onClick={(e) => {
           e.stopPropagation();
-          onStarToggle();
+          handleStarToggle();
         }}
       >
         <Star className={cn("h-4 w-4", isStarred && "fill-yellow-500")} />
@@ -2095,184 +2330,11 @@ const ThreadRow = React.memo(({
 });
 ThreadRow.displayName = 'ThreadRow';
 
-// Email Content Component with Sanitization and Proper Styling
-interface EmailContentProps {
-  htmlBody: string | null;
-  textBody: string | null;
-}
-
-function EmailContent({ htmlBody, textBody }: EmailContentProps) {
-  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
-
-  // Sanitize HTML and configure DOMPurify
-  const sanitizedHtml = useMemo(() => {
-    if (!htmlBody) return null;
-
-    // Configure DOMPurify to allow images, links and common email tags
-    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-      // Make all links open in new tab for security
-      if (node.tagName === 'A') {
-        node.setAttribute('target', '_blank');
-        node.setAttribute('rel', 'noopener noreferrer');
-      }
-    });
-
-    const clean = DOMPurify.sanitize(htmlBody, {
-      ADD_TAGS: ['style', 'img', 'a', 'table', 'tbody', 'thead', 'tr', 'td', 'th'],
-      ADD_ATTR: ['href', 'target', 'rel', 'style', 'class', 'src', 'alt', 'width', 'height', 'border', 'cellpadding', 'cellspacing', 'align', 'valign', 'bgcolor'],
-      ALLOW_DATA_ATTR: true,
-      FORCE_BODY: true,
-      ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
-    });
-
-    DOMPurify.removeHook('afterSanitizeAttributes');
-
-    return clean;
-  }, [htmlBody]);
-
-  // Inject custom styles for email content
-  useEffect(() => {
-    if (!htmlBody) return;
-
-    // Add styles for email content
-    const style = document.createElement('style');
-    style.textContent = `
-      .email-content-wrapper {
-        /* Base email styling */
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-        font-size: 14px;
-        line-height: 1.6;
-        color: #1f2937;
-      }
-
-      .email-content-wrapper img {
-        max-width: 100%;
-        height: auto;
-        display: block;
-        margin: 0.5rem 0;
-        border-radius: 0.375rem;
-      }
-
-      .email-content-wrapper a {
-        color: #2563eb !important;
-        text-decoration: underline !important;
-        cursor: pointer;
-        display: inline;
-      }
-
-      .email-content-wrapper a:hover {
-        color: #1d4ed8 !important;
-        text-decoration: underline !important;
-      }
-
-      .email-content-wrapper a:visited {
-        color: #7c3aed;
-      }
-
-      .email-content-wrapper p {
-        margin: 0.75rem 0;
-      }
-
-      .email-content-wrapper h1,
-      .email-content-wrapper h2,
-      .email-content-wrapper h3,
-      .email-content-wrapper h4,
-      .email-content-wrapper h5,
-      .email-content-wrapper h6 {
-        margin-top: 1.5rem;
-        margin-bottom: 0.75rem;
-        font-weight: 600;
-        line-height: 1.3;
-      }
-
-      .email-content-wrapper ul,
-      .email-content-wrapper ol {
-        margin: 0.75rem 0;
-        padding-left: 2rem;
-      }
-
-      .email-content-wrapper blockquote {
-        margin: 1rem 0;
-        padding-left: 1rem;
-        border-left: 4px solid #e5e7eb;
-        color: #6b7280;
-      }
-
-      .email-content-wrapper table {
-        border-collapse: collapse;
-        width: 100%;
-        margin: 1rem 0;
-      }
-
-      .email-content-wrapper table td,
-      .email-content-wrapper table th {
-        border: 1px solid #e5e7eb;
-        padding: 0.5rem;
-      }
-
-      .email-content-wrapper pre {
-        background: #f3f4f6;
-        padding: 1rem;
-        border-radius: 0.375rem;
-        overflow-x: auto;
-        margin: 1rem 0;
-      }
-
-      .email-content-wrapper code {
-        background: #f3f4f6;
-        padding: 0.125rem 0.25rem;
-        border-radius: 0.25rem;
-        font-family: 'Courier New', monospace;
-        font-size: 0.875em;
-      }
-
-      .email-content-wrapper hr {
-        border: none;
-        border-top: 1px solid #e5e7eb;
-        margin: 1.5rem 0;
-      }
-
-      /* Handle email-specific styling */
-      .email-content-wrapper div[style*="background"],
-      .email-content-wrapper table[style*="background"] {
-        border-radius: 0.375rem;
-      }
-    `;
-    document.head.appendChild(style);
-
-    return () => {
-      document.head.removeChild(style);
-    };
-  }, [htmlBody]);
-
-  if (!htmlBody && !textBody) {
-    return (
-      <div className="flex items-center justify-center py-8 text-gray-400">
-        <div className="text-center">
-          <Mail className="h-12 w-12 mx-auto mb-2 opacity-50" />
-          <p className="text-sm">No content to display</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (htmlBody && sanitizedHtml) {
-    return (
-      <div className="email-content-wrapper mt-4 mb-4">
-        <div
-          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-          className="prose prose-sm max-w-none"
-        />
-      </div>
-    );
-  }
-
-  // Fallback to text body
+// Export with Error Boundary wrapper for resilience
+export default function EmailClient() {
   return (
-    <div className="email-content-wrapper mt-4 mb-4">
-      <p className="whitespace-pre-wrap text-gray-800 leading-relaxed">
-        {textBody || 'No content available'}
-      </p>
-    </div>
+    <EmailErrorBoundary>
+      <EmailClientInner />
+    </EmailErrorBoundary>
   );
 }
