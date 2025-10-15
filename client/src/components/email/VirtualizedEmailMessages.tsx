@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { format } from 'date-fns';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -41,11 +41,32 @@ export const VirtualizedEmailMessages: React.FC<VirtualizedEmailMessagesProps> =
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Virtual scrolling for messages (helps with threads that have 100+ messages)
+  // Optimized with dynamic sizing and increased overscan
   const rowVirtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 300, // Estimated message height
-    overscan: 2, // Render 2 extra items above and below
+    estimateSize: useCallback((index: number) => {
+      // Better size estimation based on message content
+      const message = messages[index];
+      let estimate = 200; // Base size
+      
+      // Add height for HTML content (rough estimate)
+      if (message.htmlBody) {
+        const contentLength = message.htmlBody.length;
+        estimate += Math.min(contentLength / 100, 400); // Cap at 600px total
+      } else if (message.textBody) {
+        const lineCount = message.textBody.split('\n').length;
+        estimate += Math.min(lineCount * 20, 400);
+      }
+      
+      // Add height for attachments
+      if (message.attachments && message.attachments.length > 0) {
+        estimate += 120; // Attachment section
+      }
+      
+      return estimate;
+    }, [messages]),
+    overscan: 5, // Increased from 2 to 5 for smoother scrolling
   });
 
   return (

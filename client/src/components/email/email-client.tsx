@@ -22,7 +22,7 @@ import {
   Menu, Search, Settings, HelpCircle, Mail, Inbox, Send, FileText, Star, Trash2,
   Archive, Clock, RefreshCw, MoreVertical, Pencil, Check, X, Filter,
   Reply, Paperclip, Smile, Download, MailOpen, Square, SquareCheck, ArrowLeft, 
-  Plus, Zap
+  Plus, Zap, Link2, Image, Forward, ReplyAll
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -409,11 +409,21 @@ function EmailClientInner() {
       // Use passed data instead of closure variables
       if (!data.accountId) throw new Error('No account connected');
       
-      // Convert attachments to base64
+      // Convert attachments to base64 - optimized for large files
       const attachmentData = await Promise.all(
         data.attachments.map(async (file) => {
           const buffer = await file.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          const bytes = new Uint8Array(buffer);
+          
+          // Chunked conversion to avoid stack overflow on large files
+          let binary = '';
+          const chunkSize = 8192; // Process 8KB at a time
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+            binary += String.fromCharCode.apply(null, Array.from(chunk));
+          }
+          const base64 = btoa(binary);
+          
           return {
             filename: file.name,
             content: base64,
@@ -510,12 +520,16 @@ function EmailClientInner() {
     multiple: true,
   });
 
-  // Draft auto-save every 30 seconds - optimized to only save when content exists
-  // and to avoid showing unnecessary toasts
+  // Draft auto-save every 30 seconds - optimized with ref pattern
+  // Avoids recreating interval on every keystroke
+  const draftDataRef = useRef({ composeTo, composeSubject, composeBody, attachments });
+  // Update ref during render (no useEffect needed)
+  draftDataRef.current = { composeTo, composeSubject, composeBody, attachments };
+
   useEffect(() => {
-    if (!composeTo && !composeSubject && !composeBody) return;
-    
     const timer = setInterval(() => {
+      const { composeTo, composeSubject, composeBody, attachments } = draftDataRef.current;
+      
       // Only save if there's actual content
       if (composeTo || composeSubject || composeBody) {
         console.log('Auto-saving draft...');
@@ -526,12 +540,12 @@ function EmailClientInner() {
           attachments: attachments.map(f => f.name),
           savedAt: new Date().toISOString(),
         }));
-        // Removed toast to reduce noise - draft saves silently in background
+        // Draft saves silently in background
       }
     }, 30000);
 
     return () => clearInterval(timer);
-  }, [composeTo, composeSubject, composeBody, attachments]);
+  }, []); // No dependencies - stable interval!
 
   // Load draft on mount
   useEffect(() => {
@@ -561,8 +575,30 @@ function EmailClientInner() {
     }
   }, []);
 
-  // Keyboard shortcuts - memoized to prevent recreating event listeners
+  // Store latest values in refs to avoid dependencies
+  const latestValuesRef = useRef({
+    selectedThread,
+    threadMessages,
+    composeOpen,
+    composeTo,
+    composeSubject,
+    emailThreads,
+  });
+
+  // Update ref during render (no useEffect needed - cheaper than effect)
+  latestValuesRef.current = {
+    selectedThread,
+    threadMessages,
+    composeOpen,
+    composeTo,
+    composeSubject,
+    emailThreads,
+  };
+
+  // Keyboard shortcuts - optimized to have minimal dependencies
   const handleKeyboardShortcut = useCallback((key: string, event?: KeyboardEvent) => {
+    const latest = latestValuesRef.current;
+    
     switch (key) {
       case 'c':
         event?.preventDefault();
@@ -573,21 +609,21 @@ function EmailClientInner() {
         searchInputRef.current?.focus();
         break;
       case 'r':
-        if (selectedThread && threadMessages[0]) {
-          handleReply(threadMessages[0]);
+        if (latest.selectedThread && latest.threadMessages[0]) {
+          handleReply(latest.threadMessages[0]);
         }
         break;
       case 'e':
-        if (selectedThread) {
-          archiveMutation.mutate(selectedThread);
+        if (latest.selectedThread) {
+          archiveMutation.mutate(latest.selectedThread);
         }
         break;
       case 'escape':
-        if (composeOpen) setComposeOpen(false);
-        else if (selectedThread) setSelectedThread(null);
+        if (latest.composeOpen) setComposeOpen(false);
+        else if (latest.selectedThread) setSelectedThread(null);
         break;
       case 'ctrl+enter':
-        if (composeOpen && composeTo && composeSubject) {
+        if (latest.composeOpen && latest.composeTo && latest.composeSubject) {
           handleSend();
         }
         break;
@@ -599,11 +635,11 @@ function EmailClientInner() {
         event?.preventDefault();
         // Optimized: Create Set from IDs without mapping
         const allIds = new Set<string>();
-        for (const thread of emailThreads) {
+        for (const thread of latest.emailThreads) {
           allIds.add(thread.id);
         }
         setSelectedThreads(allIds);
-        toast.success(`Selected ${emailThreads.length} conversations`);
+        toast.success(`Selected ${latest.emailThreads.length} conversations`);
         break;
       case 'select-none':
         event?.preventDefault();
@@ -611,7 +647,7 @@ function EmailClientInner() {
         toast.success('Selection cleared');
         break;
     }
-  }, [selectedThread, threadMessages, composeOpen, composeTo, composeSubject, handleReply, archiveMutation, handleSend, emailThreads]);
+  }, [handleReply, archiveMutation, handleSend]); // Only 3 dependencies now!
 
   useHotkeys('c', (e) => handleKeyboardShortcut('c', e), { enableOnFormTags: false });
   useHotkeys('/', (e) => handleKeyboardShortcut('/', e), { enableOnFormTags: false });
@@ -747,6 +783,81 @@ function EmailClientInner() {
     [folders, selectedFolder]
   );
 
+  // Optimized checkbox handler - prevents passing entire Set to each row
+  const handleThreadCheckToggle = useCallback((threadId: string, checked: boolean) => {
+    setSelectedThreads(prev => {
+      const newSet = new Set(prev);
+      if (checked) {
+        newSet.add(threadId);
+      } else {
+        newSet.delete(threadId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Memoized handler for select all/none
+  const handleSelectAllToggle = useCallback(() => {
+    if (selectedThreads.size === emailThreads.length) {
+      setSelectedThreads(new Set());
+    } else {
+      setSelectedThreads(new Set(emailThreads.map(t => t.id)));
+      toast.success(`Selected ${emailThreads.length} conversations`);
+    }
+  }, [selectedThreads.size, emailThreads]);
+
+  // Memoized handler for mark as read
+  const handleMarkSelectedAsRead = useCallback(() => {
+    emailThreads
+      .filter(t => selectedThreads.has(t.id))
+      .forEach(t => {
+        const msg = t.messages?.[0];
+        if (msg && !msg.isRead) {
+          markAsReadMutation.mutate(msg.id);
+        }
+      });
+    setSelectedThreads(new Set());
+  }, [emailThreads, selectedThreads, markAsReadMutation]);
+
+  // Memoized handler for bulk archive
+  const handleBulkArchive = useCallback(() => {
+    bulkArchiveMutation.mutate(Array.from(selectedThreads));
+  }, [selectedThreads, bulkArchiveMutation]);
+
+  // Memoized handler for bulk delete
+  const handleBulkDelete = useCallback(() => {
+    if (confirm(`Delete ${selectedThreads.size} conversations?`)) {
+      bulkDeleteMutation.mutate(Array.from(selectedThreads));
+    }
+  }, [selectedThreads, bulkDeleteMutation]);
+
+  // Memoized handler for clearing selection
+  const handleClearSelection = useCallback(() => {
+    setSelectedThreads(new Set());
+  }, []);
+
+  // Memoized handler for sidebar toggle
+  const handleSidebarToggle = useCallback(() => {
+    setSidebarOpen(prev => !prev);
+  }, []);
+
+  // Memoized handler for navigate back
+  const handleNavigateBack = useCallback(() => {
+    navigate('/dashboard');
+  }, [navigate]);
+
+  // Memoized handler for search query change
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    setShowSearchSuggestions(true);
+  }, []);
+
+  // Memoized handler for search query select
+  const handleSearchQuerySelect = useCallback((query: string) => {
+    setSearchQuery(query);
+    setShowSearchSuggestions(false);
+  }, []);
+
   return (
     <TooltipProvider>
       <div className="flex flex-col h-full bg-white">
@@ -758,7 +869,7 @@ function EmailClientInner() {
                 variant="ghost"
                 size="icon"
                 className="rounded-full"
-                onClick={() => navigate('/dashboard')}
+                onClick={handleNavigateBack}
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -770,7 +881,7 @@ function EmailClientInner() {
             variant="ghost"
             size="icon"
             className="lg:hidden"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={handleSidebarToggle}
           >
             <Menu className="h-5 w-5" />
           </Button>
@@ -788,10 +899,7 @@ function EmailClientInner() {
                 ref={searchInputRef}
                 placeholder="Search mail (Press / to focus)"
                 value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setShowSearchSuggestions(true);
-                }}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && searchQuery.trim()) {
                     addToSearchHistory(searchQuery);
@@ -820,10 +928,7 @@ function EmailClientInner() {
                     <button
                       key={idx}
                       className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded text-left"
-                      onClick={() => {
-                        setSearchQuery(query);
-                        setShowSearchSuggestions(false);
-                      }}
+                      onClick={() => handleSearchQuerySelect(query)}
                     >
                       <Clock className="h-4 w-4 text-gray-400" />
                       <span className="text-sm text-gray-700">{query}</span>
@@ -1002,14 +1107,7 @@ function EmailClientInner() {
                       variant="ghost"
                       size="icon"
                       className="rounded-full"
-                      onClick={() => {
-                        if (selectedThreads.size === emailThreads.length) {
-                          setSelectedThreads(new Set());
-                        } else {
-                          setSelectedThreads(new Set(emailThreads.map(t => t.id)));
-                          toast.success(`Selected ${emailThreads.length} conversations`);
-                        }
-                      }}
+                      onClick={handleSelectAllToggle}
                     >
                       {selectedThreads.size === emailThreads.length ? (
                         <SquareCheck className="h-4 w-4 text-blue-600" />
@@ -1039,7 +1137,7 @@ function EmailClientInner() {
                           variant="ghost"
                           size="icon"
                           className="rounded-full hover:bg-green-50"
-                          onClick={() => bulkArchiveMutation.mutate(Array.from(selectedThreads))}
+                          onClick={handleBulkArchive}
                           disabled={bulkArchiveMutation.isPending}
                         >
                           <Archive className="h-4 w-4 text-green-600" />
@@ -1054,11 +1152,7 @@ function EmailClientInner() {
                           variant="ghost" 
                           size="icon" 
                           className="rounded-full hover:bg-red-50"
-                          onClick={() => {
-                            if (confirm(`Delete ${selectedThreads.size} conversations?`)) {
-                              bulkDeleteMutation.mutate(Array.from(selectedThreads));
-                            }
-                          }}
+                          onClick={handleBulkDelete}
                           disabled={bulkDeleteMutation.isPending}
                         >
                           <Trash2 className="h-4 w-4 text-red-600" />
@@ -1075,18 +1169,7 @@ function EmailClientInner() {
                           variant="ghost" 
                           size="icon" 
                           className="rounded-full"
-                          onClick={() => {
-                            // Mark all selected as read
-                            emailThreads
-                              .filter(t => selectedThreads.has(t.id))
-                              .forEach(t => {
-                                const msg = t.messages?.[0];
-                                if (msg && !msg.isRead) {
-                                  markAsReadMutation.mutate(msg.id);
-                                }
-                              });
-                            setSelectedThreads(new Set());
-                          }}
+                          onClick={handleMarkSelectedAsRead}
                         >
                           <MailOpen className="h-4 w-4" />
                         </Button>
@@ -1100,7 +1183,7 @@ function EmailClientInner() {
                           variant="ghost" 
                           size="icon" 
                           className="rounded-full"
-                          onClick={() => setSelectedThreads(new Set())}
+                          onClick={handleClearSelection}
                         >
                           <X className="h-4 w-4" />
                         </Button>
@@ -1194,7 +1277,7 @@ function EmailClientInner() {
                     selectedThread={selectedThread}
                     selectedThreads={selectedThreads}
                     onThreadSelect={setSelectedThread}
-                    onThreadsSelect={setSelectedThreads}
+                    onThreadCheckToggle={handleThreadCheckToggle}
                     starMutation={starMutation}
                     hasNextPage={hasNextPage}
                     isFetchingNextPage={isFetchingNextPage}
@@ -2016,7 +2099,7 @@ interface VirtualizedThreadListProps {
   selectedThread: string | null;
   selectedThreads: Set<string>;
   onThreadSelect: (threadId: string) => void;
-  onThreadsSelect: (threads: Set<string>) => void;
+  onThreadCheckToggle: (threadId: string, checked: boolean) => void;
   starMutation: any; // Pass mutation directly instead of callback
   hasNextPage?: boolean;
   isFetchingNextPage: boolean;
@@ -2028,7 +2111,7 @@ const VirtualizedThreadList = React.memo(({
   selectedThread,
   selectedThreads,
   onThreadSelect,
-  onThreadsSelect,
+  onThreadCheckToggle,
   starMutation,
   hasNextPage,
   isFetchingNextPage,
@@ -2110,8 +2193,7 @@ const VirtualizedThreadList = React.memo(({
                   isSelected={selectedThread === thread.id}
                   isChecked={selectedThreads.has(thread.id)}
                   onSelect={onThreadSelect}
-                  onCheck={onThreadsSelect}
-                  selectedThreads={selectedThreads}
+                  onCheckToggle={onThreadCheckToggle}
                   starMutation={starMutation}
                 />
               )}
@@ -2131,16 +2213,14 @@ const ThreadRow = React.memo(({
   isSelected,
   isChecked,
   onSelect,
-  onCheck,
-  selectedThreads,
+  onCheckToggle,
   starMutation,
 }: {
   thread: EmailThread;
   isSelected: boolean;
   isChecked: boolean;
   onSelect: (threadId: string) => void;
-  onCheck: (threads: Set<string>) => void;
-  selectedThreads: Set<string>;
+  onCheckToggle: (threadId: string, checked: boolean) => void;
   starMutation: any;
 }) => {
   // Memoize handlers to maintain stability
@@ -2148,18 +2228,12 @@ const ThreadRow = React.memo(({
     onSelect(thread.id);
   }, [onSelect, thread.id]);
 
-  // Fixed: Use selectedThreads from closure but don't trigger re-render when it changes
-  // The parent will trigger re-render only when isChecked changes
-  const handleCheck = useCallback((checked: boolean) => {
-    // Get fresh selectedThreads value without adding to dependencies
-    const newSet = new Set(selectedThreads);
-    if (checked) {
-      newSet.add(thread.id);
-    } else {
-      newSet.delete(thread.id);
-    }
-    onCheck(newSet);
-  }, [onCheck, thread.id, selectedThreads]); // Keep selectedThreads but component won't re-render unless isChecked changes
+  // Optimized: Pass just ID and state, not the entire Set
+  // This prevents re-renders when other checkboxes change
+  const handleCheckChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    e.stopPropagation();
+    onCheckToggle(thread.id, e.target.checked);
+  }, [onCheckToggle, thread.id]);
 
   const handleStarToggle = useCallback(() => {
     const message = thread.messages?.[0];
@@ -2187,8 +2261,7 @@ const ThreadRow = React.memo(({
         type="checkbox"
         className="accent-blue-600 rounded cursor-pointer"
         checked={isChecked}
-        onChange={(e) => handleCheck(e.target.checked)}
-        onClick={(e) => e.stopPropagation()}
+        onChange={handleCheckChange}
       />
 
       <button

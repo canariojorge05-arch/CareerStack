@@ -9,13 +9,22 @@ interface EmailContentProps {
 }
 
 // Memoized EmailContent component to prevent unnecessary re-renders
-// The CSS is now in a separate file to avoid DOM mutations
+// Optimized: No DOM manipulation, uses DOMPurify hooks for link processing
 export const EmailContent = React.memo(({ htmlBody, textBody }: EmailContentProps) => {
-  // Sanitize HTML only when htmlBody changes
+  // Sanitize and process HTML in a single pass using DOMPurify hooks
   const sanitizedHtml = useMemo(() => {
     if (!htmlBody) return null;
 
-    // Configure DOMPurify once
+    // Configure DOMPurify with hooks to add attributes during sanitization
+    // This avoids the need for post-processing with DOM manipulation
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      // Add target and rel to all links during sanitization
+      if (node.tagName === 'A') {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+      }
+    });
+
     const clean = DOMPurify.sanitize(htmlBody, {
       ADD_TAGS: ['style', 'img', 'a', 'table', 'tbody', 'thead', 'tr', 'td', 'th'],
       ADD_ATTR: [
@@ -28,29 +37,14 @@ export const EmailContent = React.memo(({ htmlBody, textBody }: EmailContentProp
       ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
       RETURN_DOM_FRAGMENT: false,
       RETURN_DOM: false,
-      // Apply hooks during sanitization
       WHOLE_DOCUMENT: false,
     });
 
+    // Remove hook to prevent it from affecting other sanitization calls
+    DOMPurify.removeHook('afterSanitizeAttributes');
+
     return clean;
   }, [htmlBody]);
-
-  // Add target and rel attributes to all links after sanitization
-  const processedHtml = useMemo(() => {
-    if (!sanitizedHtml) return null;
-    
-    // Create a temporary div to manipulate the HTML
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = sanitizedHtml;
-    
-    // Add security attributes to all links
-    tempDiv.querySelectorAll('a').forEach((link) => {
-      link.setAttribute('target', '_blank');
-      link.setAttribute('rel', 'noopener noreferrer');
-    });
-    
-    return tempDiv.innerHTML;
-  }, [sanitizedHtml]);
 
   if (!htmlBody && !textBody) {
     return (
@@ -63,11 +57,11 @@ export const EmailContent = React.memo(({ htmlBody, textBody }: EmailContentProp
     );
   }
 
-  if (htmlBody && processedHtml) {
+  if (htmlBody && sanitizedHtml) {
     return (
       <div className="email-content-wrapper mt-4 mb-4">
         <div
-          dangerouslySetInnerHTML={{ __html: processedHtml }}
+          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
           className="prose prose-sm max-w-none"
         />
       </div>

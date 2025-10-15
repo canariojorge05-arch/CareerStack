@@ -1,6 +1,6 @@
 import React from 'react';
 
-export function EmailListSkeleton() {
+export const EmailListSkeleton = React.memo(() => {
   return (
     <div className="space-y-2 p-4">
       {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
@@ -26,9 +26,10 @@ export function EmailListSkeleton() {
       ))}
     </div>
   );
-}
+});
+EmailListSkeleton.displayName = 'EmailListSkeleton';
 
-export function EmailDetailSkeleton() {
+export const EmailDetailSkeleton = React.memo(() => {
   return (
     <div className="p-6 space-y-4 animate-pulse">
       <div className="space-y-2">
@@ -51,9 +52,10 @@ export function EmailDetailSkeleton() {
       </div>
     </div>
   );
-}
+});
+EmailDetailSkeleton.displayName = 'EmailDetailSkeleton';
 
-export function ComposeSkeleton() {
+export const ComposeSkeleton = React.memo(() => {
   return (
     <div className="p-6 space-y-4 animate-pulse">
       <div className="h-10 w-full bg-gray-200 rounded" />
@@ -61,4 +63,5 @@ export function ComposeSkeleton() {
       <div className="h-64 w-full bg-gray-100 rounded" />
     </div>
   );
-}
+});
+ComposeSkeleton.displayName = 'ComposeSkeleton';
