@@ -8,25 +8,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Star, Reply, MoreVertical, Paperclip, Download, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { EmailContent } from './email-content';
-
-interface EmailMessage {
-  id: string;
-  subject: string;
-  fromEmail: string;
-  toEmails: string[];
-  ccEmails: string[];
-  htmlBody: string | null;
-  textBody: string | null;
-  sentAt: Date | null;
-  isRead: boolean;
-  isStarred: boolean;
-  threadId: string;
-  attachments?: any[];
-}
+import { EmailMessage } from '@/types/email';
 
 interface VirtualizedEmailMessagesProps {
   messages: EmailMessage[];
-  isStarred?: (messageId: string) => boolean;
   onStarToggle: (messageId: string, isStarred: boolean) => void;
   onReply: (message: EmailMessage) => void;
   getInitials: (email: string) => string;
