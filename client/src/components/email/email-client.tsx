@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { formatDistanceToNow, format } from 'date-fns';
+import { format } from 'date-fns';
 import { apiRequest } from '@/lib/queryClient';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useDropzone } from 'react-dropzone';
-import EmojiPicker from 'emoji-picker-react';
 import { EmailData, EmailEditor } from './email-editor';
 import { EmailListSkeleton, EmailDetailSkeleton } from './loading-skeleton';
 import { EmailContent } from './email-content';
@@ -17,19 +16,19 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { 
   Menu, Search, Settings, HelpCircle, Mail, Inbox, Send, FileText, Star, Trash2,
-  Archive, Clock, Tag, RefreshCw, ChevronDown, ChevronLeft, ChevronRight,
-  MoreVertical, Pencil, Check, X, AlertCircle, Filter, Users, 
-  Reply, ReplyAll, Forward, Paperclip, Image, Link2, Smile, AtSign,
-  Download, MailOpen, Circle, Square, SquareCheck, ArrowLeft, Plus,
-  Maximize2, Minimize2, AlertTriangle, Calendar, Zap, Bookmark
+  Archive, Clock, RefreshCw, MoreVertical, Pencil, Check, X, Filter,
+  Reply, Paperclip, Smile, Download, MailOpen, Square, SquareCheck, ArrowLeft, 
+  Plus, Zap
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
+
+// Lazy load EmojiPicker to reduce initial bundle size (saves ~50-100KB)
+const EmojiPicker = lazy(() => import('emoji-picker-react'));
 
 interface EmailAccount {
   id: string;
@@ -70,26 +69,37 @@ interface EmailMessage {
 export default function EmailClient() {
   const { isAuthenticated, isLoading: isAuthLoading, isAuthChecked } = useAuth();
   const [, navigate] = useLocation();
+  // Navigation & selection state
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedFolder, setSelectedFolder] = useState('inbox');
   const [selectedThread, setSelectedThread] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
-  const [composeOpen, setComposeOpen] = useState(false);
-  const [accountsOpen, setAccountsOpen] = useState(false);
   const [selectedThreads, setSelectedThreads] = useState<Set<string>>(new Set());
   const [view, setView] = useState<'list' | 'split'>('split');
-  const [composeTo, setComposeTo] = useState('');
-  const [composeSubject, setComposeSubject] = useState('');
-  const [composeBody, setComposeBody] = useState('');
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showScheduler, setShowScheduler] = useState(false);
-  const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
-  const [undoSendTimer, setUndoSendTimer] = useState<NodeJS.Timeout | null>(null);
+  
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
-  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
-  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  
+  // Compose state - consolidated
+  const [composeState, setComposeState] = useState({
+    to: '',
+    subject: '',
+    body: '',
+    attachments: [] as File[],
+  });
+  
+  // UI state - consolidated (modals, pickers, etc.)
+  const [uiState, setUiState] = useState({
+    composeOpen: false,
+    accountsOpen: false,
+    showEmojiPicker: false,
+    showScheduler: false,
+    showSearchSuggestions: false,
+    showKeyboardShortcuts: false,
+  });
+  
+  const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   
   const queryClient = useQueryClient();
@@ -181,7 +191,7 @@ export default function EmailClient() {
     gcTime: 10 * 60 * 1000, // 10 minutes
   });
 
-  // Star mutation - optimized with selective invalidation
+  // Star mutation - optimized with proper optimistic updates
   const starMutation = useMutation({
     mutationFn: async ({ messageId, isStarred }: { messageId: string; isStarred: boolean }) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/star`, { isStarred });
@@ -189,48 +199,65 @@ export default function EmailClient() {
       return response.json();
     },
     onMutate: async ({ messageId, isStarred }) => {
-      // Optimistic update - update cache immediately
-      await queryClient.cancelQueries({ queryKey: ['/api/marketing/emails/threads'] });
+      // Build exact query key for current view
+      const queryKey = ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery];
       
-      const previousThreads = queryClient.getQueryData(['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery]);
+      // Cancel outgoing fetches
+      await queryClient.cancelQueries({ queryKey });
       
-      // Update the cache optimistically
-      queryClient.setQueriesData(
-        { queryKey: ['/api/marketing/emails/threads'] },
-        (old: any) => {
-          if (!old?.pages) return old;
-          return {
-            ...old,
-            pages: old.pages.map((page: any) => ({
-              ...page,
-              threads: page.threads.map((thread: EmailThread) => {
-                if (thread.messages?.some(m => m.id === messageId)) {
-                  return {
-                    ...thread,
-                    messages: thread.messages.map(m =>
-                      m.id === messageId ? { ...m, isStarred } : m
-                    ),
-                  };
-                }
-                return thread;
-              }),
-            })),
-          };
-        }
-      );
+      // Snapshot current data for rollback
+      const previousData = queryClient.getQueryData(queryKey);
       
-      return { previousThreads };
+      // Optimistically update ONLY the current query
+      queryClient.setQueryData(queryKey, (old: any) => {
+        if (!old?.pages) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any) => ({
+            ...page,
+            threads: page.threads.map((thread: EmailThread) => {
+              if (thread.messages?.some(m => m.id === messageId)) {
+                return {
+                  ...thread,
+                  messages: thread.messages.map(m =>
+                    m.id === messageId ? { ...m, isStarred } : m
+                  ),
+                };
+              }
+              return thread;
+            }),
+          })),
+        };
+      });
+      
+      // Also update thread messages query if viewing this thread
+      if (selectedThread) {
+        const messagesKey = ['/api/marketing/emails/threads', selectedThread, 'messages'];
+        const previousMessages = queryClient.getQueryData(messagesKey);
+        
+        queryClient.setQueryData(messagesKey, (old: any) => {
+          if (!Array.isArray(old)) return old;
+          return old.map((m: EmailMessage) =>
+            m.id === messageId ? { ...m, isStarred } : m
+          );
+        });
+        
+        return { previousData, previousMessages, queryKey, messagesKey };
+      }
+      
+      return { previousData, queryKey };
     },
     onError: (err, variables, context) => {
-      // Revert on error
-      if (context?.previousThreads) {
-        queryClient.setQueryData(
-          ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
-          context.previousThreads
-        );
+      // Proper rollback - restore both queries if they exist
+      if (context?.previousData) {
+        queryClient.setQueryData(context.queryKey, context.previousData);
       }
+      if (context?.previousMessages && context?.messagesKey) {
+        queryClient.setQueryData(context.messagesKey, context.previousMessages);
+      }
+      toast.error('Failed to update star');
     },
-    // Don't invalidate - we updated optimistically
+    // No invalidation needed - we updated optimistically
   });
 
   // Archive mutation with undo - optimized
@@ -241,10 +268,10 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: (_, threadId) => {
-      // Only invalidate current folder query, not all
+      // Only invalidate EXACT current folder query with current search
       queryClient.invalidateQueries({ 
-        queryKey: ['/api/marketing/emails/threads', selectedFolder],
-        exact: false
+        queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+        exact: true
       });
       setSelectedThread(null);
       
@@ -271,16 +298,15 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: () => {
-      // Only invalidate current folder
+      // Only invalidate EXACT current folder query
       queryClient.invalidateQueries({ 
-        queryKey: ['/api/marketing/emails/threads', selectedFolder],
-        exact: false
+        queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+        exact: true
       });
-      toast.success('Moved back to inbox');
     },
   });
 
-  // Mark as read mutation - optimized
+  // Mark as read mutation - optimized (silent, no toast)
   const markAsReadMutation = useMutation({
     mutationFn: async (messageId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/read`, { isRead: true });
@@ -295,11 +321,11 @@ export default function EmailClient() {
           exact: true 
         });
       }
-      toast.success('Marked as read');
+      // Silent update - no toast needed for common action
     },
   });
 
-  // Mark as unread mutation - optimized
+  // Mark as unread mutation - optimized (silent)
   const markAsUnreadMutation = useMutation({
     mutationFn: async (messageId: string) => {
       const response = await apiRequest('PATCH', `/api/marketing/emails/messages/${messageId}/read`, { isRead: false });
@@ -314,7 +340,7 @@ export default function EmailClient() {
           exact: true 
         });
       }
-      toast.success('Marked as unread');
+      // Silent update - no toast needed
     },
   });
 
@@ -326,10 +352,10 @@ export default function EmailClient() {
       return response.json();
     },
     onSuccess: () => {
-      // Only invalidate current folder
+      // Only invalidate EXACT current folder query
       queryClient.invalidateQueries({ 
-        queryKey: ['/api/marketing/emails/threads', selectedFolder],
-        exact: false
+        queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+        exact: true
       });
       setSelectedThread(null);
       toast.success('Conversation deleted');
@@ -349,10 +375,10 @@ export default function EmailClient() {
       );
     },
     onSuccess: (_, threadIds) => {
-      // Only invalidate current folder
+      // Only invalidate EXACT current folder query
       queryClient.invalidateQueries({ 
-        queryKey: ['/api/marketing/emails/threads', selectedFolder],
-        exact: false
+        queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+        exact: true
       });
       setSelectedThreads(new Set());
       toast.success(`${threadIds.length} conversations archived`);
@@ -369,10 +395,10 @@ export default function EmailClient() {
       );
     },
     onSuccess: (_, threadIds) => {
-      // Only invalidate current folder
+      // Only invalidate EXACT current folder query
       queryClient.invalidateQueries({ 
-        queryKey: ['/api/marketing/emails/threads', selectedFolder],
-        exact: false
+        queryKey: ['/api/marketing/emails/threads', selectedFolder, debouncedSearchQuery],
+        exact: true
       });
       setSelectedThreads(new Set());
       toast.success(`${threadIds.length} conversations deleted`);
