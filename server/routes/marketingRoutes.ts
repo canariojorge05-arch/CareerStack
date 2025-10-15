@@ -13,11 +13,11 @@ import {
   lte 
 } from 'drizzle-orm';
 import { isAuthenticated } from '../localAuth';
-import { 
-  marketingRateLimiter, 
-  writeOperationsRateLimiter,
+import {
+  apiRateLimiter as marketingRateLimiter,
+  apiRateLimiter as writeOperationsRateLimiter,
   bulkOperationsRateLimiter,
-  emailRateLimiter 
+  emailSendRateLimiter as emailRateLimiter
 } from '../middleware/rateLimiter';
 import { csrfProtection, csrfTokenMiddleware } from '../middleware/csrf';
 
@@ -1681,48 +1681,94 @@ router.get('/emails/threads', async (req, res) => {
     }
 
     const whereClause = and(...whereConditions);
-    
-    // Get total count for pagination
-    const [{ count: totalCount }] = await db
-      .select({ count: sql<number>`count(*)` })
+
+    // OPTIMIZED: Run count and data queries in parallel for faster response
+    const [countResult, threads] = await Promise.all([
+      db.select({ count: sql<number>`count(*)` })
+        .from(emailThreads)
+        .where(whereClause),
+      // Use a single optimized query instead of N+1 with relations
+      db.select({
+        id: emailThreads.id,
+        subject: emailThreads.subject,
+        participantEmails: emailThreads.participantEmails,
+        lastMessageAt: emailThreads.lastMessageAt,
+        messageCount: emailThreads.messageCount,
+        isArchived: emailThreads.isArchived,
+        labels: emailThreads.labels,
+        createdAt: emailThreads.createdAt,
+        // Get the latest message data in a single query using LATERAL join
+        latestFromEmail: sql<string>`(
+          SELECT from_email FROM email_messages m
+          WHERE m.thread_id = ${emailThreads.id}
+          ORDER BY m.sent_at DESC LIMIT 1
+        )`,
+        latestSubject: sql<string>`(
+          SELECT subject FROM email_messages m
+          WHERE m.thread_id = ${emailThreads.id}
+          ORDER BY m.sent_at DESC LIMIT 1
+        )`,
+        latestSentAt: sql<Date>`(
+          SELECT sent_at FROM email_messages m
+          WHERE m.thread_id = ${emailThreads.id}
+          ORDER BY m.sent_at DESC LIMIT 1
+        )`,
+        latestIsRead: sql<boolean>`(
+          SELECT is_read FROM email_messages m
+          WHERE m.thread_id = ${emailThreads.id}
+          ORDER BY m.sent_at DESC LIMIT 1
+        )`,
+        latestIsStarred: sql<boolean>`(
+          SELECT is_starred FROM email_messages m
+          WHERE m.thread_id = ${emailThreads.id}
+          ORDER BY m.sent_at DESC LIMIT 1
+        )`,
+        latestTextBody: sql<string>`(
+          SELECT text_body FROM email_messages m
+          WHERE m.thread_id = ${emailThreads.id}
+          ORDER BY m.sent_at DESC LIMIT 1
+        )`,
+        latestHtmlBody: sql<string>`(
+          SELECT html_body FROM email_messages m
+          WHERE m.thread_id = ${emailThreads.id}
+          ORDER BY m.sent_at DESC LIMIT 1
+        )`,
+      })
       .from(emailThreads)
-      .where(whereClause);
-    
-    const threads = await db.query.emailThreads.findMany({
-      where: whereClause,
-      with: {
-        messages: {
-          limit: 1,
-          orderBy: [desc(emailMessages.sentAt)],
-          columns: {
-            fromEmail: true,
-            subject: true,
-            sentAt: true,
-            isRead: true,
-            messageType: true,
-            textBody: true,
-            htmlBody: true
-          }
-        }
-      },
-      orderBy: [desc(emailThreads.lastMessageAt)],
-      limit: limitNum,
-      offset: offsetNum,
-    });
+      .where(whereClause)
+      .orderBy(desc(emailThreads.lastMessageAt))
+      .limit(limitNum)
+      .offset(offsetNum)
+    ]);
 
-    // Add preview to each thread from the latest message
-    const threadsWithPreview = threads.map(thread => {
-      const latestMessage = thread.messages?.[0];
-      let preview = '';
+    const totalCount = countResult[0]?.count || 0;
 
-      if (latestMessage) {
-        const text = latestMessage.textBody || latestMessage.htmlBody?.replace(/<[^>]*>/g, '') || '';
-        preview = text.slice(0, 100) + (text.length > 100 ? '...' : '');
-      }
+    // Transform the optimized query results into the expected format
+    const threadsWithPreview = threads.map((thread: any) => {
+      // Generate preview from latest message
+      const text = thread.latestTextBody || thread.latestHtmlBody?.replace(/<[^>]*>/g, '') || '';
+      const preview = text.slice(0, 100) + (text.length > 100 ? '...' : '');
 
       return {
-        ...thread,
-        preview
+        id: thread.id,
+        subject: thread.subject,
+        participantEmails: thread.participantEmails,
+        lastMessageAt: thread.lastMessageAt,
+        messageCount: thread.messageCount,
+        isArchived: thread.isArchived,
+        labels: thread.labels,
+        createdAt: thread.createdAt,
+        preview,
+        // Include latest message info for UI
+        messages: thread.latestFromEmail ? [{
+          id: '', // Not needed for list view
+          fromEmail: thread.latestFromEmail,
+          subject: thread.latestSubject,
+          sentAt: thread.latestSentAt,
+          isRead: thread.latestIsRead,
+          isStarred: thread.latestIsStarred,
+          messageType: 'received' as const,
+        }] : []
       };
     });
 
@@ -1802,18 +1848,43 @@ router.get('/emails/unread-count', async (req, res) => {
   }
 });
 
-// Get messages in a thread
+// Get messages in a thread - OPTIMIZED with timeout
 router.get('/emails/threads/:threadId/messages', async (req, res) => {
   try {
     const { threadId } = req.params;
-    
-    const messages = await db.query.emailMessages.findMany({
-      where: eq(emailMessages.threadId, threadId),
-      with: {
-        attachments: true
-      },
-      orderBy: [asc(emailMessages.sentAt)],
+
+    // Verify thread ownership first
+    const thread = await db.query.emailThreads.findFirst({
+      where: and(
+        eq(emailThreads.id, threadId),
+        eq(emailThreads.createdBy, req.user!.id)
+      ),
+      columns: { id: true }
     });
+
+    if (!thread) {
+      return res.status(404).json({ message: 'Thread not found' });
+    }
+
+    // Fetch messages with timeout protection
+    const messages = await queryWithTimeout(
+      () => db.query.emailMessages.findMany({
+        where: eq(emailMessages.threadId, threadId),
+        with: {
+          attachments: {
+            columns: {
+              id: true,
+              fileName: true,
+              fileSize: true,
+              mimeType: true,
+              // Don't fetch fileContent for performance
+            }
+          }
+        },
+        orderBy: [asc(emailMessages.sentAt)],
+      }),
+      8000 // 8 second timeout
+    );
 
     res.json(messages);
   } catch (error) {

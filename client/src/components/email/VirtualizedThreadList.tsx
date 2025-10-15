@@ -38,12 +38,18 @@ export const VirtualizedThreadList = React.memo<VirtualizedThreadListProps>(({
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // Virtual scrolling configuration
+  // Virtual scrolling configuration - OPTIMIZED
   const rowVirtualizer = useVirtualizer({
     count: threads.length + (hasNextPage ? 1 : 0),
     getScrollElement: () => parentRef.current,
     estimateSize: () => 72,
-    overscan: 5,
+    overscan: 10, // Increased from 5 to 10 for smoother scrolling
+    measureElement: typeof window !== 'undefined' && navigator.userAgent.indexOf('Firefox') === -1
+      ? element => element?.getBoundingClientRect().height
+      : undefined,
+    // Enable smooth scrolling calculations
+    scrollMargin: 0,
+    gap: 0,
   });
 
   // Infinite scroll: load more when near bottom

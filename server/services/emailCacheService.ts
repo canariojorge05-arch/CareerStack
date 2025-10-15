@@ -1,4 +1,4 @@
-import { redisClient } from './redis';
+import { redis as redisClient } from './redis-service';
 import { logger } from '../utils/logger';
 
 interface CacheOptions {

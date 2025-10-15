@@ -25,16 +25,15 @@ export const VirtualizedEmailMessages: React.FC<VirtualizedEmailMessagesProps> =
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // Virtual scrolling for messages (helps with threads that have 100+ messages)
-  // Optimized with dynamic sizing and increased overscan
+  // Virtual scrolling for messages - HIGHLY OPTIMIZED
   const rowVirtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => parentRef.current,
     estimateSize: useCallback((index: number) => {
-      // Better size estimation based on message content
+      // Optimized size estimation
       const message = messages[index];
       let estimate = 200; // Base size
-      
+
       // Add height for HTML content (rough estimate)
       if (message.htmlBody) {
         const contentLength = message.htmlBody.length;
@@ -43,15 +42,18 @@ export const VirtualizedEmailMessages: React.FC<VirtualizedEmailMessagesProps> =
         const lineCount = message.textBody.split('\n').length;
         estimate += Math.min(lineCount * 20, 400);
       }
-      
+
       // Add height for attachments
       if (message.attachments && message.attachments.length > 0) {
         estimate += 120; // Attachment section
       }
-      
+
       return estimate;
     }, [messages]),
-    overscan: 5, // Increased from 2 to 5 for smoother scrolling
+    overscan: 8, // Increased from 5 to 8 for smoother scrolling
+    measureElement: typeof window !== 'undefined' && navigator.userAgent.indexOf('Firefox') === -1
+      ? element => element?.getBoundingClientRect().height
+      : undefined,
   });
 
   return (

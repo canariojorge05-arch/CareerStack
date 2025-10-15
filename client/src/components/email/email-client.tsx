@@ -99,17 +99,17 @@ function EmailClientInner() {
     queryKey: ['/api/marketing/emails/threads', selectedFolder, search.debouncedSearchQuery],
     queryFn: async ({ pageParam = 0 }) => {
       try {
-        const limit = 30; // Reduced from 50 for faster initial load
+        const limit = 50; // Backend is now optimized with proper indexes
         const endpoint = search.debouncedSearchQuery.trim()
           ? `/api/marketing/emails/search?q=${encodeURIComponent(search.debouncedSearchQuery)}&limit=${limit}&offset=${pageParam}`
           : `/api/marketing/emails/threads?type=${selectedFolder}&limit=${limit}&offset=${pageParam}`;
-        
+
         const response = await apiRequest('GET', endpoint);
         if (!response.ok) return { threads: [], nextCursor: undefined, total: 0 };
-        
+
         const data = await response.json();
         const threads = Array.isArray(data) ? data : data.threads || [];
-        
+
         return {
           threads,
           nextCursor: threads.length === limit ? (pageParam as number) + limit : undefined,
@@ -121,7 +121,9 @@ function EmailClientInner() {
     },
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: 0,
-    staleTime: 1 * 60 * 1000,
+    staleTime: 3 * 60 * 1000, // Increased to 3 minutes for better caching
+    gcTime: 10 * 60 * 1000, // Keep data in cache for 10 minutes
+    refetchOnWindowFocus: false, // Don't refetch on window focus
     enabled: isAuthChecked && isAuthenticated === true,
   });
 
@@ -132,7 +134,7 @@ function EmailClientInner() {
 
   const totalThreadCount = emailThreadsData?.pages?.[0]?.total ?? 0;
 
-  // Fetch messages for selected thread
+  // Fetch messages for selected thread - OPTIMIZED
   const { data: threadMessages = [], isLoading: messagesLoading } = useQuery<EmailMessage[]>({
     queryKey: ['/api/marketing/emails/threads', selection.selectedThread, 'messages'],
     queryFn: async () => {
@@ -142,7 +144,9 @@ function EmailClientInner() {
       return response.json();
     },
     enabled: !!selection.selectedThread && isAuthChecked && isAuthenticated === true,
-    staleTime: 2 * 60 * 1000,
+    staleTime: 5 * 60 * 1000, // Increased to 5 minutes - messages rarely change
+    gcTime: 15 * 60 * 1000, // Keep in cache for 15 minutes
+    refetchOnWindowFocus: false, // Don't refetch on window focus
   });
 
   // Mutations
