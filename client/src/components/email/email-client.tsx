@@ -22,7 +22,7 @@ import {
   Menu, Search, Settings, HelpCircle, Mail, Inbox, Send, FileText, Star, Trash2,
   Archive, Clock, RefreshCw, MoreVertical, Pencil, Check, X, Filter,
   Reply, Paperclip, Smile, Download, MailOpen, Square, SquareCheck, ArrowLeft, 
-  Plus, Zap
+  Plus, Zap, Link2, Image, Forward, ReplyAll
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -409,11 +409,21 @@ function EmailClientInner() {
       // Use passed data instead of closure variables
       if (!data.accountId) throw new Error('No account connected');
       
-      // Convert attachments to base64
+      // Convert attachments to base64 - optimized for large files
       const attachmentData = await Promise.all(
         data.attachments.map(async (file) => {
           const buffer = await file.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          const bytes = new Uint8Array(buffer);
+          
+          // Chunked conversion to avoid stack overflow on large files
+          let binary = '';
+          const chunkSize = 8192; // Process 8KB at a time
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+            binary += String.fromCharCode.apply(null, Array.from(chunk));
+          }
+          const base64 = btoa(binary);
+          
           return {
             filename: file.name,
             content: base64,
@@ -513,10 +523,8 @@ function EmailClientInner() {
   // Draft auto-save every 30 seconds - optimized with ref pattern
   // Avoids recreating interval on every keystroke
   const draftDataRef = useRef({ composeTo, composeSubject, composeBody, attachments });
-  
-  useEffect(() => {
-    draftDataRef.current = { composeTo, composeSubject, composeBody, attachments };
-  });
+  // Update ref during render (no useEffect needed)
+  draftDataRef.current = { composeTo, composeSubject, composeBody, attachments };
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -577,17 +585,15 @@ function EmailClientInner() {
     emailThreads,
   });
 
-  // Update ref on every render (cheap operation)
-  useEffect(() => {
-    latestValuesRef.current = {
-      selectedThread,
-      threadMessages,
-      composeOpen,
-      composeTo,
-      composeSubject,
-      emailThreads,
-    };
-  });
+  // Update ref during render (no useEffect needed - cheaper than effect)
+  latestValuesRef.current = {
+    selectedThread,
+    threadMessages,
+    composeOpen,
+    composeTo,
+    composeSubject,
+    emailThreads,
+  };
 
   // Keyboard shortcuts - optimized to have minimal dependencies
   const handleKeyboardShortcut = useCallback((key: string, event?: KeyboardEvent) => {
@@ -790,6 +796,68 @@ function EmailClientInner() {
     });
   }, []);
 
+  // Memoized handler for select all/none
+  const handleSelectAllToggle = useCallback(() => {
+    if (selectedThreads.size === emailThreads.length) {
+      setSelectedThreads(new Set());
+    } else {
+      setSelectedThreads(new Set(emailThreads.map(t => t.id)));
+      toast.success(`Selected ${emailThreads.length} conversations`);
+    }
+  }, [selectedThreads.size, emailThreads]);
+
+  // Memoized handler for mark as read
+  const handleMarkSelectedAsRead = useCallback(() => {
+    emailThreads
+      .filter(t => selectedThreads.has(t.id))
+      .forEach(t => {
+        const msg = t.messages?.[0];
+        if (msg && !msg.isRead) {
+          markAsReadMutation.mutate(msg.id);
+        }
+      });
+    setSelectedThreads(new Set());
+  }, [emailThreads, selectedThreads, markAsReadMutation]);
+
+  // Memoized handler for bulk archive
+  const handleBulkArchive = useCallback(() => {
+    bulkArchiveMutation.mutate(Array.from(selectedThreads));
+  }, [selectedThreads, bulkArchiveMutation]);
+
+  // Memoized handler for bulk delete
+  const handleBulkDelete = useCallback(() => {
+    if (confirm(`Delete ${selectedThreads.size} conversations?`)) {
+      bulkDeleteMutation.mutate(Array.from(selectedThreads));
+    }
+  }, [selectedThreads, bulkDeleteMutation]);
+
+  // Memoized handler for clearing selection
+  const handleClearSelection = useCallback(() => {
+    setSelectedThreads(new Set());
+  }, []);
+
+  // Memoized handler for sidebar toggle
+  const handleSidebarToggle = useCallback(() => {
+    setSidebarOpen(prev => !prev);
+  }, []);
+
+  // Memoized handler for navigate back
+  const handleNavigateBack = useCallback(() => {
+    navigate('/dashboard');
+  }, [navigate]);
+
+  // Memoized handler for search query change
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    setShowSearchSuggestions(true);
+  }, []);
+
+  // Memoized handler for search query select
+  const handleSearchQuerySelect = useCallback((query: string) => {
+    setSearchQuery(query);
+    setShowSearchSuggestions(false);
+  }, []);
+
   return (
     <TooltipProvider>
       <div className="flex flex-col h-full bg-white">
@@ -801,7 +869,7 @@ function EmailClientInner() {
                 variant="ghost"
                 size="icon"
                 className="rounded-full"
-                onClick={() => navigate('/dashboard')}
+                onClick={handleNavigateBack}
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -813,7 +881,7 @@ function EmailClientInner() {
             variant="ghost"
             size="icon"
             className="lg:hidden"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={handleSidebarToggle}
           >
             <Menu className="h-5 w-5" />
           </Button>
@@ -831,10 +899,7 @@ function EmailClientInner() {
                 ref={searchInputRef}
                 placeholder="Search mail (Press / to focus)"
                 value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setShowSearchSuggestions(true);
-                }}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && searchQuery.trim()) {
                     addToSearchHistory(searchQuery);
@@ -863,10 +928,7 @@ function EmailClientInner() {
                     <button
                       key={idx}
                       className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded text-left"
-                      onClick={() => {
-                        setSearchQuery(query);
-                        setShowSearchSuggestions(false);
-                      }}
+                      onClick={() => handleSearchQuerySelect(query)}
                     >
                       <Clock className="h-4 w-4 text-gray-400" />
                       <span className="text-sm text-gray-700">{query}</span>
@@ -1045,14 +1107,7 @@ function EmailClientInner() {
                       variant="ghost"
                       size="icon"
                       className="rounded-full"
-                      onClick={() => {
-                        if (selectedThreads.size === emailThreads.length) {
-                          setSelectedThreads(new Set());
-                        } else {
-                          setSelectedThreads(new Set(emailThreads.map(t => t.id)));
-                          toast.success(`Selected ${emailThreads.length} conversations`);
-                        }
-                      }}
+                      onClick={handleSelectAllToggle}
                     >
                       {selectedThreads.size === emailThreads.length ? (
                         <SquareCheck className="h-4 w-4 text-blue-600" />
@@ -1082,7 +1137,7 @@ function EmailClientInner() {
                           variant="ghost"
                           size="icon"
                           className="rounded-full hover:bg-green-50"
-                          onClick={() => bulkArchiveMutation.mutate(Array.from(selectedThreads))}
+                          onClick={handleBulkArchive}
                           disabled={bulkArchiveMutation.isPending}
                         >
                           <Archive className="h-4 w-4 text-green-600" />
@@ -1097,11 +1152,7 @@ function EmailClientInner() {
                           variant="ghost" 
                           size="icon" 
                           className="rounded-full hover:bg-red-50"
-                          onClick={() => {
-                            if (confirm(`Delete ${selectedThreads.size} conversations?`)) {
-                              bulkDeleteMutation.mutate(Array.from(selectedThreads));
-                            }
-                          }}
+                          onClick={handleBulkDelete}
                           disabled={bulkDeleteMutation.isPending}
                         >
                           <Trash2 className="h-4 w-4 text-red-600" />
@@ -1118,18 +1169,7 @@ function EmailClientInner() {
                           variant="ghost" 
                           size="icon" 
                           className="rounded-full"
-                          onClick={() => {
-                            // Mark all selected as read
-                            emailThreads
-                              .filter(t => selectedThreads.has(t.id))
-                              .forEach(t => {
-                                const msg = t.messages?.[0];
-                                if (msg && !msg.isRead) {
-                                  markAsReadMutation.mutate(msg.id);
-                                }
-                              });
-                            setSelectedThreads(new Set());
-                          }}
+                          onClick={handleMarkSelectedAsRead}
                         >
                           <MailOpen className="h-4 w-4" />
                         </Button>
@@ -1143,7 +1183,7 @@ function EmailClientInner() {
                           variant="ghost" 
                           size="icon" 
                           className="rounded-full"
-                          onClick={() => setSelectedThreads(new Set())}
+                          onClick={handleClearSelection}
                         >
                           <X className="h-4 w-4" />
                         </Button>
