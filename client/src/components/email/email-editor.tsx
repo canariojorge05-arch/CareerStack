@@ -34,8 +34,9 @@ export interface EmailEditorProps {
   content?: string;
   onChange?: (html: string) => void;
   placeholder?: string;
-  onClose: () => void;
-  onSend: (data: EmailData) => Promise<void>;
+  // Optional props for future full-featured editor
+  onClose?: () => void;
+  onSend?: (data: EmailData) => Promise<void>;
   replyTo?: EmailMessage;
   replyAll?: boolean;
   forward?: EmailMessage;

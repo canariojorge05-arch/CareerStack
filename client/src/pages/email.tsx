@@ -2,7 +2,7 @@ import React from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Redirect } from 'wouter';
 import { Mail } from 'lucide-react';
-import ModernEmailClient from '@/components/email/modern-email-client';
+import EmailClient from '@/components/email/email-client';
 import { AppHeader } from '@/components/shared/app-header';
 
 export default function EmailPage() {
@@ -28,10 +28,8 @@ export default function EmailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader currentPage="email" />
-
-      <div className="h-[calc(100vh-4rem)] overflow-hidden">
-        <ModernEmailClient />
+      <div className="h-screen overflow-hidden">
+        <EmailClient />
       </div>
     </div>
   );
